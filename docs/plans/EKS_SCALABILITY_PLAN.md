@@ -10,6 +10,604 @@ This document outlines the architecture for scaling the Claude Code Orchestrator
 - Reusable sandbox profiles for different technology stacks
 - Multi-tenant support via Kubernetes namespaces
 - GitOps-friendly declarative configuration
+- **Pluggable sandbox runtime** supporting both Docker (local) and Kubernetes (production)
+
+---
+
+## Existing Open Source Solutions
+
+Before building a custom solution, consider these existing projects:
+
+### Agent Sandbox (Kubernetes SIG Project) ⭐ Recommended
+
+**Repository:** [kubernetes-sigs/agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox)
+
+Agent Sandbox is an official Kubernetes SIG Apps subproject specifically designed for AI agent runtimes and executing untrusted LLM-generated code.
+
+**Key Features:**
+| Feature | Description |
+|---------|-------------|
+| **CRDs** | `Sandbox`, `SandboxTemplate`, `SandboxClaim`, `SandboxWarmPool` |
+| **Isolation** | gVisor and Kata Containers support for kernel/network isolation |
+| **Warm Pools** | Pre-warmed pods for <1 second cold start latency |
+| **Stable Identity** | Persistent hostname, network identity, and storage |
+| **Python SDK** | Developer-friendly API abstracting Kubernetes complexity |
+
+**Architecture Fit:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Our Architecture                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   Temporal Workflow                                              │
+│        │                                                         │
+│        ▼                                                         │
+│   ┌─────────────────────────────────────────────────────────┐   │
+│   │              Agent Sandbox (K8s SIG)                     │   │
+│   │                                                          │   │
+│   │   - SandboxWarmPool: Pre-warm sandbox pods               │   │
+│   │   - SandboxTemplate: Define sandbox configurations       │   │
+│   │   - SandboxClaim: Request a sandbox instance             │   │
+│   │   - Sandbox: The actual running sandbox                  │   │
+│   │                                                          │   │
+│   │   Replaces: Our custom Sandbox Operator                  │   │
+│   └─────────────────────────────────────────────────────────┘   │
+│        │                                                         │
+│        ▼                                                         │
+│   Our Custom CRDs (layered on top)                              │
+│   - Repository: Repo configuration and access control           │
+│   - BugFixTask: Task tracking and workflow integration          │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Recommendation:** Use Agent Sandbox for pod lifecycle management, layer our Repository and BugFixTask CRDs on top for domain-specific logic.
+
+### Other Relevant Solutions
+
+| Solution | Type | Use Case | Pros | Cons |
+|----------|------|----------|------|------|
+| **[Argo Workflows](https://argoproj.github.io/workflows/)** | Workflow Engine | K8s-native DAG workflows | CNCF graduated, battle-tested | No Temporal durability/signals |
+| **[Flyte](https://flyte.org/)** | ML Workflows | Data/ML pipelines | Type-safe, GPU support | ML-focused, steeper learning curve |
+| **[Windmill](https://windmill.dev/)** | Script Platform | Self-hosted automation | Fast, simple | Less flexible than Temporal |
+| **[Coder](https://coder.com/)** | Dev Environments | Cloud workspaces | Full IDE support | Overkill for task sandboxes |
+| **[Devpod](https://devpod.sh/)** | Dev Environments | Local/cloud dev | Provider agnostic | Manual, not workflow-driven |
+
+### Build vs. Buy Decision Matrix
+
+| Requirement | Agent Sandbox | Custom Operator | Notes |
+|-------------|---------------|-----------------|-------|
+| Pod lifecycle management | ✅ Built-in | 🔧 Build | Use Agent Sandbox |
+| Warm pools for fast start | ✅ SandboxWarmPool | 🔧 Build | Use Agent Sandbox |
+| gVisor/Kata isolation | ✅ Native support | 🔧 Build | Use Agent Sandbox |
+| Repository access control | ❌ Not included | 🔧 Build | Build Repository CRD |
+| Workflow integration | ❌ Not included | 🔧 Build | Build BugFixTask CRD |
+| Multi-repo coordination | ❌ Not included | 🔧 Build | Build custom logic |
+| Temporal signals/queries | ❌ Not included | 🔧 Build | Keep Temporal workflow |
+
+**Conclusion:** Adopt Agent Sandbox for infrastructure, build domain-specific CRDs on top.
+
+---
+
+## Pluggable Sandbox Runtime Architecture
+
+To support both local Docker development and Kubernetes production, we use a **provider pattern** with a common interface.
+
+### Interface Definition
+
+```go
+// internal/sandbox/provider.go
+
+package sandbox
+
+import (
+    "context"
+    "io"
+    "time"
+)
+
+// Provider defines the interface for sandbox management.
+// Implementations exist for Docker (local) and Kubernetes (production).
+type Provider interface {
+    // Provision creates a new sandbox environment
+    Provision(ctx context.Context, opts ProvisionOptions) (*Sandbox, error)
+
+    // Exec runs a command inside the sandbox
+    Exec(ctx context.Context, id string, cmd ExecCommand) (*ExecResult, error)
+
+    // CopyTo copies files into the sandbox
+    CopyTo(ctx context.Context, id string, src io.Reader, destPath string) error
+
+    // CopyFrom copies files from the sandbox
+    CopyFrom(ctx context.Context, id string, srcPath string) (io.ReadCloser, error)
+
+    // Status returns the current sandbox status
+    Status(ctx context.Context, id string) (*SandboxStatus, error)
+
+    // Cleanup destroys the sandbox and releases resources
+    Cleanup(ctx context.Context, id string) error
+
+    // Name returns the provider name for logging
+    Name() string
+}
+
+// ProvisionOptions configures sandbox creation
+type ProvisionOptions struct {
+    TaskID          string
+    Image           string
+    WorkingDir      string
+    Env             map[string]string
+    Resources       ResourceLimits
+    Timeout         time.Duration
+    Labels          map[string]string
+
+    // Kubernetes-specific (ignored by Docker provider)
+    Namespace       string
+    ServiceAccount  string
+    NodeSelector    map[string]string
+    Tolerations     []Toleration
+    RuntimeClass    string  // gvisor, kata, etc.
+}
+
+// ResourceLimits defines compute constraints
+type ResourceLimits struct {
+    MemoryMB int64
+    CPUCores float64
+    GPUs     int
+}
+
+// Sandbox represents a running sandbox instance
+type Sandbox struct {
+    ID          string
+    Provider    string
+    WorkingDir  string
+    CreatedAt   time.Time
+    Status      SandboxPhase
+}
+
+// SandboxPhase represents the sandbox lifecycle
+type SandboxPhase string
+
+const (
+    PhasePending   SandboxPhase = "pending"
+    PhaseRunning   SandboxPhase = "running"
+    PhaseSucceeded SandboxPhase = "succeeded"
+    PhaseFailed    SandboxPhase = "failed"
+)
+
+// ExecCommand defines a command to execute
+type ExecCommand struct {
+    Command    []string
+    WorkingDir string
+    Env        map[string]string
+    Stdin      io.Reader
+    Timeout    time.Duration
+}
+
+// ExecResult contains command execution results
+type ExecResult struct {
+    ExitCode int
+    Stdout   string
+    Stderr   string
+}
+```
+
+### Docker Provider (Local Development)
+
+```go
+// internal/sandbox/docker/provider.go
+
+package docker
+
+import (
+    "context"
+    "fmt"
+
+    "github.com/docker/docker/api/types/container"
+    "github.com/docker/docker/client"
+
+    "github.com/your-org/claude-orchestrator/internal/sandbox"
+)
+
+type Provider struct {
+    client *client.Client
+    image  string
+}
+
+func NewProvider() (*Provider, error) {
+    cli, err := client.NewClientWithOpts(client.FromEnv)
+    if err != nil {
+        return nil, err
+    }
+    return &Provider{
+        client: cli,
+        image:  getEnvOrDefault("SANDBOX_IMAGE", "claude-code-sandbox:latest"),
+    }, nil
+}
+
+func (p *Provider) Name() string {
+    return "docker"
+}
+
+func (p *Provider) Provision(ctx context.Context, opts sandbox.ProvisionOptions) (*sandbox.Sandbox, error) {
+    containerConfig := &container.Config{
+        Image:     opts.Image,
+        Cmd:       []string{"tail", "-f", "/dev/null"},
+        Env:       mapToEnvSlice(opts.Env),
+        Labels:    opts.Labels,
+        Tty:       true,
+        OpenStdin: true,
+    }
+
+    hostConfig := &container.HostConfig{
+        Resources: container.Resources{
+            Memory:   opts.Resources.MemoryMB * 1024 * 1024,
+            CPUQuota: int64(opts.Resources.CPUCores * 100000),
+        },
+        SecurityOpt: []string{"no-new-privileges:true"},
+    }
+
+    resp, err := p.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil,
+        fmt.Sprintf("sandbox-%s", opts.TaskID))
+    if err != nil {
+        return nil, err
+    }
+
+    if err := p.client.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+        return nil, err
+    }
+
+    return &sandbox.Sandbox{
+        ID:         resp.ID,
+        Provider:   "docker",
+        WorkingDir: "/workspace",
+        Status:     sandbox.PhaseRunning,
+    }, nil
+}
+
+func (p *Provider) Exec(ctx context.Context, id string, cmd sandbox.ExecCommand) (*sandbox.ExecResult, error) {
+    // Implementation using Docker exec API
+    // (existing logic from internal/docker/client.go)
+}
+
+func (p *Provider) Cleanup(ctx context.Context, id string) error {
+    timeout := 10
+    return p.client.ContainerStop(ctx, id, container.StopOptions{Timeout: &timeout})
+}
+```
+
+### Kubernetes Provider (Production)
+
+```go
+// internal/sandbox/kubernetes/provider.go
+
+package kubernetes
+
+import (
+    "context"
+    "fmt"
+    "time"
+
+    corev1 "k8s.io/api/core/v1"
+    metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+    "k8s.io/client-go/kubernetes"
+    "k8s.io/client-go/rest"
+
+    "github.com/your-org/claude-orchestrator/internal/sandbox"
+)
+
+type Provider struct {
+    clientset *kubernetes.Clientset
+    config    *rest.Config
+    namespace string
+}
+
+func NewProvider() (*Provider, error) {
+    config, err := rest.InClusterConfig()
+    if err != nil {
+        // Fall back to kubeconfig for local testing
+        config, err = clientcmd.BuildConfigFromFlags("", os.Getenv("KUBECONFIG"))
+        if err != nil {
+            return nil, err
+        }
+    }
+
+    clientset, err := kubernetes.NewForConfig(config)
+    if err != nil {
+        return nil, err
+    }
+
+    return &Provider{
+        clientset: clientset,
+        config:    config,
+        namespace: getEnvOrDefault("SANDBOX_NAMESPACE", "claude-sandboxes"),
+    }, nil
+}
+
+func (p *Provider) Name() string {
+    return "kubernetes"
+}
+
+func (p *Provider) Provision(ctx context.Context, opts sandbox.ProvisionOptions) (*sandbox.Sandbox, error) {
+    namespace := opts.Namespace
+    if namespace == "" {
+        namespace = p.namespace
+    }
+
+    pod := &corev1.Pod{
+        ObjectMeta: metav1.ObjectMeta{
+            Name:      fmt.Sprintf("sandbox-%s", opts.TaskID),
+            Namespace: namespace,
+            Labels:    opts.Labels,
+        },
+        Spec: corev1.PodSpec{
+            RestartPolicy:      corev1.RestartPolicyNever,
+            ServiceAccountName: opts.ServiceAccount,
+            NodeSelector:       opts.NodeSelector,
+            RuntimeClassName:   &opts.RuntimeClass,
+            Containers: []corev1.Container{{
+                Name:    "sandbox",
+                Image:   opts.Image,
+                Command: []string{"tail", "-f", "/dev/null"},
+                Env:     mapToEnvVars(opts.Env),
+                Resources: corev1.ResourceRequirements{
+                    Limits: corev1.ResourceList{
+                        corev1.ResourceMemory: resource.MustParse(fmt.Sprintf("%dMi", opts.Resources.MemoryMB)),
+                        corev1.ResourceCPU:    resource.MustParse(fmt.Sprintf("%d", int(opts.Resources.CPUCores))),
+                    },
+                },
+                SecurityContext: &corev1.SecurityContext{
+                    RunAsNonRoot:             ptr(true),
+                    AllowPrivilegeEscalation: ptr(false),
+                },
+            }},
+            ActiveDeadlineSeconds: ptr(int64(opts.Timeout.Seconds())),
+        },
+    }
+
+    created, err := p.clientset.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
+    if err != nil {
+        return nil, err
+    }
+
+    // Wait for pod to be ready
+    if err := p.waitForReady(ctx, namespace, created.Name, 2*time.Minute); err != nil {
+        return nil, err
+    }
+
+    return &sandbox.Sandbox{
+        ID:         created.Name,
+        Provider:   "kubernetes",
+        WorkingDir: "/workspace",
+        Status:     sandbox.PhaseRunning,
+    }, nil
+}
+
+func (p *Provider) Exec(ctx context.Context, id string, cmd sandbox.ExecCommand) (*sandbox.ExecResult, error) {
+    // Implementation using Kubernetes exec API (remotecommand.NewSPDYExecutor)
+}
+
+func (p *Provider) Cleanup(ctx context.Context, id string) error {
+    return p.clientset.CoreV1().Pods(p.namespace).Delete(ctx, id, metav1.DeleteOptions{})
+}
+```
+
+### Agent Sandbox Provider (Using kubernetes-sigs/agent-sandbox)
+
+```go
+// internal/sandbox/agentsandbox/provider.go
+
+package agentsandbox
+
+import (
+    "context"
+
+    sandboxv1 "github.com/kubernetes-sigs/agent-sandbox/api/v1"
+    "sigs.k8s.io/controller-runtime/pkg/client"
+
+    "github.com/your-org/claude-orchestrator/internal/sandbox"
+)
+
+type Provider struct {
+    client    client.Client
+    namespace string
+    warmPool  string  // Name of SandboxWarmPool to use
+}
+
+func (p *Provider) Name() string {
+    return "agent-sandbox"
+}
+
+func (p *Provider) Provision(ctx context.Context, opts sandbox.ProvisionOptions) (*sandbox.Sandbox, error) {
+    // Create a SandboxClaim that references a SandboxTemplate
+    claim := &sandboxv1.SandboxClaim{
+        ObjectMeta: metav1.ObjectMeta{
+            Name:      fmt.Sprintf("claim-%s", opts.TaskID),
+            Namespace: p.namespace,
+        },
+        Spec: sandboxv1.SandboxClaimSpec{
+            TemplateRef: sandboxv1.TemplateReference{
+                Name: opts.Labels["sandbox-template"],
+            },
+            // Use warm pool for fast startup
+            WarmPoolRef: &sandboxv1.WarmPoolReference{
+                Name: p.warmPool,
+            },
+        },
+    }
+
+    if err := p.client.Create(ctx, claim); err != nil {
+        return nil, err
+    }
+
+    // Wait for sandbox to be bound and ready
+    // Agent Sandbox handles the pod creation
+    // ...
+
+    return &sandbox.Sandbox{
+        ID:         claim.Status.SandboxRef.Name,
+        Provider:   "agent-sandbox",
+        WorkingDir: "/workspace",
+        Status:     sandbox.PhaseRunning,
+    }, nil
+}
+```
+
+### Provider Factory
+
+```go
+// internal/sandbox/factory.go
+
+package sandbox
+
+import (
+    "fmt"
+    "os"
+
+    "github.com/your-org/claude-orchestrator/internal/sandbox/agentsandbox"
+    "github.com/your-org/claude-orchestrator/internal/sandbox/docker"
+    "github.com/your-org/claude-orchestrator/internal/sandbox/kubernetes"
+)
+
+// ProviderType identifies the sandbox runtime
+type ProviderType string
+
+const (
+    ProviderDocker       ProviderType = "docker"
+    ProviderKubernetes   ProviderType = "kubernetes"
+    ProviderAgentSandbox ProviderType = "agent-sandbox"
+)
+
+// NewProvider creates a sandbox provider based on configuration
+func NewProvider() (Provider, error) {
+    providerType := ProviderType(os.Getenv("SANDBOX_PROVIDER"))
+
+    switch providerType {
+    case ProviderDocker, "":
+        // Default to Docker for local development
+        return docker.NewProvider()
+
+    case ProviderKubernetes:
+        return kubernetes.NewProvider()
+
+    case ProviderAgentSandbox:
+        return agentsandbox.NewProvider()
+
+    default:
+        return nil, fmt.Errorf("unknown sandbox provider: %s", providerType)
+    }
+}
+```
+
+### Configuration
+
+```yaml
+# config/local.yaml (Docker)
+sandbox:
+  provider: docker
+  image: claude-code-sandbox:latest
+  resources:
+    memoryMB: 4096
+    cpuCores: 2
+
+---
+# config/production.yaml (Agent Sandbox on EKS)
+sandbox:
+  provider: agent-sandbox
+  namespace: claude-sandboxes
+  warmPool: claude-warm-pool
+  templates:
+    default: nodejs-typescript
+  runtimeClass: gvisor
+  resources:
+    memoryMB: 4096
+    cpuCores: 2
+```
+
+### Updated Worker Initialization
+
+```go
+// cmd/worker/main.go
+
+func main() {
+    // Create sandbox provider based on environment
+    sandboxProvider, err := sandbox.NewProvider()
+    if err != nil {
+        log.Fatalf("Failed to create sandbox provider: %v", err)
+    }
+    log.Printf("Using sandbox provider: %s", sandboxProvider.Name())
+
+    // Create activities with the provider
+    sandboxActivities := activity.NewSandboxActivities(sandboxProvider)
+    claudeActivities := activity.NewClaudeCodeActivities(sandboxProvider)
+
+    // Register with Temporal worker
+    w := worker.New(c, TaskQueue, worker.Options{})
+    w.RegisterActivity(sandboxActivities)
+    w.RegisterActivity(claudeActivities)
+    // ...
+}
+```
+
+### Environment Detection
+
+```go
+// internal/sandbox/detect.go
+
+package sandbox
+
+import "os"
+
+// DetectEnvironment automatically selects the appropriate provider
+func DetectEnvironment() ProviderType {
+    // Check if running in Kubernetes
+    if _, err := os.Stat("/var/run/secrets/kubernetes.io/serviceaccount/token"); err == nil {
+        // Check if Agent Sandbox CRDs are available
+        if agentSandboxAvailable() {
+            return ProviderAgentSandbox
+        }
+        return ProviderKubernetes
+    }
+
+    // Check if Docker is available
+    if _, err := os.Stat("/var/run/docker.sock"); err == nil {
+        return ProviderDocker
+    }
+
+    // macOS Docker Desktop
+    if _, err := os.Stat(os.ExpandEnv("$HOME/.docker/run/docker.sock")); err == nil {
+        return ProviderDocker
+    }
+
+    return ProviderDocker // Default
+}
+```
+
+### Testing Strategy
+
+```go
+// internal/sandbox/mock/provider.go
+
+package mock
+
+import "github.com/your-org/claude-orchestrator/internal/sandbox"
+
+// Provider is a mock sandbox provider for testing
+type Provider struct {
+    ProvisionFunc func(ctx context.Context, opts sandbox.ProvisionOptions) (*sandbox.Sandbox, error)
+    ExecFunc      func(ctx context.Context, id string, cmd sandbox.ExecCommand) (*sandbox.ExecResult, error)
+    CleanupFunc   func(ctx context.Context, id string) error
+}
+
+func (p *Provider) Name() string { return "mock" }
+
+func (p *Provider) Provision(ctx context.Context, opts sandbox.ProvisionOptions) (*sandbox.Sandbox, error) {
+    if p.ProvisionFunc != nil {
+        return p.ProvisionFunc(ctx, opts)
+    }
+    return &sandbox.Sandbox{ID: "mock-sandbox", Status: sandbox.PhaseRunning}, nil
+}
+```
 
 ---
 
