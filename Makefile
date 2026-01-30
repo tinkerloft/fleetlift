@@ -1,4 +1,4 @@
-.PHONY: build test clean worker cli sandbox-image all
+.PHONY: build test clean worker cli sandbox-image all temporal-dev temporal-up temporal-down temporal-logs sandbox-build
 
 # Build all binaries
 all: build
@@ -51,6 +51,22 @@ deps:
 	go mod download
 	go mod tidy
 
-# Start Temporal dev server
+# Start Temporal dev server (lightweight, in-memory)
 temporal-dev:
 	temporal server start-dev --ui-port 8233
+
+# Start Temporal with docker-compose (persistent, production-like)
+temporal-up:
+	docker-compose up -d
+
+# Stop Temporal docker-compose
+temporal-down:
+	docker-compose down
+
+# View Temporal logs
+temporal-logs:
+	docker-compose logs -f temporal
+
+# Build sandbox image
+sandbox-build:
+	docker build -f docker/Dockerfile.sandbox -t claude-code-sandbox:latest docker/

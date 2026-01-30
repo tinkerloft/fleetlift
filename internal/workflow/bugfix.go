@@ -252,7 +252,36 @@ func BugFix(ctx workflow.Context, task model.BugFixTask) (*model.BugFixResult, e
 		}
 	}
 
-	// 6. Create pull requests
+	// 6. Run verifiers as final gate
+	if len(task.Verifiers) > 0 && len(claudeResult.FilesModified) > 0 {
+		logger.Info("Running verifiers as final gate")
+
+		verifierOptions := workflow.ActivityOptions{
+			StartToCloseTimeout: 10 * time.Minute,
+			HeartbeatTimeout:    2 * time.Minute,
+			RetryPolicy:         retryPolicy,
+		}
+		verifierCtx := workflow.WithActivityOptions(ctx, verifierOptions)
+
+		var verifiersResult *model.VerifiersResult
+		if err := workflow.ExecuteActivity(verifierCtx, "RunVerifiers", *sandbox, task.Repositories, task.Verifiers).Get(verifierCtx, &verifiersResult); err != nil {
+			return failedResult(fmt.Sprintf("Failed to run verifiers: %v", err)), nil
+		}
+
+		if !verifiersResult.AllPassed {
+			var failedVerifiers []string
+			for _, r := range verifiersResult.Results {
+				if !r.Success {
+					failedVerifiers = append(failedVerifiers, r.Name)
+				}
+			}
+			return failedResult(fmt.Sprintf("Verifiers failed: %s", strings.Join(failedVerifiers, ", "))), nil
+		}
+
+		logger.Info("All verifiers passed")
+	}
+
+	// 7. Create pull requests
 	status = model.TaskStatusCreatingPRs
 
 	var pullRequests []model.PullRequest
@@ -271,7 +300,7 @@ func BugFix(ctx workflow.Context, task model.BugFixTask) (*model.BugFixResult, e
 		}
 	}
 
-	// 7. Notify completion
+	// 8. Notify completion
 	if task.SlackChannel != nil && len(pullRequests) > 0 {
 		var prLinks []string
 		for _, pr := range pullRequests {
@@ -346,6 +375,16 @@ func buildPrompt(task model.BugFixTask) string {
 	sb.WriteString("\nPlease analyze the codebase and implement the necessary fix. ")
 	sb.WriteString("Follow the existing code style and patterns. ")
 	sb.WriteString("Make minimal, targeted changes to address the issue.")
+
+	// Append verifier instructions if verifiers are defined
+	if len(task.Verifiers) > 0 {
+		sb.WriteString("\n\n## Verification\n\n")
+		sb.WriteString("After making changes, verify your work by running these commands:\n\n")
+		for _, v := range task.Verifiers {
+			sb.WriteString(fmt.Sprintf("- **%s**: `%s`\n", v.Name, strings.Join(v.Command, " ")))
+		}
+		sb.WriteString("\nFix any errors before completing the task. All verifiers must pass.")
+	}
 
 	return sb.String()
 }

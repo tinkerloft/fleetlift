@@ -60,6 +60,7 @@ func main() {
 	w.RegisterActivity(sandboxActivities.ProvisionSandbox)
 	w.RegisterActivity(sandboxActivities.CloneRepositories)
 	w.RegisterActivity(sandboxActivities.CleanupSandbox)
+	w.RegisterActivity(sandboxActivities.RunVerifiers)
 	w.RegisterActivity(claudeActivities.RunClaudeCode)
 	w.RegisterActivity(claudeActivities.GetClaudeOutput)
 	w.RegisterActivity(githubActivities.CreatePullRequest)

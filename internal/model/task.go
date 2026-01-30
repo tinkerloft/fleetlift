@@ -23,9 +23,24 @@ const (
 
 // Repository represents a repository to clone into the sandbox.
 type Repository struct {
-	URL    string `json:"url"`    // e.g., "https://github.com/org/repo.git"
-	Branch string `json:"branch"` // Default: "main"
-	Name   string `json:"name"`   // Directory name, derived from URL if not set
+	URL    string   `json:"url"`              // e.g., "https://github.com/org/repo.git"
+	Branch string   `json:"branch"`           // Default: "main"
+	Name   string   `json:"name"`             // Directory name, derived from URL if not set
+	Setup  []string `json:"setup,omitempty"`  // Commands to run after clone (e.g., "go mod download")
+}
+
+// Verifier represents a validation command to run after transformation.
+type Verifier struct {
+	Name    string   `json:"name"`    // e.g., "build", "test", "lint"
+	Command []string `json:"command"` // e.g., ["go", "build", "./..."]
+}
+
+// NewVerifier creates a Verifier from a name and command.
+func NewVerifier(name string, command []string) Verifier {
+	return Verifier{
+		Name:    name,
+		Command: command,
+	}
 }
 
 // NewRepository creates a new Repository with auto-derived name if not provided.
@@ -62,6 +77,7 @@ type BugFixTask struct {
 	Title        string       `json:"title"`
 	Description  string       `json:"description"`
 	Repositories []Repository `json:"repositories"`
+	Verifiers    []Verifier   `json:"verifiers,omitempty"` // Validation commands to run after transformation
 
 	// Optional context
 	TicketURL    *string `json:"ticket_url,omitempty"`    // e.g., Jira URL
@@ -111,6 +127,21 @@ type ClaudeCodeResult struct {
 	Error                 *string  `json:"error,omitempty"`
 	NeedsClarification    bool     `json:"needs_clarification"`
 	ClarificationQuestion *string  `json:"clarification_question,omitempty"`
+}
+
+// VerifierResult is the result of running a single verifier.
+type VerifierResult struct {
+	Name     string `json:"name"`
+	Success  bool   `json:"success"`
+	ExitCode int    `json:"exit_code"`
+	Output   string `json:"output"`
+	Error    string `json:"error,omitempty"`
+}
+
+// VerifiersResult is the aggregate result of running all verifiers.
+type VerifiersResult struct {
+	AllPassed bool             `json:"all_passed"`
+	Results   []VerifierResult `json:"results"`
 }
 
 // PullRequest represents a created pull request.

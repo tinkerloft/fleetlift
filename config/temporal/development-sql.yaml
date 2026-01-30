@@ -1,0 +1,35 @@
+# Temporal dynamic configuration for local development
+# See: https://docs.temporal.io/references/dynamic-configuration
+
+# Increase max workflow execution time (default is 50000 seconds)
+limit.maxIDLength:
+  - value: 1000
+    constraints: {}
+
+# Allow longer history for complex workflows
+limit.historyCount.error:
+  - value: 100000
+    constraints: {}
+
+limit.historyCount.warn:
+  - value: 50000
+    constraints: {}
+
+# Worker task queue settings
+matching.numTaskqueueReadPartitions:
+  - value: 1
+    constraints: {}
+
+matching.numTaskqueueWritePartitions:
+  - value: 1
+    constraints: {}
+
+# Frontend settings for local development
+frontend.keepAliveMaxConnectionAge:
+  - value: "5m"
+    constraints: {}
+
+# Enable search attributes (useful for querying workflows)
+system.enableActivityEagerExecution:
+  - value: true
+    constraints: {}

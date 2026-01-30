@@ -100,7 +100,7 @@ func (a *SandboxActivities) ProvisionSandbox(ctx context.Context, taskID string)
 	}, nil
 }
 
-// CloneRepositories clones repositories into the sandbox.
+// CloneRepositories clones repositories into the sandbox and runs setup commands.
 func (a *SandboxActivities) CloneRepositories(ctx context.Context, sandbox model.SandboxInfo, repos []model.Repository, agentsMD string) ([]string, error) {
 	logger := activity.GetLogger(ctx)
 	logger.Info("Cloning repositories", "count", len(repos))
@@ -127,10 +127,29 @@ func (a *SandboxActivities) CloneRepositories(ctx context.Context, sandbox model
 			return nil, fmt.Errorf("failed to clone %s: %s", repo.URL, result.Stderr)
 		}
 
-		clonedPaths = append(clonedPaths, fmt.Sprintf("/workspace/%s", repo.Name))
+		repoPath := fmt.Sprintf("/workspace/%s", repo.Name)
+		clonedPaths = append(clonedPaths, repoPath)
 
 		// Record heartbeat
 		activity.RecordHeartbeat(ctx, fmt.Sprintf("Cloned %s", repo.Name))
+
+		// Run setup commands if defined
+		if len(repo.Setup) > 0 {
+			logger.Info("Running setup commands", "repo", repo.Name, "count", len(repo.Setup))
+			for i, setupCmd := range repo.Setup {
+				logger.Info("Running setup command", "repo", repo.Name, "command", setupCmd)
+				fullCmd := fmt.Sprintf("cd %s && %s", repoPath, setupCmd)
+				result, err := a.DockerClient.ExecShellCommand(ctx, sandbox.ContainerID, fullCmd, "agent")
+				if err != nil {
+					return nil, fmt.Errorf("failed to execute setup command %d for %s: %w", i+1, repo.Name, err)
+				}
+				if result.ExitCode != 0 {
+					return nil, fmt.Errorf("setup command %d failed for %s: %s", i+1, repo.Name, result.Stderr)
+				}
+				activity.RecordHeartbeat(ctx, fmt.Sprintf("Setup %d/%d for %s", i+1, len(repo.Setup), repo.Name))
+			}
+			logger.Info("Setup completed", "repo", repo.Name)
+		}
 	}
 
 	// Create AGENTS.md in workspace root
@@ -160,4 +179,62 @@ func (a *SandboxActivities) CleanupSandbox(ctx context.Context, containerID stri
 
 	logger.Info("Container removed", "containerID", containerID[:12])
 	return nil
+}
+
+// RunVerifiers executes verification commands in each repository and returns results.
+func (a *SandboxActivities) RunVerifiers(ctx context.Context, sandbox model.SandboxInfo, repos []model.Repository, verifiers []model.Verifier) (*model.VerifiersResult, error) {
+	logger := activity.GetLogger(ctx)
+	logger.Info("Running verifiers", "count", len(verifiers), "repos", len(repos))
+
+	if len(verifiers) == 0 {
+		return &model.VerifiersResult{AllPassed: true, Results: []model.VerifierResult{}}, nil
+	}
+
+	var results []model.VerifierResult
+	allPassed := true
+
+	for _, repo := range repos {
+		repoPath := fmt.Sprintf("/workspace/%s", repo.Name)
+
+		for _, verifier := range verifiers {
+			logger.Info("Running verifier", "name", verifier.Name, "repo", repo.Name)
+
+			// Build command string from verifier.Command slice
+			cmdStr := strings.Join(verifier.Command, " ")
+			fullCmd := fmt.Sprintf("cd %s && %s", repoPath, cmdStr)
+
+			result, err := a.DockerClient.ExecShellCommand(ctx, sandbox.ContainerID, fullCmd, "agent")
+
+			var vResult model.VerifierResult
+			vResult.Name = fmt.Sprintf("%s:%s", repo.Name, verifier.Name)
+
+			if err != nil {
+				vResult.Success = false
+				vResult.ExitCode = -1
+				vResult.Error = err.Error()
+				allPassed = false
+			} else {
+				vResult.ExitCode = result.ExitCode
+				vResult.Success = result.ExitCode == 0
+				vResult.Output = result.Stdout
+				if result.Stderr != "" {
+					vResult.Output += "\n" + result.Stderr
+				}
+				if !vResult.Success {
+					vResult.Error = fmt.Sprintf("exit code %d", result.ExitCode)
+					allPassed = false
+				}
+			}
+
+			results = append(results, vResult)
+			logger.Info("Verifier completed", "name", vResult.Name, "success", vResult.Success)
+
+			activity.RecordHeartbeat(ctx, fmt.Sprintf("Verifier %s: %v", vResult.Name, vResult.Success))
+		}
+	}
+
+	return &model.VerifiersResult{
+		AllPassed: allPassed,
+		Results:   results,
+	}, nil
 }

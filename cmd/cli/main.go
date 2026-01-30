@@ -8,10 +8,39 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
 	"github.com/anthropics/claude-code-orchestrator/internal/client"
 	"github.com/anthropics/claude-code-orchestrator/internal/model"
 )
+
+// TaskFile represents the YAML task file format.
+type TaskFile struct {
+	ID          string           `yaml:"id"`
+	Title       string           `yaml:"title"`
+	Description string           `yaml:"description,omitempty"`
+	Repositories []RepositorySpec `yaml:"repositories"`
+	Verifiers   []VerifierSpec   `yaml:"verifiers,omitempty"`
+	Timeout     string           `yaml:"timeout,omitempty"` // e.g., "30m"
+
+	// Optional
+	TicketURL       string `yaml:"ticket_url,omitempty"`
+	SlackChannel    string `yaml:"slack_channel,omitempty"`
+	RequireApproval *bool  `yaml:"require_approval,omitempty"`
+}
+
+// RepositorySpec is the YAML format for repository configuration.
+type RepositorySpec struct {
+	URL    string   `yaml:"url"`
+	Branch string   `yaml:"branch,omitempty"`
+	Setup  []string `yaml:"setup,omitempty"`
+}
+
+// VerifierSpec is the YAML format for verifier configuration.
+type VerifierSpec struct {
+	Name    string   `yaml:"name"`
+	Command []string `yaml:"command"`
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "claude-orchestrator",
@@ -68,6 +97,13 @@ var listCmd = &cobra.Command{
 	RunE:  runList,
 }
 
+var runCmd = &cobra.Command{
+	Use:   "run",
+	Short: "Run a task from file or flags",
+	Long:  "Run a transformation task from a YAML file or command-line flags",
+	RunE:  runRun,
+}
+
 func init() {
 	// Start command flags
 	startCmd.Flags().String("task-id", "", "Unique task identifier (required)")
@@ -79,9 +115,19 @@ func init() {
 	startCmd.Flags().String("slack-channel", "", "Slack channel for notifications")
 	startCmd.Flags().String("ticket-url", "", "URL to related ticket")
 	startCmd.Flags().Int("timeout", 30, "Timeout in minutes")
+	startCmd.Flags().StringArray("verifier", []string{}, "Verifier in format 'name:command' (can be repeated)")
 	startCmd.MarkFlagRequired("task-id")
 	startCmd.MarkFlagRequired("title")
 	startCmd.MarkFlagRequired("repos")
+
+	// Run command flags (alternative interface matching design doc)
+	runCmd.Flags().StringP("file", "f", "", "Path to task YAML file")
+	runCmd.Flags().StringArray("repo", []string{}, "Repository URL (can be repeated)")
+	runCmd.Flags().StringP("prompt", "p", "", "Task prompt/description")
+	runCmd.Flags().StringArray("verifier", []string{}, "Verifier in format 'name:command' (can be repeated)")
+	runCmd.Flags().String("branch", "main", "Branch to use for all repositories")
+	runCmd.Flags().Bool("no-approval", false, "Skip human approval step")
+	runCmd.Flags().Int("timeout", 30, "Timeout in minutes")
 
 	// Status command flags
 	statusCmd.Flags().String("workflow-id", "", "Workflow ID (required)")
@@ -108,6 +154,7 @@ func init() {
 
 	// Add commands
 	rootCmd.AddCommand(startCmd)
+	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(resultCmd)
 	rootCmd.AddCommand(approveCmd)
@@ -126,6 +173,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	slackChannel, _ := cmd.Flags().GetString("slack-channel")
 	ticketURL, _ := cmd.Flags().GetString("ticket-url")
 	timeout, _ := cmd.Flags().GetInt("timeout")
+	verifierStrs, _ := cmd.Flags().GetStringArray("verifier")
 
 	// Parse repositories
 	var repositories []model.Repository
@@ -140,12 +188,16 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("at least one repository URL is required")
 	}
 
+	// Parse verifiers
+	verifiers := parseVerifiers(verifierStrs)
+
 	// Build task
 	task := model.BugFixTask{
 		TaskID:          taskID,
 		Title:           title,
 		Description:     description,
 		Repositories:    repositories,
+		Verifiers:       verifiers,
 		RequireApproval: !noApproval,
 		TimeoutMinutes:  timeout,
 	}
@@ -161,6 +213,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Task ID: %s\n", task.TaskID)
 	fmt.Printf("  Title: %s\n", task.Title)
 	fmt.Printf("  Repositories: %s\n", repos)
+	fmt.Printf("  Verifiers: %d\n", len(verifiers))
 	fmt.Printf("  Require approval: %v\n\n", task.RequireApproval)
 
 	workflowID, err := client.StartBugFix(context.Background(), task)
@@ -274,6 +327,160 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func runRun(cmd *cobra.Command, args []string) error {
+	filePath, _ := cmd.Flags().GetString("file")
+
+	var task model.BugFixTask
+
+	if filePath != "" {
+		// Load from YAML file
+		taskFromFile, err := loadTaskFile(filePath)
+		if err != nil {
+			return fmt.Errorf("failed to load task file: %w", err)
+		}
+		task = *taskFromFile
+	} else {
+		// Build from flags
+		repos, _ := cmd.Flags().GetStringArray("repo")
+		prompt, _ := cmd.Flags().GetString("prompt")
+		verifiers, _ := cmd.Flags().GetStringArray("verifier")
+		branch, _ := cmd.Flags().GetString("branch")
+		noApproval, _ := cmd.Flags().GetBool("no-approval")
+		timeout, _ := cmd.Flags().GetInt("timeout")
+
+		if len(repos) == 0 {
+			return fmt.Errorf("at least one --repo is required (or use --file)")
+		}
+		if prompt == "" {
+			return fmt.Errorf("--prompt is required (or use --file)")
+		}
+
+		// Generate task ID
+		taskID := fmt.Sprintf("task-%d", os.Getpid())
+
+		// Parse repositories
+		var repositories []model.Repository
+		for _, url := range repos {
+			repositories = append(repositories, model.NewRepository(url, branch, ""))
+		}
+
+		// Parse verifiers
+		parsedVerifiers := parseVerifiers(verifiers)
+
+		task = model.BugFixTask{
+			TaskID:          taskID,
+			Title:           prompt,
+			Description:     prompt,
+			Repositories:    repositories,
+			Verifiers:       parsedVerifiers,
+			RequireApproval: !noApproval,
+			TimeoutMinutes:  timeout,
+		}
+	}
+
+	fmt.Printf("Starting task...\n")
+	fmt.Printf("  Task ID: %s\n", task.TaskID)
+	fmt.Printf("  Title: %s\n", task.Title)
+	fmt.Printf("  Repositories: %d\n", len(task.Repositories))
+	fmt.Printf("  Verifiers: %d\n", len(task.Verifiers))
+	fmt.Printf("  Require approval: %v\n\n", task.RequireApproval)
+
+	workflowID, err := client.StartBugFix(context.Background(), task)
+	if err != nil {
+		return fmt.Errorf("failed to start workflow: %w", err)
+	}
+
+	fmt.Printf("Workflow started: %s\n", workflowID)
+	fmt.Printf("View at: http://localhost:8233/namespaces/default/workflows/%s\n", workflowID)
+
+	return nil
+}
+
+// loadTaskFile loads a task from a YAML file.
+func loadTaskFile(path string) (*model.BugFixTask, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	var tf TaskFile
+	if err := yaml.Unmarshal(data, &tf); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML: %w", err)
+	}
+
+	// Convert to BugFixTask
+	var repos []model.Repository
+	for _, r := range tf.Repositories {
+		branch := r.Branch
+		if branch == "" {
+			branch = "main"
+		}
+		repos = append(repos, model.Repository{
+			URL:    r.URL,
+			Branch: branch,
+			Name:   model.NewRepository(r.URL, branch, "").Name,
+			Setup:  r.Setup,
+		})
+	}
+
+	var verifiers []model.Verifier
+	for _, v := range tf.Verifiers {
+		verifiers = append(verifiers, model.Verifier{
+			Name:    v.Name,
+			Command: v.Command,
+		})
+	}
+
+	// Parse timeout (default 30m)
+	timeout := 30
+	if tf.Timeout != "" {
+		// Simple parsing: look for "Nm" format
+		var mins int
+		if _, err := fmt.Sscanf(tf.Timeout, "%dm", &mins); err == nil {
+			timeout = mins
+		}
+	}
+
+	requireApproval := true
+	if tf.RequireApproval != nil {
+		requireApproval = *tf.RequireApproval
+	}
+
+	task := &model.BugFixTask{
+		TaskID:          tf.ID,
+		Title:           tf.Title,
+		Description:     tf.Description,
+		Repositories:    repos,
+		Verifiers:       verifiers,
+		RequireApproval: requireApproval,
+		TimeoutMinutes:  timeout,
+	}
+
+	if tf.TicketURL != "" {
+		task.TicketURL = &tf.TicketURL
+	}
+	if tf.SlackChannel != "" {
+		task.SlackChannel = &tf.SlackChannel
+	}
+
+	return task, nil
+}
+
+// parseVerifiers parses verifier strings in "name:command" format.
+func parseVerifiers(verifierStrs []string) []model.Verifier {
+	var verifiers []model.Verifier
+	for _, v := range verifierStrs {
+		parts := strings.SplitN(v, ":", 2)
+		if len(parts) == 2 {
+			verifiers = append(verifiers, model.Verifier{
+				Name:    parts[0],
+				Command: strings.Fields(parts[1]),
+			})
+		}
+	}
+	return verifiers
 }
 
 func main() {
