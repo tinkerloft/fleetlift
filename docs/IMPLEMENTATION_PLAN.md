@@ -2,7 +2,7 @@
 
 Incremental implementation phases for the code transformation platform.
 
-> **Last Updated**: 2026-01-30 (Phase 1 Complete)
+> **Last Updated**: 2026-01-31 (Phase 2 Complete)
 >
 > **Note**: Current implementation uses `BugFixTask`/`BugFixWorkflow` naming. The design document
 > describes a more generic `Task`/`Transformation` model. Consider refactoring to align with design.
@@ -93,7 +93,7 @@ orchestrator run \
 ### 2.2 Multi-Repository Support
 
 - [x] Update workflow to iterate over repositories
-- [ ] Parallel vs sequential execution option *(currently sequential)*
+- [x] Parallel vs sequential execution option *(--parallel flag, Parallel field in task)*
 - [x] Aggregate results across repos
 
 ### 2.3 Task Result Improvements
@@ -105,7 +105,7 @@ orchestrator run \
 ### 2.4 CLI Enhancements
 
 - [x] `--repo` flag accepts multiple values *(comma-separated in `--repos`)*
-- [ ] Output formatting (JSON, table)
+- [x] Output formatting (JSON, table) *(`--output` flag with json/table options)*
 - [x] `orchestrator list` command
 
 ### Deliverable
@@ -421,7 +421,7 @@ Production-ready deployment with:
 | Phase | Focus | Key Deliverable | Status |
 |-------|-------|-----------------|--------|
 | 1 | Local MVP | Single-repo agentic task with Docker | ✅ Complete |
-| 2 | PR Creation | Multi-repo with GitHub PRs | 🟡 ~90% (missing: parallel execution, JSON output) |
+| 2 | PR Creation | Multi-repo with GitHub PRs | ✅ Complete |
 | 3 | Deterministic | Docker-based transformations | ⬜ Not started |
 | 4 | Configuration | Profiles and external config | ⬜ Not started |
 | 5 | Kubernetes | K8s sandbox provider | ⬜ Not started |
@@ -433,7 +433,6 @@ Each phase builds on the previous and delivers working functionality.
 
 ### Recommended Next Steps
 
-1. **Complete Phase 2** - Add parallel execution option and JSON output formatting
-2. **Phase 3** - Add deterministic transformation support (Docker images like OpenRewrite)
-3. **Phase 4** - Add configuration file and sandbox profiles
-4. **Phase 8.2** - Iterative HITL steering (high value for usability)
+1. **Phase 3** - Add deterministic transformation support (Docker images like OpenRewrite)
+2. **Phase 4** - Add configuration file and sandbox profiles
+3. **Phase 8.2** - Iterative HITL steering (high value for usability)

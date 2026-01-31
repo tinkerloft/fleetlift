@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -13,6 +14,14 @@ import (
 
 	"github.com/anthropics/claude-code-orchestrator/internal/client"
 	"github.com/anthropics/claude-code-orchestrator/internal/model"
+)
+
+// OutputFormat specifies the output format for CLI commands.
+type OutputFormat string
+
+const (
+	OutputFormatTable OutputFormat = "table"
+	OutputFormatJSON  OutputFormat = "json"
 )
 
 // must panics if err is non-nil. Used for initialization errors.
@@ -35,6 +44,7 @@ type TaskFile struct {
 	TicketURL       string `yaml:"ticket_url,omitempty"`
 	SlackChannel    string `yaml:"slack_channel,omitempty"`
 	RequireApproval *bool  `yaml:"require_approval,omitempty"`
+	Parallel        bool   `yaml:"parallel,omitempty"` // Execute PR creation in parallel
 }
 
 // RepositorySpec is the YAML format for repository configuration.
@@ -116,13 +126,17 @@ func init() {
 	runCmd.Flags().String("branch", "main", "Branch to use for all repositories")
 	runCmd.Flags().Bool("no-approval", false, "Skip human approval step")
 	runCmd.Flags().Int("timeout", 30, "Timeout in minutes")
+	runCmd.Flags().Bool("parallel", false, "Execute PR creation in parallel for multi-repo tasks")
+	runCmd.Flags().StringP("output", "o", "table", "Output format (table, json)")
 
 	// Status command flags
 	statusCmd.Flags().String("workflow-id", "", "Workflow ID (required)")
+	statusCmd.Flags().StringP("output", "o", "table", "Output format (table, json)")
 	must(statusCmd.MarkFlagRequired("workflow-id"))
 
 	// Result command flags
 	resultCmd.Flags().String("workflow-id", "", "Workflow ID (required)")
+	resultCmd.Flags().StringP("output", "o", "table", "Output format (table, json)")
 	must(resultCmd.MarkFlagRequired("workflow-id"))
 
 	// Approve command flags
@@ -139,6 +153,7 @@ func init() {
 
 	// List command flags
 	listCmd.Flags().String("status", "", "Filter by status (Running, Completed, Failed, Canceled, Terminated)")
+	listCmd.Flags().StringP("output", "o", "table", "Output format (table, json)")
 
 	// Add commands
 	rootCmd.AddCommand(runCmd)
@@ -152,10 +167,21 @@ func init() {
 
 func runStatus(cmd *cobra.Command, args []string) error {
 	workflowID, _ := cmd.Flags().GetString("workflow-id")
+	output, _ := cmd.Flags().GetString("output")
 
 	status, err := client.GetWorkflowStatus(context.Background(), workflowID)
 	if err != nil {
 		return fmt.Errorf("failed to get status: %w", err)
+	}
+
+	if output == "json" {
+		result := map[string]string{
+			"workflow_id": workflowID,
+			"status":      string(status),
+		}
+		data, _ := json.MarshalIndent(result, "", "  ")
+		fmt.Println(string(data))
+		return nil
 	}
 
 	fmt.Printf("Workflow: %s\n", workflowID)
@@ -166,12 +192,21 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 func runResult(cmd *cobra.Command, args []string) error {
 	workflowID, _ := cmd.Flags().GetString("workflow-id")
+	output, _ := cmd.Flags().GetString("output")
 
-	fmt.Printf("Waiting for workflow %s to complete...\n", workflowID)
+	if output != "json" {
+		fmt.Printf("Waiting for workflow %s to complete...\n", workflowID)
+	}
 
 	result, err := client.GetWorkflowResult(context.Background(), workflowID)
 	if err != nil {
 		return fmt.Errorf("failed to get result: %w", err)
+	}
+
+	if output == "json" {
+		data, _ := json.MarshalIndent(result, "", "  ")
+		fmt.Println(string(data))
+		return nil
 	}
 
 	fmt.Printf("\nWorkflow Result:\n")
@@ -231,10 +266,17 @@ func runCancel(cmd *cobra.Command, args []string) error {
 
 func runList(cmd *cobra.Command, args []string) error {
 	statusFilter, _ := cmd.Flags().GetString("status")
+	output, _ := cmd.Flags().GetString("output")
 
 	workflows, err := client.ListWorkflows(context.Background(), statusFilter)
 	if err != nil {
 		return fmt.Errorf("failed to list workflows: %w", err)
+	}
+
+	if output == "json" {
+		data, _ := json.MarshalIndent(workflows, "", "  ")
+		fmt.Println(string(data))
+		return nil
 	}
 
 	if len(workflows) == 0 {
@@ -254,6 +296,8 @@ func runList(cmd *cobra.Command, args []string) error {
 
 func runRun(cmd *cobra.Command, args []string) error {
 	filePath, _ := cmd.Flags().GetString("file")
+	output, _ := cmd.Flags().GetString("output")
+	parallel, _ := cmd.Flags().GetBool("parallel")
 
 	var task model.BugFixTask
 
@@ -264,6 +308,10 @@ func runRun(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to load task file: %w", err)
 		}
 		task = *taskFromFile
+		// CLI flag can override file setting
+		if parallel {
+			task.Parallel = true
+		}
 	} else {
 		// Build from flags
 		repos, _ := cmd.Flags().GetStringArray("repo")
@@ -300,7 +348,29 @@ func runRun(cmd *cobra.Command, args []string) error {
 			Verifiers:       parsedVerifiers,
 			RequireApproval: !noApproval,
 			TimeoutMinutes:  timeout,
+			Parallel:        parallel,
 		}
+	}
+
+	workflowID, err := client.StartBugFix(context.Background(), task)
+	if err != nil {
+		return fmt.Errorf("failed to start workflow: %w", err)
+	}
+
+	if output == "json" {
+		result := map[string]interface{}{
+			"task_id":          task.TaskID,
+			"title":            task.Title,
+			"workflow_id":      workflowID,
+			"repositories":     len(task.Repositories),
+			"verifiers":        len(task.Verifiers),
+			"require_approval": task.RequireApproval,
+			"parallel":         task.Parallel,
+			"url":              fmt.Sprintf("http://localhost:8233/namespaces/default/workflows/%s", workflowID),
+		}
+		data, _ := json.MarshalIndent(result, "", "  ")
+		fmt.Println(string(data))
+		return nil
 	}
 
 	fmt.Printf("Starting task...\n")
@@ -308,12 +378,8 @@ func runRun(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Title: %s\n", task.Title)
 	fmt.Printf("  Repositories: %d\n", len(task.Repositories))
 	fmt.Printf("  Verifiers: %d\n", len(task.Verifiers))
-	fmt.Printf("  Require approval: %v\n\n", task.RequireApproval)
-
-	workflowID, err := client.StartBugFix(context.Background(), task)
-	if err != nil {
-		return fmt.Errorf("failed to start workflow: %w", err)
-	}
+	fmt.Printf("  Require approval: %v\n", task.RequireApproval)
+	fmt.Printf("  Parallel: %v\n\n", task.Parallel)
 
 	fmt.Printf("Workflow started: %s\n", workflowID)
 	fmt.Printf("View at: http://localhost:8233/namespaces/default/workflows/%s\n", workflowID)
@@ -378,6 +444,7 @@ func loadTaskFile(path string) (*model.BugFixTask, error) {
 		Verifiers:       verifiers,
 		RequireApproval: requireApproval,
 		TimeoutMinutes:  timeout,
+		Parallel:        tf.Parallel,
 	}
 
 	if tf.TicketURL != "" {

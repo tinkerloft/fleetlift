@@ -304,18 +304,29 @@ func BugFix(ctx workflow.Context, task model.BugFixTask) (*model.BugFixResult, e
 	status = model.TaskStatusCreatingPRs
 
 	var pullRequests []model.PullRequest
-	for _, repo := range task.Repositories {
-		prDesc := buildPRDescription(task, claudeResult)
+	prDesc := buildPRDescription(task, claudeResult)
 
-		var pr *model.PullRequest
-		if err := workflow.ExecuteActivity(ctx, activity.ActivityCreatePullRequest,
-			sandbox.ContainerID, repo, task.TaskID,
-			fmt.Sprintf("fix: %s", task.Title), prDesc).Get(ctx, &pr); err != nil {
-			return failedResult(fmt.Sprintf("Failed to create PR: %v", err)), nil
+	if task.Parallel && len(task.Repositories) > 1 {
+		// Parallel PR creation for multi-repo tasks
+		logger.Info("Creating PRs in parallel", "repos", len(task.Repositories))
+		var prErr error
+		pullRequests, prErr = createPRsParallel(ctx, task, sandbox.ContainerID, prDesc)
+		if prErr != nil {
+			return failedResult(prErr.Error()), nil
 		}
+	} else {
+		// Sequential PR creation (default)
+		for _, repo := range task.Repositories {
+			var pr *model.PullRequest
+			if err := workflow.ExecuteActivity(ctx, activity.ActivityCreatePullRequest,
+				sandbox.ContainerID, repo, task.TaskID,
+				fmt.Sprintf("fix: %s", task.Title), prDesc).Get(ctx, &pr); err != nil {
+				return failedResult(fmt.Sprintf("Failed to create PR: %v", err)), nil
+			}
 
-		if pr != nil {
-			pullRequests = append(pullRequests, *pr)
+			if pr != nil {
+				pullRequests = append(pullRequests, *pr)
+			}
 		}
 	}
 
@@ -459,4 +470,55 @@ func getChangesSummary(ctx workflow.Context, containerID string, repos []model.R
 	}
 
 	return strings.Join(summaries, "\n\n")
+}
+
+// prResult holds the result of a parallel PR creation attempt.
+type prResult struct {
+	repo model.Repository
+	pr   *model.PullRequest
+	err  error
+}
+
+// createPRsParallel creates pull requests for all repositories in parallel.
+func createPRsParallel(ctx workflow.Context, task model.BugFixTask, containerID, prDesc string) ([]model.PullRequest, error) {
+	// Create a channel to collect results
+	resultChannel := workflow.NewChannel(ctx)
+
+	// Launch parallel goroutines for each repository
+	for _, repo := range task.Repositories {
+		repo := repo // capture loop variable
+		workflow.Go(ctx, func(gCtx workflow.Context) {
+			var pr *model.PullRequest
+			err := workflow.ExecuteActivity(gCtx, activity.ActivityCreatePullRequest,
+				containerID, repo, task.TaskID,
+				fmt.Sprintf("fix: %s", task.Title), prDesc).Get(gCtx, &pr)
+
+			resultChannel.Send(gCtx, prResult{
+				repo: repo,
+				pr:   pr,
+				err:  err,
+			})
+		})
+	}
+
+	// Collect results from all goroutines
+	var pullRequests []model.PullRequest
+	var errors []string
+
+	for i := 0; i < len(task.Repositories); i++ {
+		var result prResult
+		resultChannel.Receive(ctx, &result)
+
+		if result.err != nil {
+			errors = append(errors, fmt.Sprintf("%s: %v", result.repo.Name, result.err))
+		} else if result.pr != nil {
+			pullRequests = append(pullRequests, *result.pr)
+		}
+	}
+
+	if len(errors) > 0 {
+		return nil, fmt.Errorf("failed to create PRs: %s", strings.Join(errors, "; "))
+	}
+
+	return pullRequests, nil
 }

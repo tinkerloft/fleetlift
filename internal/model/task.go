@@ -87,7 +87,7 @@ type BugFixTask struct {
 	// Execution settings
 	TimeoutMinutes  int  `json:"timeout_minutes"`
 	RequireApproval bool `json:"require_approval"`
-	// SIMP-002: Removed unused AutoMerge field
+	Parallel        bool `json:"parallel"` // Execute PR creation in parallel for multi-repo tasks
 }
 
 // NewBugFixTask creates a BugFixTask with default values.
