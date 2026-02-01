@@ -26,7 +26,7 @@ The platform adds the "managed" layer that Turbolift deliberately doesn't have, 
 
 ## Design Principles
 
-1. **Standards over custom** - Use existing open source solutions
+1. **Standards over custom** - Prefer existing open source solutions where available
 2. **Pluggable by default** - Abstract infrastructure behind interfaces
 3. **Local-first development** - Everything works on a laptop
 4. **Incremental complexity** - Start simple, add features as needed
@@ -57,7 +57,7 @@ The platform adds the "managed" layer that Turbolift deliberately doesn't have, 
 │   │                      Sandbox Provider                                │   │
 │   │                                                                      │   │
 │   │   Local:      Docker containers                                     │   │
-│   │   Production: Agent Sandbox (K8s SIG) or raw Kubernetes pods        │   │
+│   │   Production: Raw Kubernetes pods / jobs                            │   │
 │   │                                                                      │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │       │                                                                      │
@@ -78,7 +78,7 @@ The platform adds the "managed" layer that Turbolift deliberately doesn't have, 
 | Concern | Solution | Why |
 |---------|----------|-----|
 | Workflow Orchestration | [Temporal](https://temporal.io/) | Durable execution, signals/queries, battle-tested |
-| Sandbox Lifecycle (K8s) | [Agent Sandbox](https://github.com/kubernetes-sigs/agent-sandbox) | Purpose-built for AI agents, warm pools, gVisor |
+| Sandbox Lifecycle (K8s) | Kubernetes Jobs | Purpose-built for AI agents, warm pools, gVisor |
 | Sandbox Lifecycle (Local) | Docker | Simple, universal |
 | Deterministic Transforms | [OpenRewrite](https://docs.openrewrite.org/), [Scalafix](https://scalacenter.github.io/scalafix/) | Mature AST-based tools |
 | AI Agent | Claude Code CLI | Agentic loop, context management, tool use |
