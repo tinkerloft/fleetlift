@@ -1,4 +1,4 @@
-# Claude Code Orchestrator
+# Agent Orchestrator
 
 ![CI](https://github.com/andreweacott/agent-orchestrator/workflows/CI/badge.svg)
 ![Go Version](https://img.shields.io/github/go-mod-go-version/andreweacott/agent-orchestrator)
