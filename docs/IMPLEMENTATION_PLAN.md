@@ -196,13 +196,16 @@ verifiers:
 ### 4.1 CRD Definition
 
 - [ ] Define `CodeTransform` CRD schema (OpenAPI v3)
+- [ ] `spec.mode` - execution mode: `transform` (default) or `report`
 - [ ] `spec.repositories[]` - target repos with branch and setup commands
+- [ ] `spec.forEach[]` - iterate over multiple targets within a repo (for report mode)
 - [ ] `spec.transform.image` - deterministic transform (Docker image + args)
 - [ ] `spec.transform.agent` - agentic transform (prompt + verifiers)
+- [ ] `spec.transform.agent.outputSchema` - JSON schema for report mode output validation
 - [ ] `spec.resources` - CPU/memory limits for sandbox
 - [ ] `spec.timeout`, `spec.requireApproval` - execution settings
-- [ ] `spec.pullRequest` - PR title, branch prefix, labels
-- [ ] `status` subresource - phase, workflowID, repository results, PR URLs
+- [ ] `spec.pullRequest` - PR title, branch prefix, labels (transform mode only)
+- [ ] `status` subresource - phase, workflowID, repository results, PR URLs or reports
 
 ### 4.2 Controller Implementation
 
@@ -627,6 +630,99 @@ spec:
 - [ ] Result viewing
 - [ ] Diff viewer (integrates with 9.2.4)
 
+### 9.6 Report Mode (Discovery)
+
+**Goal**: Support distributed code analysis and discovery across many repositories without creating PRs.
+
+> **Use Case**: Before running a migration campaign, discover which repositories are affected and
+> collect structured data to inform the transformation strategy. Also useful for security audits,
+> dependency inventories, and compliance assessments.
+
+#### 9.6.1 Core Report Mode
+
+- [ ] Add `mode` field to CRD: `transform` (default) or `report`
+- [ ] Skip PR creation workflow when `mode: report`
+- [ ] Capture agent stdout as structured output
+- [ ] Validate output against `outputSchema` if provided
+- [ ] Store report in CRD status (for small reports)
+
+#### 9.6.2 Output Schema Validation
+
+- [ ] Parse `spec.transform.agent.outputSchema` (JSON Schema)
+- [ ] Validate agent output against schema
+- [ ] Report validation errors in status
+- [ ] Support common types: object, array, string, number, boolean, enum
+
+#### 9.6.3 forEach: Multi-Target Discovery
+
+- [ ] Add `spec.forEach[]` field for iterating within a repo
+- [ ] Each target gets its own sandbox execution
+- [ ] Template variable substitution in prompt: `{{.context}}`, `{{.name}}`
+- [ ] Aggregate reports by target in status
+
+#### 9.6.4 Report Storage
+
+- [ ] Inline in CRD status (default, for small reports)
+- [ ] ConfigMap storage for medium reports
+- [ ] S3/GCS backend for large-scale discovery (100+ repos)
+- [ ] Operator config: `reportStorage.backend`
+
+#### 9.6.5 CLI Support
+
+- [ ] `orchestrator run --mode report --prompt "..."` - run discovery
+- [ ] `orchestrator reports <name>` - view collected reports
+- [ ] `orchestrator reports <name> --output json` - export reports
+- [ ] `orchestrator reports <name> --aggregate` - show summary statistics
+
+#### 9.6.6 Campaign Integration
+
+- [ ] Discovery Campaign type (mode: report across many repos)
+- [ ] Report aggregation at Campaign level
+- [ ] Two-phase workflow: discover → review → transform
+- [ ] Pass discovery output to transform phase
+
+### Deliverable (Report Mode)
+
+```yaml
+# Discovery task
+apiVersion: codetransform.io/v1alpha1
+kind: CodeTransform
+metadata:
+  name: auth-audit
+spec:
+  mode: report
+  repositories:
+    - url: https://github.com/org/service-a.git
+    - url: https://github.com/org/service-b.git
+  transform:
+    agent:
+      prompt: |
+        Analyze authentication patterns. Output JSON with:
+        - auth_library: string
+        - has_mfa: boolean
+        - issues: array of {severity, description}
+      outputSchema:
+        type: object
+        properties:
+          auth_library: { type: string }
+          has_mfa: { type: boolean }
+          issues: { type: array }
+  timeout: 15m
+```
+
+```bash
+# Run discovery
+orchestrator run --file auth-audit.yaml
+
+# View reports
+orchestrator reports auth-audit
+# service-a: {"auth_library": "oauth2", "has_mfa": true, "issues": []}
+# service-b: {"auth_library": "custom", "has_mfa": false, "issues": [...]}
+
+# Export for further analysis
+orchestrator reports auth-audit --output json > audit-results.json
+```
+
 ---
 
 ## Summary
@@ -641,7 +737,7 @@ spec:
 | 6 | **Observability** | Metrics, logging, dashboards | ⬜ Not started |
 | 7 | **Security** | RBAC, NetworkPolicy, secrets, scaling | ⬜ Not started |
 | 8 | Agent Sandbox | Warm pools (OPTIONAL) | ⬜ Not started |
-| 9 | Advanced | HITL steering, scheduling, cost tracking | 🟡 ~20% (basic HITL only) |
+| 9 | Advanced | HITL steering, scheduling, cost tracking, **report mode** | 🟡 ~20% (basic HITL only) |
 
 Each phase builds on the previous and delivers working functionality.
 
@@ -654,11 +750,12 @@ Each phase builds on the previous and delivers working functionality.
 
 **Parallel Track B (Product Differentiation):**
 1. **Phase 9.2** - Iterative HITL steering (key differentiator - can start immediately)
+2. **Phase 9.6** - Report mode for distributed discovery (enables two-phase campaigns)
 
 > **Priority Note**: Iterative HITL steering (Phase 9.2) is the most valuable feature for
-> agentic mode usability. It has no dependencies on Phases 4-7 and can be developed in
-> parallel using the existing Docker sandbox. Consider starting this immediately alongside
-> Phase 4 work.
+> agentic mode usability. Report mode (Phase 9.6) enables discovery campaigns which are
+> valuable for pre-migration analysis and security audits. Both have no dependencies on
+> Phases 4-7 and can be developed in parallel using the existing Docker sandbox.
 
 ### Key Changes from Original Plan
 

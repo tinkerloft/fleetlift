@@ -2,11 +2,12 @@
 
 ## Overview
 
-A platform for automated code transformations across repositories, supporting:
+A platform for automated code transformations and discovery across repositories, supporting:
 
 - **Deployment**: Local (Docker) or production (Kubernetes)
 - **Scope**: Single repo or multi-repo
 - **Execution**: Deterministic (Docker images) or agentic (AI prompts)
+- **Mode**: Transform (create PRs) or Report (collect structured data)
 
 ### Vision: Managed Turbolift
 
@@ -97,11 +98,23 @@ metadata:
   name: upgrade-to-slog
   namespace: transforms
 spec:
+  # Execution mode: "transform" (default) or "report"
+  # - transform: Make code changes and create PRs
+  # - report: Analyze code and collect structured output (no PRs)
+  mode: transform
+
   # Target repositories
   repositories:
     - url: https://github.com/org/service-a.git
       branch: main
     - url: https://github.com/org/service-b.git
+
+  # For iterating over multiple targets within a repo (e.g., API endpoints)
+  # forEach:
+  #   - name: users-api
+  #     context: "Analyze src/api/users/"
+  #   - name: orders-api
+  #     context: "Analyze src/api/orders/"
 
   # Transformation definition (one of):
   transform:
@@ -126,6 +139,14 @@ spec:
     #     maxIterations: 10
     #     maxTokens: 100000
     #     maxVerifierRetries: 3
+    #
+    #   # For report mode: validate/parse agent output as structured data
+    #   outputSchema:
+    #     type: object
+    #     properties:
+    #       finding: { type: string }
+    #       severity: { type: string, enum: ["low", "medium", "high"] }
+    #       details: { type: object }
 
   # Credentials (reference K8s secrets)
   credentials:
@@ -165,11 +186,14 @@ status:
   repositories:
     - name: service-a
       status: Completed
-      pullRequest:
+      pullRequest:        # For transform mode
         url: https://github.com/org/service-a/pull/123
         number: 123
+      report: null        # For report mode: structured output from agent
     - name: service-b
       status: Running
+  # Aggregated reports (for report mode with forEach)
+  reports: []
   startedAt: "2026-01-31T10:00:00Z"
   completedAt: null
 ```
@@ -816,7 +840,15 @@ orchestrator/
 
 ## Campaign Orchestration
 
-A **CodeTransform** is the atomic unit—it transforms a specific set of repositories. For large-scale rollouts (e.g., "upgrade logging across 200 services"), a higher-level **Campaign** orchestrator manages batches:
+A **CodeTransform** is the atomic unit—it operates on a specific set of repositories. For large-scale rollouts (e.g., "upgrade logging across 200 services") or distributed discovery (e.g., "audit auth patterns across 100 services"), a higher-level **Campaign** orchestrator manages batches:
+
+### Campaign Types
+
+| Type | Mode | Output | Use Case |
+|------|------|--------|----------|
+| **Transform Campaign** | `transform` | PRs created | Migrations, upgrades, refactoring |
+| **Discovery Campaign** | `report` | Aggregated reports | Audits, inventories, assessments |
+| **Two-Phase Campaign** | Both | Reports → PRs | Discover issues, then fix them |
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -854,12 +886,236 @@ The failure threshold is configurable per campaign (default: 10%).
 | Concern | CodeTransform (CRD) | Campaign (Orchestrator) |
 |---------|---------------------|-------------------------|
 | Repository list | Explicit in spec | Manages which repos to include |
+| Mode | `transform` or `report` | Can mix modes (discover → transform) |
 | Execution | Single Temporal workflow | Submits multiple CodeTransforms |
 | Failure handling | Per-repo retry via Temporal | Batch-level pause on threshold |
 | Human approval | Per-transform approve/reject | Batch-level abort/continue |
+| Output | PR URLs or report data | Aggregated results/reports |
 
 > **Note**: Campaign orchestration is a future capability. Initially, users submit CodeTransform CRDs
 > directly with explicit repository lists.
+
+---
+
+## Discovery Mode (Report Mode)
+
+While the platform is primarily designed for code transformations, the same infrastructure supports
+**distributed discovery and analysis** across repositories. Instead of making changes and creating PRs,
+report mode collects structured data from each repository.
+
+### Use Cases
+
+| Use Case | Description |
+|----------|-------------|
+| **Security audit** | Analyze authentication patterns across 100 services |
+| **Dependency inventory** | Catalog all Log4j versions across the org |
+| **API assessment** | Evaluate 100 endpoints in a monorepo for compliance |
+| **Technical debt survey** | Identify deprecated patterns before a migration |
+| **Pre-migration analysis** | Gather data to inform a Campaign's transform strategy |
+
+### Report Mode CRD
+
+```yaml
+apiVersion: codetransform.io/v1alpha1
+kind: CodeTransform
+metadata:
+  name: auth-security-audit
+spec:
+  mode: report  # Key difference: no PRs created
+
+  repositories:
+    - url: https://github.com/org/service-a.git
+    - url: https://github.com/org/service-b.git
+    # ... up to 100 repos
+
+  transform:
+    agent:
+      prompt: |
+        Analyze this repository's authentication implementation:
+        - What auth library is used?
+        - Are there any hardcoded credentials?
+        - Is token rotation implemented?
+        - Rate limiting on auth endpoints?
+
+        Output your findings as JSON to stdout in the specified schema.
+
+      outputSchema:
+        type: object
+        required: ["auth_library", "issues", "score"]
+        properties:
+          auth_library:
+            type: string
+          issues:
+            type: array
+            items:
+              type: object
+              properties:
+                severity: { type: string, enum: ["low", "medium", "high", "critical"] }
+                description: { type: string }
+                location: { type: string }
+          score:
+            type: integer
+            minimum: 1
+            maximum: 10
+
+  timeout: 15m
+  # No pullRequest section - report mode doesn't create PRs
+
+status:
+  phase: Completed
+  repositories:
+    - name: service-a
+      status: Completed
+      report:
+        auth_library: "oauth2-proxy"
+        issues: []
+        score: 9
+    - name: service-b
+      status: Completed
+      report:
+        auth_library: "custom"
+        issues:
+          - severity: "high"
+            description: "Hardcoded API key in config.yaml"
+            location: "config/config.yaml:42"
+        score: 3
+```
+
+### forEach: Multiple Targets in One Repository
+
+For analyzing multiple components within a single large repository (e.g., a monorepo with 100 API endpoints):
+
+```yaml
+apiVersion: codetransform.io/v1alpha1
+kind: CodeTransform
+metadata:
+  name: api-endpoint-audit
+spec:
+  mode: report
+
+  repositories:
+    - url: https://github.com/org/monolith.git
+
+  # Iterate over targets within the repo
+  forEach:
+    - name: users-api
+      context: "Focus on src/api/users/"
+    - name: orders-api
+      context: "Focus on src/api/orders/"
+    - name: payments-api
+      context: "Focus on src/api/payments/"
+    # ... 100 endpoints
+
+  transform:
+    agent:
+      prompt: |
+        {{.context}}
+
+        Assess this API endpoint for:
+        - Input validation completeness
+        - Error handling patterns
+        - Rate limiting implementation
+        - Logging coverage
+
+        Output your assessment as JSON.
+
+      outputSchema:
+        type: object
+        properties:
+          endpoint: { type: string }
+          input_validation: { type: string, enum: ["none", "partial", "complete"] }
+          error_handling: { type: string, enum: ["poor", "adequate", "good"] }
+          has_rate_limiting: { type: boolean }
+          logging_score: { type: integer, minimum: 1, maximum: 5 }
+
+status:
+  phase: Completed
+  reports:
+    - target: users-api
+      output:
+        endpoint: "/api/users"
+        input_validation: "complete"
+        error_handling: "good"
+        has_rate_limiting: true
+        logging_score: 4
+    - target: orders-api
+      output:
+        endpoint: "/api/orders"
+        input_validation: "partial"
+        error_handling: "adequate"
+        has_rate_limiting: false
+        logging_score: 2
+```
+
+### Discovery Campaigns
+
+A Discovery Campaign aggregates reports across many CodeTransforms:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   Discovery Campaign                             │
+│                                                                  │
+│   Phase 1: Submit CodeTransforms (mode: report)                 │
+│   Phase 2: Collect all reports from CRD status                  │
+│   Phase 3: Aggregate into summary report                        │
+│   Phase 4: (Optional) Trigger follow-up transforms              │
+│                                                                  │
+│   Output:                                                        │
+│   - Individual reports per repo/target                          │
+│   - Aggregated statistics                                       │
+│   - Prioritized action items                                    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  CodeTransform     CodeTransform     CodeTransform    ...       │
+│  (mode: report)    (mode: report)    (mode: report)             │
+│  (service-a)       (service-b)       (service-c)                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Two-Phase Pattern: Discover → Transform
+
+Discovery campaigns can feed into transformation campaigns:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│   Phase 1: Discovery                                             │
+│   "Assess Log4j usage across all Java services"                 │
+│                                                                  │
+│   Output: 47 services using Log4j 1.x, 23 using 2.x, 30 clean  │
+└─────────────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│   Phase 2: Transform (targeted)                                  │
+│   "Upgrade the 47 services using Log4j 1.x to 2.x"              │
+│                                                                  │
+│   Submits CodeTransforms only for the 47 affected services      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Report Storage
+
+For large-scale discovery (100+ repos), reports may be too large for CRD status:
+
+| Storage Option | Use Case |
+|----------------|----------|
+| **CRD status** | Small reports (<1KB each), <50 repos |
+| **ConfigMap** | Medium reports, <100 repos |
+| **S3/GCS** | Large reports, archival, 100+ repos |
+| **PVC** | Offline processing, custom aggregation |
+
+The operator config specifies the storage backend:
+
+```yaml
+reportStorage:
+  backend: s3  # "status" | "configmap" | "s3" | "pvc"
+  s3:
+    bucket: codetransform-reports
+    prefix: discovery/
+```
 
 ---
 
