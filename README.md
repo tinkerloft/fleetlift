@@ -1,306 +1,390 @@
 # Claude Code Orchestrator
 
 ![CI](https://github.com/andreweacott/agent-orchestrator/workflows/CI/badge.svg)
-![Go Version](https://img.shields.io/github/go-mod/go-version/andreweacott/agent-orchestrator)
+![Go Version](https://img.shields.io/github/go-mod-go-version/andreweacott/agent-orchestrator)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
-A durable, scalable platform for automating code transformations and discovery across repositories using Claude Code and Temporal workflows.
+<p align="center">
+  <img src="docs/images/header.jpg" alt="Claude Code Orchestrator - Pipeline visualization showing YAML to Temporal to Sandbox to AI/Docker to Approval to PR/Report flow" width="100%">
+</p>
 
-## What is This?
+Durable **[Turbolift](https://github.com/Skyscanner/turbolift), with AI.**
 
-This project enables you to run automated code changes and analysis tasks across multiple repositories with enterprise-grade reliability. Think of it as "Turbolift with AI capabilities" - it coordinates complex, multi-step transformations using Claude Code while Temporal ensures durability and recoverability.
+Ever needed to migrate an API across 50 services? Fix a security vulnerability fleet-wide? Or just understand what authentication patterns exist across all your repositories before making changes?
 
-### Key Features
+This platform makes fleet-wide code changes and discovery manageable.
 
-- **Dual Execution Modes**
-  - **Agentic**: Uses Claude Code CLI for AI-powered transformations
-  - **Deterministic**: Runs custom Docker images for reproducible changes
+## 📸 See It In Action
 
-- **Two Operation Modes**
-  - **Transform Mode**: Makes code changes and creates pull requests
-  - **Report Mode**: Analyzes repositories and collects structured data (discovery)
+<!-- TODO: Add screenshots/GIFs showing:
+     1. CLI submitting a workflow
+     2. Temporal UI showing workflow progress
+     3. PR being created automatically
+-->
 
-- **Enterprise Reliability**
-  - Durable execution via Temporal (survives failures, network issues)
-  - Human-in-the-loop approval gates
-  - Parallel or sequential PR creation
-  - Automatic retry and error handling
+| Submitting a Task | Workflow in Temporal UI | PR Created |
+|-------------------|------------------------|------------|
+| ![CLI Demo](docs/images/cli-demo.png) | ![Temporal UI](docs/images/temporal-ui.png) | ![PR Created](docs/images/pr-created.png) |
 
-- **Advanced Discovery Patterns**
-  - **forEach**: Analyze multiple targets within a single repository
-  - **Transformation Repositories**: Reusable skills and tools across projects
-  - **Schema Validation**: Structured output with JSON Schema enforcement
+## The Problem
 
-### Use Cases
+Fleet-wide discovery & code changes are painful:
+- **Discovery is manual** — Understanding what exists across repos requires tedious exploration
+- **[Turbolift](https://github.com/Skyscanner/turbolift) dies when your laptop sleeps** — No durability, start over after failures
+- **Changes go straight to PRs** — No human input before the PR flood
+- **Scripts can't handle nuance** — Complex migrations need judgment, not just regex
 
-**Code Transformations:**
-- Apply security patches across microservices
-- Migrate APIs or dependencies fleet-wide
-- Refactor patterns across multiple repositories
-- Enforce coding standards automatically
 
-**Discovery & Analysis:**
-- Security audits across all services
-- Dependency inventory and version tracking
-- Technical debt assessment before migrations
-- Compliance scanning and reporting
+## The Solution
 
-## Architecture
+A managed orchestration platform that coordinates code transformations and analysis at scale:
 
+| Pain Point | How We Solve It |
+|------------|-----------------|
+| Script dies mid-run | **Durable execution** via Temporal — survives failures, restarts, network issues |
+| No review before PRs | **Human-in-the-loop** approval before any PR is created |
+| Regex can't handle complex changes | **Agentic execution** — Claude Code makes judgment calls |
+| Need predictable changes | **Deterministic mode** — Run OpenRewrite, scripts, or custom Docker images |
+| Don't know what exists | **Report mode** — Discover and analyze without making changes |
+
+## Current Status
+
+This is a working prototype with the core functionality implemented.
+
+### ✅ What Works Now
+
+| Feature | Status | Description |
+|---------|:------:|-------------|
+| **Agentic Transforms** | ✅ | Claude Code makes changes with AI judgment |
+| **Deterministic Transforms** | ✅ | Docker images for reproducible changes |
+| **Multi-Repository** | ✅ | Process multiple repos in parallel or sequentially |
+| **PR Creation** | ✅ | Automatic branch, push, and PR creation |
+| **Human Approval** | ✅ | Review changes before PR creation |
+| **Report Mode** | ✅ | Analyze repos and collect structured data |
+| **forEach Discovery** | ✅ | Iterate over multiple targets within a repo |
+| **Transformation Repos** | ✅ | Reusable skills and tools across projects |
+| **Slack Notifications** | ✅ | Get notified when approval is needed |
+
+### 🔜 What's Coming
+
+| Feature | Phase | Description |
+|---------|:-----:|-------------|
+| **Campaigns** | 5 | Batch execution across 100+ repos with failure thresholds |
+| **Kubernetes Sandbox** | 6 | Production-grade isolated execution |
+| **Observability** | 7 | Metrics, dashboards, and alerting |
+| **Security Hardening** | 8 | RBAC, network policies, secret management |
+| **Iterative Steering** | 9 | Guide the agent with follow-up prompts |
+
+See [IMPLEMENTATION_PLAN.md](docs/plans/IMPLEMENTATION_PLAN.md) for the full roadmap.
+
+## How It Works
+
+```mermaid
+flowchart LR
+    subgraph Input
+        CLI[/"CLI\n./bin/cli run"/]
+        YAML[/"task.yaml"/]
+    end
+
+    subgraph Orchestration
+        Temporal["⏱️ Temporal\n(durable execution)"]
+        Worker["Worker"]
+    end
+
+    subgraph Execution
+        Sandbox["🐳 Docker Sandbox"]
+        Claude["🤖 Claude Code"]
+        Docker["📦 Docker Image"]
+    end
+
+    subgraph Output
+        Approval{"👤 Human\nApproval"}
+        PR["🔀 GitHub PR"]
+        Report["📊 Report"]
+    end
+
+    CLI --> YAML --> Temporal
+    Temporal --> Worker --> Sandbox
+    Sandbox --> Claude
+    Sandbox --> Docker
+    Claude --> Approval
+    Docker --> Approval
+    Approval -->|Approved| PR
+    Approval -->|Report Mode| Report
 ```
-┌─────────────┐         ┌──────────────┐         ┌─────────────┐
-│   CLI/API   │────────▶│   Temporal   │────────▶│   Workers   │
-└─────────────┘         └──────────────┘         └─────────────┘
-                              │                         │
-                              │                         ▼
-                              │                  ┌─────────────┐
-                              │                  │   Docker    │
-                              │                  │  Sandbox    │
-                              │                  └─────────────┘
-                              │                         │
-                              ▼                         ▼
-                        ┌──────────────┐         ┌─────────────┐
-                        │   Results    │         │ Claude Code │
-                        │   Storage    │         │     CLI     │
-                        └──────────────┘         └─────────────┘
-```
+
+**Key components:**
+
+- **CLI** — Submit tasks, check status, approve changes
+- **Temporal** — Durable workflow engine that survives failures
+- **Worker** — Executes activities (clone, transform, verify, create PR)
+- **Docker Sandbox** — Isolated environment for running transformations
+- **Claude Code** — AI agent for complex, judgment-requiring changes
 
 ## Quick Start
 
 ### Prerequisites
 
 - **Go 1.21+**
-- **Docker** (running) - for sandbox containers
-- **Temporal CLI** - `brew install temporal`
+- **Docker** (running)
+- **Temporal CLI**: `brew install temporal`
 - **API Keys**:
   ```bash
-  export ANTHROPIC_API_KEY=sk-ant-...  # Required for Claude Code
-  export GITHUB_TOKEN=ghp_...          # Optional, for creating PRs
+  export ANTHROPIC_API_KEY=sk-ant-...  # For Claude Code
+  export GITHUB_TOKEN=ghp_...          # For creating PRs (optional)
   ```
 
-### Installation
+### Run Your First Workflow
 
-```bash
-# Clone the repository
-git clone https://github.com/andreweacott/agent-orchestrator.git
-cd agent-orchestrator
-
-# Build binaries
-make build
-
-# Run tests
-make test
-```
-
-### Running Your First Workflow
-
-**Terminal 1: Start Temporal**
+**Terminal 1 — Start Temporal:**
 ```bash
 make temporal-dev
 ```
 
-**Terminal 2: Start Worker**
+**Terminal 2 — Start the Worker:**
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
 make run-worker
 ```
 
-**Terminal 3: Run Smoke Test**
+**Terminal 3 — Run a Discovery Task:**
 ```bash
-# Run a discovery workflow
+# Run the smoke test
 ./bin/cli run -f examples/smoke-test-discovery.yaml
 
-# Monitor progress in Temporal UI
-open http://localhost:8233
+# Check status
+./bin/cli status --workflow-id transform-smoke-test-discovery
 
-# Check result (wait ~1-2 minutes)
-./bin/cli result --workflow-id transform-smoke-test-discovery
-
-# View the collected report
+# View the report
 ./bin/cli reports transform-smoke-test-discovery -o json
 ```
 
-## Example Workflows
+Open http://localhost:8233 to see the workflow in the Temporal UI.
+
+## Real-World Examples
 
 <details>
-<summary><strong>Quick Example: Repository Discovery</strong> - Click to expand</summary>
+<summary><strong>🔍 Example 1: Security Audit Across Services</strong></summary>
 
-### Task File: `examples/smoke-test-discovery.yaml`
+Analyze authentication patterns before a migration:
 
 ```yaml
 version: 1
-id: smoke-test-discovery
-title: "Smoke Test: Codebase Discovery"
+id: auth-audit
+title: "Authentication Security Audit"
 mode: report
 
 repositories:
-  - url: https://github.com/cespare/xxhash.git
-    branch: main
+  - url: https://github.com/yourorg/user-service.git
+  - url: https://github.com/yourorg/order-service.git
+  - url: https://github.com/yourorg/payment-service.git
 
 execution:
   agentic:
     prompt: |
-      Analyze this Go repository and produce a discovery report.
+      Analyze this repository's authentication implementation.
 
-      Your task:
-      1. Identify the main purpose of this library
-      2. Count the number of Go files
-      3. Check if tests exist
-      4. Note the Go version requirements (if any)
+      Look for:
+      - What auth library is used (OAuth, JWT, custom)?
+      - Are there hardcoded credentials?
+      - Is token expiration implemented?
 
-      Write your findings to /workspace/xxhash/REPORT.md with YAML frontmatter.
+      Write findings to /workspace/REPORT.md with YAML frontmatter.
 
     output:
       schema:
         type: object
-        required: [library_name, purpose, go_files_count, has_tests]
+        required: [auth_library, security_score]
         properties:
-          library_name: {type: string}
-          purpose: {type: string}
-          go_files_count: {type: integer, minimum: 1}
-          has_tests: {type: boolean}
-          go_version: {type: string}
+          auth_library: { type: string }
+          security_score: { type: integer, minimum: 1, maximum: 10 }
+          issues: { type: array }
 
-timeout: 5m
-require_approval: false
+timeout: 15m
 ```
 
-### Running It
-
+**Run it:**
 ```bash
-./bin/cli run -f examples/smoke-test-discovery.yaml
-./bin/cli reports transform-smoke-test-discovery -o json
-```
-
-### Output
-
-```json
-{
-  "repository": "xxhash",
-  "frontmatter": {
-    "library_name": "xxhash",
-    "purpose": "Fast non-cryptographic hash algorithm",
-    "go_files_count": 8,
-    "has_tests": true,
-    "go_version": "1.18"
-  },
-  "body": "# Discovery Report\n\n..."
-}
+./bin/cli run -f auth-audit.yaml
+./bin/cli reports transform-auth-audit -o json > audit-results.json
 ```
 
 </details>
 
-### More Examples
+<details>
+<summary><strong>🔄 Example 2: Fleet-Wide Code Migration</strong></summary>
 
-Explore detailed examples for different use cases:
+Migrate from `log.Printf` to structured logging:
 
-- **[Security Audit](docs/examples/01-security-audit.md)** - Analyze authentication across repositories (Report Mode)
-- **[Multi-Target Discovery](docs/examples/02-multi-target-discovery.md)** - Analyze multiple API endpoints with forEach
-- **[Code Transformation](docs/examples/03-code-transformation.md)** - Apply security fixes and create PRs (Transform Mode)
-- **[Deterministic Transformation](docs/examples/04-deterministic-transform.md)** - Use Docker images for reproducible changes
-- **[Transformation Repository](docs/examples/05-transformation-repository.md)** - Share skills and tools across projects
+```yaml
+version: 1
+id: slog-migration
+title: "Migrate to slog"
+mode: transform
 
-**[View All Examples →](docs/examples/)**
+repositories:
+  - url: https://github.com/yourorg/service-a.git
+    setup: ["go mod download"]
+  - url: https://github.com/yourorg/service-b.git
+    setup: ["go mod download"]
 
-## Common Commands
+execution:
+  agentic:
+    prompt: |
+      Migrate from log.Printf to the slog package:
+      - Replace log.Printf calls with slog equivalents
+      - Use appropriate log levels (Info, Warn, Error)
+      - Add context fields where useful (request ID, user ID)
+      - Initialize the logger in main()
 
-```bash
-# Start a workflow
-./bin/cli run -f task.yaml
+    verifiers:
+      - name: build
+        command: ["go", "build", "./..."]
+      - name: test
+        command: ["go", "test", "./..."]
 
-# List workflows
-./bin/cli list
-./bin/cli list --status Running
+timeout: 30m
+require_approval: true
+parallel: true
 
-# Check workflow status (while running)
-./bin/cli status --workflow-id transform-<task-id>
-
-# Get workflow result (after completion)
-./bin/cli result --workflow-id transform-<task-id>
-
-# View reports (report mode)
-./bin/cli reports transform-<task-id>
-./bin/cli reports transform-<task-id> -o json
-
-# Approve/reject changes
-./bin/cli approve --workflow-id transform-<task-id>
-./bin/cli reject --workflow-id transform-<task-id>
+pull_request:
+  branch_prefix: "auto/slog-migration"
+  title: "Migrate to structured logging (slog)"
+  labels: ["automated", "tech-debt"]
 ```
 
-**[Full CLI Reference →](docs/CLI_REFERENCE.md)**
+**Run it:**
+```bash
+./bin/cli run -f slog-migration.yaml
 
-## Important Notes
+# Wait for completion, then review
+./bin/cli status --workflow-id transform-slog-migration
 
-- **Workflow IDs**: Automatically prefixed with `transform-` (e.g., `my-task` becomes `transform-my-task`)
-- **Status vs Result**: Use `status` for running workflows, `result` for completed ones
-- **Temporal UI**: View detailed execution at http://localhost:8233
-- **Report Mode**: Set `require_approval: false` to skip manual approval for discovery tasks
+# Approve to create PRs
+./bin/cli approve --workflow-id transform-slog-migration
+```
 
-## Documentation
+</details>
 
-- **[Examples](docs/examples/)** - Detailed workflow examples
-- **[CLI Reference](docs/CLI_REFERENCE.md)** - Complete command documentation
-- **[Task File Reference](docs/TASK_FILE_REFERENCE.md)** - Full YAML specification
-- **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
-- **[Design Document](docs/DESIGN.md)** - Technical architecture and design decisions
-- **[Implementation Plan](docs/IMPLEMENTATION_PLAN.md)** - Phased development roadmap
-- **[Overview](docs/OVERVIEW.md)** - User-facing feature overview
+<details>
+<summary><strong>📦 Example 3: Deterministic Upgrade with OpenRewrite</strong></summary>
+
+Upgrade Log4j using a pre-built recipe (no AI, fully reproducible):
+
+```yaml
+version: 1
+id: log4j-upgrade
+title: "Log4j Security Upgrade"
+mode: transform
+
+repositories:
+  - url: https://github.com/yourorg/java-service.git
+
+execution:
+  deterministic:
+    image: openrewrite/rewrite:latest
+    args:
+      - "rewrite:run"
+      - "-Drewrite.activeRecipes=org.openrewrite.java.logging.log4j.Log4j1ToLog4j2"
+
+    verifiers:
+      - name: build
+        command: ["mvn", "compile"]
+
+timeout: 20m
+require_approval: false  # Pre-vetted deterministic transform
+
+pull_request:
+  branch_prefix: "security/log4j"
+  title: "Upgrade Log4j 1.x to 2.x (security fix)"
+```
+
+**Run it:**
+```bash
+./bin/cli run -f log4j-upgrade.yaml
+
+# No approval needed - deterministic transforms are pre-vetted
+./bin/cli result --workflow-id transform-log4j-upgrade
+```
+
+</details>
+
+## CLI Reference
+
+```bash
+# Submit a task
+./bin/cli run -f task.yaml
+./bin/cli run --repos https://github.com/org/repo.git --prompt "Add input validation"
+
+# Check status
+./bin/cli list                              # List all workflows
+./bin/cli status --workflow-id <id>         # Check specific workflow
+
+# Approve or reject
+./bin/cli approve --workflow-id <id>
+./bin/cli reject --workflow-id <id>
+
+# View results
+./bin/cli result --workflow-id <id>         # Transform mode result
+./bin/cli reports <workflow-id>             # Report mode output
+./bin/cli reports <workflow-id> -o json     # Export as JSON
+```
+
+> **Note:** Workflow IDs are prefixed with `transform-`. If your task ID is `my-task`, the workflow ID is `transform-my-task`.
 
 ## Development
 
 ```bash
-# Run tests
-make test
-
-# Run tests with coverage
-make test-coverage
-
-# Lint code
-make lint
-
-# Build binaries
+# Build
 make build
 
-# Format code
-make fmt
+# Test
+make test
 
-# Build sandbox Docker image
-make sandbox-build
+# Lint (required before commits)
+make lint
+
+# Run locally
+make temporal-dev     # Terminal 1: Start Temporal
+make run-worker       # Terminal 2: Start worker
+./bin/cli run -f ...  # Terminal 3: Submit tasks
 ```
 
 ### Project Structure
 
 ```
-.
 ├── cmd/
 │   ├── cli/          # CLI entry point
-│   └── worker/       # Worker entry point
+│   └── worker/       # Temporal worker
 ├── internal/
-│   ├── activity/     # Temporal activities
-│   ├── workflow/     # Temporal workflows
-│   ├── model/        # Data models
-│   ├── sandbox/      # Sandbox providers (Docker/K8s)
-│   ├── client/       # Temporal client utilities
-│   └── config/       # Configuration loading
+│   ├── activity/     # Temporal activities (clone, transform, PR creation)
+│   ├── workflow/     # Temporal workflows (orchestration logic)
+│   ├── model/        # Data models (Task, Result, etc.)
+│   └── sandbox/      # Docker sandbox provider
 ├── examples/         # Example task files
-├── docs/
-│   ├── examples/     # Detailed example documentation
-│   ├── DESIGN.md
-│   ├── IMPLEMENTATION_PLAN.md
-│   └── ...
-└── CLAUDE.md        # Claude Code instructions
+└── docs/
+    └── plans/        # Design docs and implementation plan
 ```
 
-## Contributing
+## Documentation
 
-See [CLAUDE.md](CLAUDE.md) for development conventions and requirements.
+| Document | Description |
+|----------|-------------|
+| [Implementation Plan](docs/plans/IMPLEMENTATION_PLAN.md) | Detailed phase breakdown and status |
+| [Design Document](docs/plans/DESIGN.md) | Technical architecture and data model |
+| [Overview](docs/plans/OVERVIEW.md) | Use cases and conceptual overview |
+| [CLI Reference](docs/CLI_REFERENCE.md) | Full command documentation |
+| [Task File Reference](docs/TASK_FILE_REFERENCE.md) | YAML schema details |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues and solutions |
 
-Before submitting changes:
-1. Run `make lint` - all code must pass linter
-2. Run `go test ./...` - all tests must pass
-3. Run `go build ./...` - code must compile
-4. Update `docs/IMPLEMENTATION_PLAN.md` when completing phases
+## Questions or Feedback?
 
-## License
+This is an internal prototype. If you have ideas, find bugs, or want to contribute:
 
-MIT License - see [LICENSE](LICENSE) for details
+1. Check the [Implementation Plan](docs/plans/IMPLEMENTATION_PLAN.md) for what's in progress
+2. Open an issue or reach out directly
+3. See [CLAUDE.md](CLAUDE.md) for contribution guidelines
+
+---
+
+*Built with [Temporal](https://temporal.io/) and [Claude Code](https://docs.anthropic.com/en/docs/claude-code).*
