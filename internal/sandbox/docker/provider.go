@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -67,8 +68,9 @@ func (p *Provider) Provision(ctx context.Context, opts sandbox.ProvisionOptions)
 		Image:     opts.Image,
 		Tty:       true,
 		OpenStdin: true,
-		Cmd:       []string{"tail", "-f", "/dev/null"},
-		Env:       envMapToSlice(opts.Env),
+		// Use /tmp for the log file since /var/log may not be writable by non-root users
+		Cmd: []string{"sh", "-c", "touch /tmp/claude-code.log && tail -f /tmp/claude-code.log"},
+		Env: envMapToSlice(opts.Env),
 	}
 
 	hostConfig := &container.HostConfig{
@@ -142,11 +144,49 @@ func (p *Provider) Exec(ctx context.Context, id string, cmd sandbox.ExecCommand)
 		return nil, fmt.Errorf("failed to inspect exec: %w", err)
 	}
 
-	return &sandbox.ExecResult{
+	result := &sandbox.ExecResult{
 		ExitCode: inspect.ExitCode,
 		Stdout:   stdout.String(),
 		Stderr:   stderr.String(),
-	}, nil
+	}
+
+	// Log the execution to the container log file
+	timestamp := time.Now().Format(time.RFC3339)
+	logEntry := fmt.Sprintf("[%s] Command: %v\nExit Code: %d\nStdout:\n%s\nStderr:\n%s\n%s\n",
+		timestamp, execConfig.Cmd, result.ExitCode, result.Stdout, result.Stderr, "---")
+
+	// Write to log (ignore errors to not fail the main execution)
+	_ = p.writeToLog(ctx, id, logEntry)
+
+	return result, nil
+}
+
+// writeToLog appends a message to the container's log file.
+func (p *Provider) writeToLog(ctx context.Context, id string, message string) error {
+	execConfig := types.ExecConfig{
+		Cmd:          []string{"sh", "-c", "cat >> /tmp/claude-code.log"},
+		AttachStdin:  true,
+		AttachStdout: false,
+		AttachStderr: false,
+	}
+
+	execID, err := p.client.ContainerExecCreate(ctx, id, execConfig)
+	if err != nil {
+		return err
+	}
+
+	resp, err := p.client.ContainerExecAttach(ctx, execID.ID, types.ExecStartCheck{})
+	if err != nil {
+		return err
+	}
+	defer resp.Close()
+
+	_, err = resp.Conn.Write([]byte(message))
+	if err != nil {
+		return err
+	}
+
+	return resp.Conn.Close()
 }
 
 // ExecShell executes a shell command string in a Docker container.
