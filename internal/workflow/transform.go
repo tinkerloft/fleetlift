@@ -24,7 +24,7 @@ const (
 
 // Transform is the main workflow for code transformations.
 // It supports both agentic (Claude Code) and deterministic (Docker) transformations.
-func Transform(ctx workflow.Context, task model.TransformTask) (*model.TransformResult, error) {
+func Transform(ctx workflow.Context, task model.Task) (*model.TaskResult, error) {
 	logger := workflow.GetLogger(ctx)
 	startTime := workflow.Now(ctx)
 
@@ -99,11 +99,11 @@ func Transform(ctx workflow.Context, task model.TransformTask) (*model.Transform
 	}
 
 	// Helper to create failed result
-	failedResult := func(errMsg string) *model.TransformResult {
+	failedResult := func(errMsg string) *model.TaskResult {
 		signalDone()
 		duration := workflow.Now(ctx).Sub(startTime).Seconds()
-		return &model.TransformResult{
-			TaskID:          task.TaskID,
+		return &model.TaskResult{
+			TaskID:          task.ID,
 			Status:          model.TaskStatusFailed,
 			Error:           &errMsg,
 			DurationSeconds: &duration,
@@ -111,12 +111,12 @@ func Transform(ctx workflow.Context, task model.TransformTask) (*model.Transform
 	}
 
 	// Helper to create cancelled result
-	cancelledResult := func() *model.TransformResult {
+	cancelledResult := func() *model.TaskResult {
 		signalDone()
 		duration := workflow.Now(ctx).Sub(startTime).Seconds()
 		errMsg := "Workflow cancelled"
-		return &model.TransformResult{
-			TaskID:          task.TaskID,
+		return &model.TaskResult{
+			TaskID:          task.ID,
 			Status:          model.TaskStatusCancelled,
 			Error:           &errMsg,
 			DurationSeconds: &duration,
@@ -157,11 +157,15 @@ func Transform(ctx workflow.Context, task model.TransformTask) (*model.Transform
 		}
 	}()
 
+	// Get execution type and timeout
+	executionType := task.Execution.GetExecutionType()
+	timeoutMinutes := task.GetTimeoutMinutes()
+
 	// 1. Provision sandbox
 	status = model.TaskStatusProvisioning
-	logger.Info("Starting transform workflow", "taskID", task.TaskID)
+	logger.Info("Starting transform workflow", "taskID", task.ID)
 
-	if err := workflow.ExecuteActivity(ctx, activity.ActivityProvisionSandbox, task.TaskID).Get(ctx, &sandbox); err != nil {
+	if err := workflow.ExecuteActivity(ctx, activity.ActivityProvisionSandbox, task.ID).Get(ctx, &sandbox); err != nil {
 		return failedResult(fmt.Sprintf("Failed to provision sandbox: %v", err)), nil
 	}
 
@@ -185,24 +189,21 @@ func Transform(ctx workflow.Context, task model.TransformTask) (*model.Transform
 	status = model.TaskStatusRunning
 
 	var filesModified []string
-
-	// Default to agentic mode if not specified
-	transformMode := task.TransformMode
-	if transformMode == "" {
-		transformMode = model.TransformModeAgentic
-	}
+	verifiers := task.Execution.GetVerifiers()
 
 	// Validate deterministic mode has required image
-	if transformMode == model.TransformModeDeterministic && task.TransformImage == "" {
-		return failedResult("Deterministic mode requires TransformImage to be set"), nil
+	if executionType == model.ExecutionTypeDeterministic {
+		if task.Execution.Deterministic == nil || task.Execution.Deterministic.Image == "" {
+			return failedResult("Deterministic execution requires image to be set"), nil
+		}
 	}
 
-	if transformMode == model.TransformModeDeterministic {
+	if executionType == model.ExecutionTypeDeterministic {
 		// Run deterministic transformation
-		logger.Info("Running deterministic transformation", "image", task.TransformImage)
+		logger.Info("Running deterministic transformation", "image", task.Execution.Deterministic.Image)
 
 		deterministicOptions := workflow.ActivityOptions{
-			StartToCloseTimeout: time.Duration(task.TimeoutMinutes+5) * time.Minute,
+			StartToCloseTimeout: time.Duration(timeoutMinutes+5) * time.Minute,
 			HeartbeatTimeout:    5 * time.Minute,
 			RetryPolicy:         retryPolicy,
 		}
@@ -210,8 +211,8 @@ func Transform(ctx workflow.Context, task model.TransformTask) (*model.Transform
 
 		var deterministicResult *model.DeterministicResult
 		err := workflow.ExecuteActivity(deterministicCtx, activity.ActivityExecuteDeterministic,
-			*sandbox, task.TransformImage, task.TransformArgs,
-			task.TransformEnv, task.Repositories).Get(deterministicCtx, &deterministicResult)
+			*sandbox, task.Execution.Deterministic.Image, task.Execution.Deterministic.Args,
+			task.Execution.Deterministic.Env, task.Repositories).Get(deterministicCtx, &deterministicResult)
 
 		if err != nil {
 			return failedResult(fmt.Sprintf("Failed to run deterministic transformation: %v", err)), nil
@@ -232,10 +233,18 @@ func Transform(ctx workflow.Context, task model.TransformTask) (*model.Transform
 			logger.Info("No files modified by deterministic transformation")
 			signalDone()
 			duration := workflow.Now(ctx).Sub(startTime).Seconds()
-			return &model.TransformResult{
-				TaskID:          task.TaskID,
+			// Build repository results with no PRs
+			var repoResults []model.RepositoryResult
+			for _, repo := range task.Repositories {
+				repoResults = append(repoResults, model.RepositoryResult{
+					Repository: repo.Name,
+					Status:     "success",
+				})
+			}
+			return &model.TaskResult{
+				TaskID:          task.ID,
 				Status:          model.TaskStatusCompleted,
-				PullRequests:    []model.PullRequest{},
+				Repositories:    repoResults,
 				DurationSeconds: &duration,
 			}, nil
 		}
@@ -245,16 +254,20 @@ func Transform(ctx workflow.Context, task model.TransformTask) (*model.Transform
 		// Note: Skip human approval for deterministic mode (transforms are pre-vetted)
 	} else {
 		// Run Claude Code (agentic mode - default)
+		if task.Execution.Agentic == nil || task.Execution.Agentic.Prompt == "" {
+			return failedResult("Agentic execution requires prompt to be set"), nil
+		}
+
 		prompt := buildPrompt(task)
 
 		claudeOptions := workflow.ActivityOptions{
-			StartToCloseTimeout: time.Duration(task.TimeoutMinutes+5) * time.Minute,
+			StartToCloseTimeout: time.Duration(timeoutMinutes+5) * time.Minute,
 			HeartbeatTimeout:    5 * time.Minute,
 			RetryPolicy:         retryPolicy,
 		}
 		claudeCtx := workflow.WithActivityOptions(ctx, claudeOptions)
 
-		if err := workflow.ExecuteActivity(claudeCtx, activity.ActivityRunClaudeCode, sandbox.ContainerID, prompt, task.TimeoutMinutes*60).Get(claudeCtx, &claudeResult); err != nil {
+		if err := workflow.ExecuteActivity(claudeCtx, activity.ActivityRunClaudeCode, sandbox.ContainerID, prompt, timeoutMinutes*60).Get(claudeCtx, &claudeResult); err != nil {
 			return failedResult(fmt.Sprintf("Failed to run Claude Code: %v", err)), nil
 		}
 
@@ -272,7 +285,7 @@ func Transform(ctx workflow.Context, task model.TransformTask) (*model.Transform
 		if claudeResult.NeedsClarification {
 			if task.SlackChannel != nil {
 				msg := fmt.Sprintf("Claude needs clarification for %s:\n\n%s",
-					task.TaskID, *claudeResult.ClarificationQuestion)
+					task.ID, *claudeResult.ClarificationQuestion)
 				_ = workflow.ExecuteActivity(ctx, activity.ActivityNotifySlack, *task.SlackChannel, msg, (*string)(nil)).Get(ctx, nil)
 			}
 
@@ -298,7 +311,7 @@ func Transform(ctx workflow.Context, task model.TransformTask) (*model.Transform
 				// Get changes summary
 				summary := getChangesSummary(ctx, sandbox.ContainerID, task.Repositories)
 				msg := fmt.Sprintf("Claude completed %s. Changes:\n```\n%s\n```\nReply with 'approve' or 'reject'",
-					task.TaskID, summary)
+					task.ID, summary)
 				_ = workflow.ExecuteActivity(ctx, activity.ActivityNotifySlack, *task.SlackChannel, msg, (*string)(nil)).Get(ctx, nil)
 			}
 
@@ -313,8 +326,8 @@ func Transform(ctx workflow.Context, task model.TransformTask) (*model.Transform
 				signalDone()
 				errMsg := "Approval timeout (24 hours)"
 				duration := workflow.Now(ctx).Sub(startTime).Seconds()
-				return &model.TransformResult{
-					TaskID:          task.TaskID,
+				return &model.TaskResult{
+					TaskID:          task.ID,
 					Status:          model.TaskStatusCancelled,
 					Error:           &errMsg,
 					DurationSeconds: &duration,
@@ -327,8 +340,8 @@ func Transform(ctx workflow.Context, task model.TransformTask) (*model.Transform
 				signalDone()
 				errMsg := "Changes rejected"
 				duration := workflow.Now(ctx).Sub(startTime).Seconds()
-				return &model.TransformResult{
-					TaskID:          task.TaskID,
+				return &model.TaskResult{
+					TaskID:          task.ID,
 					Status:          model.TaskStatusCancelled,
 					Error:           &errMsg,
 					DurationSeconds: &duration,
@@ -338,7 +351,7 @@ func Transform(ctx workflow.Context, task model.TransformTask) (*model.Transform
 	}
 
 	// 6. Run verifiers as final gate
-	if len(task.Verifiers) > 0 && len(filesModified) > 0 {
+	if len(verifiers) > 0 && len(filesModified) > 0 {
 		logger.Info("Running verifiers as final gate")
 
 		verifierOptions := workflow.ActivityOptions{
@@ -349,7 +362,7 @@ func Transform(ctx workflow.Context, task model.TransformTask) (*model.Transform
 		verifierCtx := workflow.WithActivityOptions(ctx, verifierOptions)
 
 		var verifiersResult *model.VerifiersResult
-		if err := workflow.ExecuteActivity(verifierCtx, activity.ActivityRunVerifiers, *sandbox, task.Repositories, task.Verifiers).Get(verifierCtx, &verifiersResult); err != nil {
+		if err := workflow.ExecuteActivity(verifierCtx, activity.ActivityRunVerifiers, *sandbox, task.Repositories, verifiers).Get(verifierCtx, &verifiersResult); err != nil {
 			return failedResult(fmt.Sprintf("Failed to run verifiers: %v", err)), nil
 		}
 
@@ -366,27 +379,53 @@ func Transform(ctx workflow.Context, task model.TransformTask) (*model.Transform
 		logger.Info("All verifiers passed")
 	}
 
-	// 7. Create pull requests
+	// 7. Handle based on mode
+	if task.GetMode() == model.TaskModeReport {
+		// Report mode: skip PR creation, return completed result
+		// TODO: Phase 4 - implement CollectReport activity to read /workspace/REPORT.md
+		status = model.TaskStatusCompleted
+		signalDone()
+		duration := workflow.Now(ctx).Sub(startTime).Seconds()
+
+		logger.Info("Report mode task completed", "filesModified", len(filesModified))
+
+		return &model.TaskResult{
+			TaskID:          task.ID,
+			Status:          model.TaskStatusCompleted,
+			Mode:            model.TaskModeReport,
+			DurationSeconds: &duration,
+			// TODO: Populate Repositories with ReportOutput when Phase 4 is implemented
+		}, nil
+	}
+
+	// Transform mode: create pull requests
 	status = model.TaskStatusCreatingPRs
 
 	var pullRequests []model.PullRequest
 	prDesc := buildPRDescriptionWithFiles(task, filesModified)
+	prTitle := fmt.Sprintf("fix: %s", task.Title)
 
 	if task.Parallel && len(task.Repositories) > 1 {
 		// Parallel PR creation for multi-repo tasks
 		logger.Info("Creating PRs in parallel", "repos", len(task.Repositories))
 		var prErr error
-		pullRequests, prErr = createPRsParallel(ctx, task, sandbox.ContainerID, prDesc)
+		pullRequests, prErr = createPRsParallel(ctx, task, sandbox.ContainerID, prTitle, prDesc)
 		if prErr != nil {
 			return failedResult(prErr.Error()), nil
 		}
 	} else {
 		// Sequential PR creation (default)
 		for _, repo := range task.Repositories {
+			input := activity.CreatePullRequestInput{
+				ContainerID: sandbox.ContainerID,
+				Repo:        repo,
+				TaskID:      task.ID,
+				Title:       prTitle,
+				Description: prDesc,
+				PRConfig:    task.PullRequest,
+			}
 			var pr *model.PullRequest
-			if err := workflow.ExecuteActivity(ctx, activity.ActivityCreatePullRequest,
-				sandbox.ContainerID, repo, task.TaskID,
-				fmt.Sprintf("fix: %s", task.Title), prDesc).Get(ctx, &pr); err != nil {
+			if err := workflow.ExecuteActivity(ctx, activity.ActivityCreatePullRequest, input).Get(ctx, &pr); err != nil {
 				return failedResult(fmt.Sprintf("Failed to create PR: %v", err)), nil
 			}
 
@@ -403,7 +442,7 @@ func Transform(ctx workflow.Context, task model.TransformTask) (*model.Transform
 			prLinks = append(prLinks, fmt.Sprintf("- %s", pr.PRURL))
 		}
 		msg := fmt.Sprintf("Pull requests created for %s:\n%s",
-			task.TaskID, strings.Join(prLinks, "\n"))
+			task.ID, strings.Join(prLinks, "\n"))
 		_ = workflow.ExecuteActivity(ctx, activity.ActivityNotifySlack, *task.SlackChannel, msg, (*string)(nil)).Get(ctx, nil)
 	}
 
@@ -411,24 +450,43 @@ func Transform(ctx workflow.Context, task model.TransformTask) (*model.Transform
 	signalDone()
 	duration := workflow.Now(ctx).Sub(startTime).Seconds()
 
-	return &model.TransformResult{
-		TaskID:          task.TaskID,
+	// Build repository results with PRs
+	var repoResults []model.RepositoryResult
+	prByRepo := make(map[string]*model.PullRequest)
+	for i := range pullRequests {
+		prByRepo[pullRequests[i].RepoName] = &pullRequests[i]
+	}
+	for _, repo := range task.Repositories {
+		repoResult := model.RepositoryResult{
+			Repository:    repo.Name,
+			Status:        "success",
+			FilesModified: filesModified,
+		}
+		if pr, ok := prByRepo[repo.Name]; ok {
+			repoResult.PullRequest = pr
+		}
+		repoResults = append(repoResults, repoResult)
+	}
+
+	return &model.TaskResult{
+		TaskID:          task.ID,
 		Status:          model.TaskStatusCompleted,
-		PullRequests:    pullRequests,
+		Mode:            task.GetMode(),
+		Repositories:    repoResults,
 		DurationSeconds: &duration,
 	}, nil
 }
 
 // generateAgentsMD creates the AGENTS.md content for the workspace.
-func generateAgentsMD(task model.TransformTask) string {
+func generateAgentsMD(task model.Task) string {
 	var sb strings.Builder
 
 	sb.WriteString("# Agent Instructions\n\n")
 	sb.WriteString(fmt.Sprintf("## Task: %s\n\n", task.Title))
-	sb.WriteString(fmt.Sprintf("**Task ID:** %s\n\n", task.TaskID))
+	sb.WriteString(fmt.Sprintf("**Task ID:** %s\n\n", task.ID))
 
-	if task.Description != "" {
-		sb.WriteString(fmt.Sprintf("**Description:**\n%s\n\n", task.Description))
+	if task.Execution.Agentic != nil && task.Execution.Agentic.Prompt != "" {
+		sb.WriteString(fmt.Sprintf("**Prompt:**\n%s\n\n", task.Execution.Agentic.Prompt))
 	}
 
 	if task.TicketURL != nil {
@@ -451,13 +509,13 @@ func generateAgentsMD(task model.TransformTask) string {
 }
 
 // buildPrompt creates the prompt for Claude Code.
-func buildPrompt(task model.TransformTask) string {
+func buildPrompt(task model.Task) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("Task: %s\n\n", task.Title))
 
-	if task.Description != "" {
-		sb.WriteString(fmt.Sprintf("Description:\n%s\n\n", task.Description))
+	if task.Execution.Agentic != nil && task.Execution.Agentic.Prompt != "" {
+		sb.WriteString(fmt.Sprintf("Instructions:\n%s\n\n", task.Execution.Agentic.Prompt))
 	}
 
 	if task.TicketURL != nil {
@@ -474,10 +532,11 @@ func buildPrompt(task model.TransformTask) string {
 	sb.WriteString("Make minimal, targeted changes to address the issue.")
 
 	// Append verifier instructions if verifiers are defined
-	if len(task.Verifiers) > 0 {
+	verifiers := task.Execution.GetVerifiers()
+	if len(verifiers) > 0 {
 		sb.WriteString("\n\n## Verification\n\n")
 		sb.WriteString("After making changes, verify your work by running these commands:\n\n")
-		for _, v := range task.Verifiers {
+		for _, v := range verifiers {
 			sb.WriteString(fmt.Sprintf("- **%s**: `%s`\n", v.Name, strings.Join(v.Command, " ")))
 		}
 		sb.WriteString("\nFix any errors before completing the task. All verifiers must pass.")
@@ -487,14 +546,14 @@ func buildPrompt(task model.TransformTask) string {
 }
 
 // buildPRDescriptionWithFiles creates the PR description with a list of modified files.
-func buildPRDescriptionWithFiles(task model.TransformTask, filesModified []string) string {
+func buildPRDescriptionWithFiles(task model.Task, filesModified []string) string {
 	var sb strings.Builder
 
 	sb.WriteString("## Summary\n\n")
 	sb.WriteString(fmt.Sprintf("Automated fix for: %s\n\n", task.Title))
 
-	if task.Description != "" {
-		sb.WriteString(fmt.Sprintf("**Original issue:**\n%s\n\n", task.Description))
+	if task.Execution.Agentic != nil && task.Execution.Agentic.Prompt != "" {
+		sb.WriteString(fmt.Sprintf("**Original prompt:**\n%s\n\n", task.Execution.Agentic.Prompt))
 	}
 
 	if task.TicketURL != nil {
@@ -502,8 +561,8 @@ func buildPRDescriptionWithFiles(task model.TransformTask, filesModified []strin
 	}
 
 	// Add transformation mode info
-	if task.TransformMode == model.TransformModeDeterministic {
-		sb.WriteString(fmt.Sprintf("**Transformation:** Deterministic (%s)\n\n", task.TransformImage))
+	if task.Execution.GetExecutionType() == model.ExecutionTypeDeterministic {
+		sb.WriteString(fmt.Sprintf("**Transformation:** Deterministic (%s)\n\n", task.Execution.Deterministic.Image))
 	}
 
 	sb.WriteString("## Changes\n\n")
@@ -551,7 +610,7 @@ type prResult struct {
 }
 
 // createPRsParallel creates pull requests for all repositories in parallel.
-func createPRsParallel(ctx workflow.Context, task model.TransformTask, containerID, prDesc string) ([]model.PullRequest, error) {
+func createPRsParallel(ctx workflow.Context, task model.Task, containerID, prTitle, prDesc string) ([]model.PullRequest, error) {
 	// Create a channel to collect results
 	resultChannel := workflow.NewChannel(ctx)
 
@@ -559,10 +618,16 @@ func createPRsParallel(ctx workflow.Context, task model.TransformTask, container
 	for _, repo := range task.Repositories {
 		repo := repo // capture loop variable
 		workflow.Go(ctx, func(gCtx workflow.Context) {
+			input := activity.CreatePullRequestInput{
+				ContainerID: containerID,
+				Repo:        repo,
+				TaskID:      task.ID,
+				Title:       prTitle,
+				Description: prDesc,
+				PRConfig:    task.PullRequest,
+			}
 			var pr *model.PullRequest
-			err := workflow.ExecuteActivity(gCtx, activity.ActivityCreatePullRequest,
-				containerID, repo, task.TaskID,
-				fmt.Sprintf("fix: %s", task.Title), prDesc).Get(gCtx, &pr)
+			err := workflow.ExecuteActivity(gCtx, activity.ActivityCreatePullRequest, input).Get(gCtx, &pr)
 
 			resultChannel.Send(gCtx, prResult{
 				repo: repo,

@@ -10,11 +10,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/docker/docker/api/types/container"
 	"go.temporal.io/sdk/activity"
 
-	"github.com/andreweacott/agent-orchestrator/internal/docker"
 	"github.com/andreweacott/agent-orchestrator/internal/model"
+	"github.com/andreweacott/agent-orchestrator/internal/sandbox"
 )
 
 // gitRefPattern validates git ref names (branches, tags, repo names)
@@ -60,12 +59,12 @@ func shortContainerID(id string) string {
 
 // SandboxActivities contains activities for managing sandbox containers.
 type SandboxActivities struct {
-	DockerClient *docker.Client
+	Provider sandbox.Provider
 }
 
 // NewSandboxActivities creates a new SandboxActivities instance.
-func NewSandboxActivities(client *docker.Client) *SandboxActivities {
-	return &SandboxActivities{DockerClient: client}
+func NewSandboxActivities(provider sandbox.Provider) *SandboxActivities {
+	return &SandboxActivities{Provider: provider}
 }
 
 // getEnvOrDefault returns the environment variable value or a default.
@@ -148,8 +147,6 @@ func (a *SandboxActivities) ProvisionSandbox(ctx context.Context, taskID string)
 	sandboxImage := getEnvOrDefault("SANDBOX_IMAGE", "claude-code-sandbox:latest")
 	memoryLimit := getEnvOrDefault("SANDBOX_MEMORY_LIMIT", DefaultMemoryLimit)
 	cpuLimit := getEnvOrDefault("SANDBOX_CPU_LIMIT", DefaultCPULimit)
-	// SEC-003: Configurable network mode for sandbox isolation
-	networkMode := getEnvOrDefault("SANDBOX_NETWORK_MODE", DefaultNetworkMode)
 
 	// BUG-002: Use robust resource parsing
 	memLimitBytes, err := parseMemory(memoryLimit)
@@ -162,41 +159,30 @@ func (a *SandboxActivities) ProvisionSandbox(ctx context.Context, taskID string)
 		logger.Warn("Failed to parse CPU limit, using default", "value", cpuLimit, "error", err)
 	}
 
-	containerConfig := &container.Config{
-		Image:     sandboxImage,
-		Tty:       true,
-		OpenStdin: true,
-		Cmd:       []string{"tail", "-f", "/dev/null"},
-		Env: []string{
-			fmt.Sprintf("ANTHROPIC_API_KEY=%s", os.Getenv("ANTHROPIC_API_KEY")),
-			fmt.Sprintf("GITHUB_TOKEN=%s", os.Getenv("GITHUB_TOKEN")),
-			fmt.Sprintf("TASK_ID=%s", taskID),
+	opts := sandbox.ProvisionOptions{
+		TaskID:     taskID,
+		Image:      sandboxImage,
+		WorkingDir: WorkspacePath,
+		Env: map[string]string{
+			"ANTHROPIC_API_KEY": os.Getenv("ANTHROPIC_API_KEY"),
+			"GITHUB_TOKEN":      os.Getenv("GITHUB_TOKEN"),
+			"TASK_ID":           taskID,
+		},
+		Resources: sandbox.ResourceLimits{
+			MemoryBytes: memLimitBytes,
+			CPUQuota:    cpuQuota,
 		},
 	}
 
-	hostConfig := &container.HostConfig{
-		Resources: container.Resources{
-			Memory:    memLimitBytes,
-			CPUPeriod: 100000,
-			CPUQuota:  cpuQuota,
-		},
-		SecurityOpt: []string{"no-new-privileges:true"},
-		// SEC-003: Apply configurable network mode
-		// Options: "bridge" (default), "none" (no network), "host", or custom network name
-		NetworkMode: container.NetworkMode(networkMode),
-	}
-
-	containerName := fmt.Sprintf("claude-sandbox-%s", taskID)
-
-	containerID, err := a.DockerClient.CreateAndStartContainer(ctx, containerConfig, hostConfig, containerName)
+	sb, err := a.Provider.Provision(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to provision sandbox: %w", err)
 	}
 
-	logger.Info("Container created", "containerID", shortContainerID(containerID), "taskID", taskID, "networkMode", networkMode)
+	logger.Info("Container created", "containerID", shortContainerID(sb.ID), "taskID", taskID)
 
 	return &model.SandboxInfo{
-		ContainerID:   containerID,
+		ContainerID:   sb.ID,
 		WorkspacePath: WorkspacePath,
 	}, nil
 }
@@ -216,7 +202,7 @@ https://x-access-token:%s@github.com
 CRED_EOF
 )`, token)
 
-	result, err := a.DockerClient.ExecShellCommand(ctx, containerID, cmd, AgentUser)
+	result, err := a.Provider.ExecShell(ctx, containerID, cmd, AgentUser)
 	if err != nil {
 		return fmt.Errorf("failed to configure git credentials: %w", err)
 	}
@@ -227,13 +213,13 @@ CRED_EOF
 }
 
 // CloneRepositories clones repositories into the sandbox and runs setup commands.
-func (a *SandboxActivities) CloneRepositories(ctx context.Context, sandbox model.SandboxInfo, repos []model.Repository, agentsMD string) ([]string, error) {
+func (a *SandboxActivities) CloneRepositories(ctx context.Context, sandboxInfo model.SandboxInfo, repos []model.Repository, agentsMD string) ([]string, error) {
 	logger := activity.GetLogger(ctx)
 	logger.Info("Cloning repositories", "count", len(repos))
 
 	// SEC-002: Configure git credentials once at start (token not exposed in clone commands)
 	githubToken := os.Getenv("GITHUB_TOKEN")
-	if err := a.configureGitCredentials(ctx, sandbox.ContainerID, githubToken); err != nil {
+	if err := a.configureGitCredentials(ctx, sandboxInfo.ContainerID, githubToken); err != nil {
 		return nil, fmt.Errorf("failed to configure git credentials: %w", err)
 	}
 
@@ -267,7 +253,7 @@ func (a *SandboxActivities) CloneRepositories(ctx context.Context, sandbox model
 			cmd = fmt.Sprintf("git clone --depth %s --branch %s %s /workspace/%s", cloneDepth, repo.Branch, repo.URL, repo.Name)
 		}
 
-		result, err := a.DockerClient.ExecShellCommand(ctx, sandbox.ContainerID, cmd, AgentUser)
+		result, err := a.Provider.ExecShell(ctx, sandboxInfo.ContainerID, cmd, AgentUser)
 		if err != nil {
 			return nil, fmt.Errorf("failed to execute clone command: %w", err)
 		}
@@ -287,7 +273,7 @@ func (a *SandboxActivities) CloneRepositories(ctx context.Context, sandbox model
 			for i, setupCmd := range repo.Setup {
 				logger.Info("Running setup command", "repo", repo.Name, "command", setupCmd)
 				fullCmd := fmt.Sprintf("cd %s && %s", repoPath, setupCmd)
-				result, err := a.DockerClient.ExecShellCommand(ctx, sandbox.ContainerID, fullCmd, AgentUser)
+				result, err := a.Provider.ExecShell(ctx, sandboxInfo.ContainerID, fullCmd, AgentUser)
 				if err != nil {
 					return nil, fmt.Errorf("failed to execute setup command %d for %s: %w", i+1, repo.Name, err)
 				}
@@ -305,7 +291,7 @@ func (a *SandboxActivities) CloneRepositories(ctx context.Context, sandbox model
 
 	// Use heredoc to write file content
 	writeCmd := fmt.Sprintf("cat > /workspace/AGENTS.md << 'AGENTS_EOF'\n%s\nAGENTS_EOF", agentsMD)
-	result, err := a.DockerClient.ExecShellCommand(ctx, sandbox.ContainerID, writeCmd, AgentUser)
+	result, err := a.Provider.ExecShell(ctx, sandboxInfo.ContainerID, writeCmd, AgentUser)
 	if err != nil {
 		logger.Warn("Failed to create AGENTS.md", "error", err)
 	} else if result.ExitCode != 0 {
@@ -320,7 +306,7 @@ func (a *SandboxActivities) CleanupSandbox(ctx context.Context, containerID stri
 	logger := activity.GetLogger(ctx)
 	logger.Info("Cleaning up container", "containerID", shortContainerID(containerID))
 
-	if err := a.DockerClient.StopAndRemoveContainer(ctx, containerID, 10); err != nil {
+	if err := a.Provider.Cleanup(ctx, containerID); err != nil {
 		logger.Error("Error cleaning up container", "error", err)
 		return err
 	}
@@ -330,7 +316,7 @@ func (a *SandboxActivities) CleanupSandbox(ctx context.Context, containerID stri
 }
 
 // RunVerifiers executes verification commands in each repository and returns results.
-func (a *SandboxActivities) RunVerifiers(ctx context.Context, sandbox model.SandboxInfo, repos []model.Repository, verifiers []model.Verifier) (*model.VerifiersResult, error) {
+func (a *SandboxActivities) RunVerifiers(ctx context.Context, sandboxInfo model.SandboxInfo, repos []model.Repository, verifiers []model.Verifier) (*model.VerifiersResult, error) {
 	logger := activity.GetLogger(ctx)
 	logger.Info("Running verifiers", "count", len(verifiers), "repos", len(repos))
 
@@ -351,7 +337,7 @@ func (a *SandboxActivities) RunVerifiers(ctx context.Context, sandbox model.Sand
 			cmdStr := strings.Join(verifier.Command, " ")
 			fullCmd := fmt.Sprintf("cd %s && %s", repoPath, cmdStr)
 
-			result, err := a.DockerClient.ExecShellCommand(ctx, sandbox.ContainerID, fullCmd, AgentUser)
+			result, err := a.Provider.ExecShell(ctx, sandboxInfo.ContainerID, fullCmd, AgentUser)
 
 			var vResult model.VerifierResult
 			vResult.Name = fmt.Sprintf("%s:%s", repo.Name, verifier.Name)

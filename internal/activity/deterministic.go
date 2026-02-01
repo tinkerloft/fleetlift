@@ -9,8 +9,8 @@ import (
 
 	"go.temporal.io/sdk/activity"
 
-	"github.com/andreweacott/agent-orchestrator/internal/docker"
 	"github.com/andreweacott/agent-orchestrator/internal/model"
+	"github.com/andreweacott/agent-orchestrator/internal/sandbox"
 )
 
 // shellQuote properly quotes a string for safe use in shell commands.
@@ -40,12 +40,12 @@ func isValidEnvKey(key string) bool {
 
 // DeterministicActivities contains activities for running deterministic transformations.
 type DeterministicActivities struct {
-	DockerClient *docker.Client
+	Provider sandbox.Provider
 }
 
 // NewDeterministicActivities creates a new DeterministicActivities instance.
-func NewDeterministicActivities(client *docker.Client) *DeterministicActivities {
-	return &DeterministicActivities{DockerClient: client}
+func NewDeterministicActivities(provider sandbox.Provider) *DeterministicActivities {
+	return &DeterministicActivities{Provider: provider}
 }
 
 // ExecuteDeterministic runs a deterministic transformation using a Docker image.
@@ -53,7 +53,7 @@ func NewDeterministicActivities(client *docker.Client) *DeterministicActivities 
 // the output, exit code, and modified files.
 func (a *DeterministicActivities) ExecuteDeterministic(
 	ctx context.Context,
-	sandbox model.SandboxInfo,
+	sandboxInfo model.SandboxInfo,
 	image string,
 	args []string,
 	env map[string]string,
@@ -87,7 +87,7 @@ func (a *DeterministicActivities) ExecuteDeterministic(
 	// Execute docker run inside the sandbox container
 	// Note: Infrastructure errors (network, docker daemon) return actual errors for Temporal retry
 	// Non-zero exit codes are non-retriable application failures, returned via result struct
-	result, err := a.DockerClient.ExecShellCommand(ctx, sandbox.ContainerID, dockerCmd, AgentUser)
+	result, err := a.Provider.ExecShell(ctx, sandboxInfo.ContainerID, dockerCmd, AgentUser)
 	if err != nil {
 		// Return actual error for retriable infrastructure failures (Temporal will retry)
 		return nil, fmt.Errorf("failed to execute transformation: %w", err)
@@ -113,7 +113,7 @@ func (a *DeterministicActivities) ExecuteDeterministic(
 	activity.RecordHeartbeat(ctx, "Detecting modified files")
 
 	// Detect modified files across all repositories
-	filesModified, err := a.detectModifiedFiles(ctx, sandbox.ContainerID, repos)
+	filesModified, err := a.detectModifiedFiles(ctx, sandboxInfo.ContainerID, repos)
 	if err != nil {
 		logger.Warn("Failed to detect modified files", "error", err)
 		// Continue anyway - we'll just have an empty list
@@ -197,7 +197,7 @@ func (a *DeterministicActivities) detectModifiedFiles(
 		// Format: XY filename
 		// where X is index status, Y is worktree status
 		cmd := fmt.Sprintf("cd %s && git status --porcelain", repoPath)
-		result, err := a.DockerClient.ExecShellCommand(ctx, containerID, cmd, AgentUser)
+		result, err := a.Provider.ExecShell(ctx, containerID, cmd, AgentUser)
 		if err != nil {
 			logger.Warn("Failed to get git status for repository",
 				"repo", repo.Name,

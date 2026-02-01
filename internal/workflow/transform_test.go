@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"go.temporal.io/sdk/testsuite"
 
+	"github.com/andreweacott/agent-orchestrator/internal/activity"
 	"github.com/andreweacott/agent-orchestrator/internal/model"
 )
 
@@ -54,8 +55,8 @@ func (m *MockActivities) GetClaudeOutput(ctx context.Context, containerID, repoN
 	return args.Get(0).(map[string]string), args.Error(1)
 }
 
-func (m *MockActivities) CreatePullRequest(ctx context.Context, containerID string, repo model.Repository, taskID, title, description string) (*model.PullRequest, error) {
-	args := m.Called(ctx, containerID, repo, taskID, title, description)
+func (m *MockActivities) CreatePullRequest(ctx context.Context, input activity.CreatePullRequestInput) (*model.PullRequest, error) {
+	args := m.Called(ctx, input)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
@@ -132,7 +133,7 @@ func (s *TransformWorkflowTestSuite) TestTransformWorkflowSuccess() {
 			FilesModified: []string{"src/main.go"},
 		}, nil)
 
-	s.mockActivities.On("CreatePullRequest", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	s.mockActivities.On("CreatePullRequest", mock.Anything, mock.Anything).
 		Return(&model.PullRequest{
 			RepoName:   "test-repo",
 			PRURL:      "https://github.com/org/test-repo/pull/1",
@@ -144,15 +145,20 @@ func (s *TransformWorkflowTestSuite) TestTransformWorkflowSuccess() {
 	s.mockActivities.On("CleanupSandbox", mock.Anything, "container-abc").
 		Return(nil)
 
-	task := model.TransformTask{
-		TaskID:      "test-123",
-		Title:       "Test bug fix",
-		Description: "Fix the test bug",
+	task := model.Task{
+		Version: model.SchemaVersion,
+		ID:      "test-123",
+		Title:   "Test bug fix",
 		Repositories: []model.Repository{
 			{URL: "https://github.com/org/test-repo.git", Branch: "main", Name: "test-repo"},
 		},
+		Execution: model.Execution{
+			Agentic: &model.AgenticExecution{
+				Prompt: "Fix the test bug",
+			},
+		},
 		RequireApproval: false,
-		TimeoutMinutes:  30,
+		Timeout:         "30m",
 	}
 
 	s.env.ExecuteWorkflow(Transform, task)
@@ -160,12 +166,13 @@ func (s *TransformWorkflowTestSuite) TestTransformWorkflowSuccess() {
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
 
-	var result model.TransformResult
+	var result model.TaskResult
 	s.NoError(s.env.GetWorkflowResult(&result))
 
 	s.Equal(model.TaskStatusCompleted, result.Status)
-	s.Len(result.PullRequests, 1)
-	s.Equal(1, result.PullRequests[0].PRNumber)
+	s.Len(result.Repositories, 1)
+	s.NotNil(result.Repositories[0].PullRequest)
+	s.Equal(1, result.Repositories[0].PullRequest.PRNumber)
 }
 
 func (s *TransformWorkflowTestSuite) TestTransformWorkflowWithApproval() {
@@ -187,7 +194,7 @@ func (s *TransformWorkflowTestSuite) TestTransformWorkflowWithApproval() {
 			FilesModified: []string{"src/main.go"},
 		}, nil)
 
-	s.mockActivities.On("CreatePullRequest", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	s.mockActivities.On("CreatePullRequest", mock.Anything, mock.Anything).
 		Return(&model.PullRequest{
 			RepoName:   "test-repo",
 			PRURL:      "https://github.com/org/test-repo/pull/2",
@@ -199,15 +206,20 @@ func (s *TransformWorkflowTestSuite) TestTransformWorkflowWithApproval() {
 	s.mockActivities.On("CleanupSandbox", mock.Anything, "container-def").
 		Return(nil)
 
-	task := model.TransformTask{
-		TaskID:      "test-456",
-		Title:       "Test with approval",
-		Description: "Need approval",
+	task := model.Task{
+		Version: model.SchemaVersion,
+		ID:      "test-456",
+		Title:   "Test with approval",
 		Repositories: []model.Repository{
 			{URL: "https://github.com/org/test-repo.git", Branch: "main", Name: "test-repo"},
 		},
+		Execution: model.Execution{
+			Agentic: &model.AgenticExecution{
+				Prompt: "Need approval",
+			},
+		},
 		RequireApproval: true,
-		TimeoutMinutes:  30,
+		Timeout:         "30m",
 	}
 
 	// Register a callback to send approval after a delay
@@ -220,7 +232,7 @@ func (s *TransformWorkflowTestSuite) TestTransformWorkflowWithApproval() {
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
 
-	var result model.TransformResult
+	var result model.TaskResult
 	s.NoError(s.env.GetWorkflowResult(&result))
 	s.Equal(model.TaskStatusCompleted, result.Status)
 }
@@ -247,15 +259,20 @@ func (s *TransformWorkflowTestSuite) TestTransformWorkflowRejection() {
 	s.mockActivities.On("CleanupSandbox", mock.Anything, "container-ghi").
 		Return(nil)
 
-	task := model.TransformTask{
-		TaskID:      "test-789",
-		Title:       "Test rejection",
-		Description: "This will be rejected",
+	task := model.Task{
+		Version: model.SchemaVersion,
+		ID:      "test-789",
+		Title:   "Test rejection",
 		Repositories: []model.Repository{
 			{URL: "https://github.com/org/test-repo.git", Branch: "main", Name: "test-repo"},
 		},
+		Execution: model.Execution{
+			Agentic: &model.AgenticExecution{
+				Prompt: "This will be rejected",
+			},
+		},
 		RequireApproval: true,
-		TimeoutMinutes:  30,
+		Timeout:         "30m",
 	}
 
 	// Register a callback to send rejection after a delay
@@ -268,7 +285,7 @@ func (s *TransformWorkflowTestSuite) TestTransformWorkflowRejection() {
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
 
-	var result model.TransformResult
+	var result model.TaskResult
 	s.NoError(s.env.GetWorkflowResult(&result))
 	s.Equal(model.TaskStatusCancelled, result.Status)
 }
@@ -296,15 +313,20 @@ func (s *TransformWorkflowTestSuite) TestTransformWorkflowFailure() {
 	s.mockActivities.On("CleanupSandbox", mock.Anything, "container-fail").
 		Return(nil)
 
-	task := model.TransformTask{
-		TaskID:      "test-fail",
-		Title:       "Test failure",
-		Description: "This will fail",
+	task := model.Task{
+		Version: model.SchemaVersion,
+		ID:      "test-fail",
+		Title:   "Test failure",
 		Repositories: []model.Repository{
 			{URL: "https://github.com/org/test-repo.git", Branch: "main", Name: "test-repo"},
 		},
+		Execution: model.Execution{
+			Agentic: &model.AgenticExecution{
+				Prompt: "This will fail",
+			},
+		},
 		RequireApproval: false,
-		TimeoutMinutes:  30,
+		Timeout:         "30m",
 	}
 
 	s.env.ExecuteWorkflow(Transform, task)
@@ -312,7 +334,7 @@ func (s *TransformWorkflowTestSuite) TestTransformWorkflowFailure() {
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
 
-	var result model.TransformResult
+	var result model.TaskResult
 	s.NoError(s.env.GetWorkflowResult(&result))
 	s.Equal(model.TaskStatusFailed, result.Status)
 	s.NotNil(result.Error)
@@ -338,7 +360,7 @@ func (s *TransformWorkflowTestSuite) TestDeterministicTransformationSuccess() {
 			FilesModified: []string{"test-repo/src/main.go", "test-repo/src/utils.go"},
 		}, nil)
 
-	s.mockActivities.On("CreatePullRequest", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+	s.mockActivities.On("CreatePullRequest", mock.Anything, mock.Anything).
 		Return(&model.PullRequest{
 			RepoName:   "test-repo",
 			PRURL:      "https://github.com/org/test-repo/pull/10",
@@ -350,19 +372,22 @@ func (s *TransformWorkflowTestSuite) TestDeterministicTransformationSuccess() {
 	s.mockActivities.On("CleanupSandbox", mock.Anything, "container-det-001").
 		Return(nil)
 
-	task := model.TransformTask{
-		TaskID:      "test-det-001",
-		Title:       "Deterministic transform",
-		Description: "Apply automated fix",
+	task := model.Task{
+		Version: model.SchemaVersion,
+		ID:      "test-det-001",
+		Title:   "Deterministic transform",
 		Repositories: []model.Repository{
 			{URL: "https://github.com/org/test-repo.git", Branch: "main", Name: "test-repo"},
 		},
+		Execution: model.Execution{
+			Deterministic: &model.DeterministicExecution{
+				Image: "my-transform:latest",
+				Args:  []string{"--fix"},
+				Env:   map[string]string{"DEBUG": "1"},
+			},
+		},
 		RequireApproval: false,
-		TimeoutMinutes:  30,
-		TransformMode:   model.TransformModeDeterministic,
-		TransformImage:  "my-transform:latest",
-		TransformArgs:   []string{"--fix"},
-		TransformEnv:    map[string]string{"DEBUG": "1"},
+		Timeout:         "30m",
 	}
 
 	s.env.ExecuteWorkflow(Transform, task)
@@ -370,12 +395,13 @@ func (s *TransformWorkflowTestSuite) TestDeterministicTransformationSuccess() {
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
 
-	var result model.TransformResult
+	var result model.TaskResult
 	s.NoError(s.env.GetWorkflowResult(&result))
 
 	s.Equal(model.TaskStatusCompleted, result.Status)
-	s.Len(result.PullRequests, 1)
-	s.Equal(10, result.PullRequests[0].PRNumber)
+	s.Len(result.Repositories, 1)
+	s.NotNil(result.Repositories[0].PullRequest)
+	s.Equal(10, result.Repositories[0].PullRequest.PRNumber)
 }
 
 func (s *TransformWorkflowTestSuite) TestDeterministicTransformationNoChanges() {
@@ -401,17 +427,20 @@ func (s *TransformWorkflowTestSuite) TestDeterministicTransformationNoChanges() 
 	s.mockActivities.On("CleanupSandbox", mock.Anything, "container-det-002").
 		Return(nil)
 
-	task := model.TransformTask{
-		TaskID:      "test-det-002",
-		Title:       "No-op transform",
-		Description: "Nothing to change",
+	task := model.Task{
+		Version: model.SchemaVersion,
+		ID:      "test-det-002",
+		Title:   "No-op transform",
 		Repositories: []model.Repository{
 			{URL: "https://github.com/org/test-repo.git", Branch: "main", Name: "test-repo"},
 		},
+		Execution: model.Execution{
+			Deterministic: &model.DeterministicExecution{
+				Image: "my-transform:latest",
+			},
+		},
 		RequireApproval: false,
-		TimeoutMinutes:  30,
-		TransformMode:   model.TransformModeDeterministic,
-		TransformImage:  "my-transform:latest",
+		Timeout:         "30m",
 	}
 
 	s.env.ExecuteWorkflow(Transform, task)
@@ -419,12 +448,13 @@ func (s *TransformWorkflowTestSuite) TestDeterministicTransformationNoChanges() 
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
 
-	var result model.TransformResult
+	var result model.TaskResult
 	s.NoError(s.env.GetWorkflowResult(&result))
 
 	// Should complete successfully but with no PRs
 	s.Equal(model.TaskStatusCompleted, result.Status)
-	s.Len(result.PullRequests, 0)
+	s.Len(result.Repositories, 1)
+	s.Nil(result.Repositories[0].PullRequest)
 }
 
 func (s *TransformWorkflowTestSuite) TestDeterministicTransformationFailure() {
@@ -451,17 +481,20 @@ func (s *TransformWorkflowTestSuite) TestDeterministicTransformationFailure() {
 	s.mockActivities.On("CleanupSandbox", mock.Anything, "container-det-003").
 		Return(nil)
 
-	task := model.TransformTask{
-		TaskID:      "test-det-003",
-		Title:       "Failing transform",
-		Description: "This will fail",
+	task := model.Task{
+		Version: model.SchemaVersion,
+		ID:      "test-det-003",
+		Title:   "Failing transform",
 		Repositories: []model.Repository{
 			{URL: "https://github.com/org/test-repo.git", Branch: "main", Name: "test-repo"},
 		},
+		Execution: model.Execution{
+			Deterministic: &model.DeterministicExecution{
+				Image: "failing-transform:latest",
+			},
+		},
 		RequireApproval: false,
-		TimeoutMinutes:  30,
-		TransformMode:   model.TransformModeDeterministic,
-		TransformImage:  "failing-transform:latest",
+		Timeout:         "30m",
 	}
 
 	s.env.ExecuteWorkflow(Transform, task)
@@ -469,7 +502,7 @@ func (s *TransformWorkflowTestSuite) TestDeterministicTransformationFailure() {
 	s.True(s.env.IsWorkflowCompleted())
 	s.NoError(s.env.GetWorkflowError())
 
-	var result model.TransformResult
+	var result model.TaskResult
 	s.NoError(s.env.GetWorkflowResult(&result))
 
 	s.Equal(model.TaskStatusFailed, result.Status)

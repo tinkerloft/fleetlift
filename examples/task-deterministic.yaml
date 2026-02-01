@@ -1,0 +1,35 @@
+# Example: Deterministic Transform Task
+# This demonstrates a Docker-based deterministic transformation using OpenRewrite.
+# Deterministic transforms skip human approval since they are pre-vetted.
+# Replace the repository URL with your actual repository.
+
+version: 1
+id: example-deterministic
+title: "Upgrade Log4j 1.x to 2.x"
+description: "Security fix using OpenRewrite recipe"
+mode: transform
+
+repositories:
+  # Replace with your actual Java repository URL
+  - url: https://github.com/example/repo.git
+    branch: main
+
+execution:
+  deterministic:
+    image: openrewrite/rewrite:latest
+    args:
+      - "rewrite:run"
+      - "-Drewrite.activeRecipes=org.openrewrite.java.logging.log4j.Log4j1ToLog4j2"
+    env:
+      MAVEN_OPTS: "-Xmx2g"
+    verifiers:
+      - name: build
+        command: ["mvn", "compile"]
+
+timeout: 20m
+require_approval: false
+
+pull_request:
+  branch_prefix: "security/log4j-upgrade"
+  title: "Upgrade Log4j 1.x to 2.x"
+  labels: ["security", "automated"]

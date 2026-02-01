@@ -10,7 +10,7 @@ import (
 
 	"github.com/andreweacott/agent-orchestrator/internal/activity"
 	internalclient "github.com/andreweacott/agent-orchestrator/internal/client"
-	"github.com/andreweacott/agent-orchestrator/internal/docker"
+	"github.com/andreweacott/agent-orchestrator/internal/sandbox/docker"
 	"github.com/andreweacott/agent-orchestrator/internal/workflow"
 )
 
@@ -42,17 +42,17 @@ func main() {
 	log.Printf("Connected to Temporal at %s", temporalAddr)
 	log.Printf("Task queue: %s", internalclient.TaskQueue)
 
-	// Create Docker client
-	dockerClient, err := docker.NewClient()
+	// Create Docker provider
+	dockerProvider, err := docker.NewProvider()
 	if err != nil {
-		log.Fatalf("Failed to create Docker client: %v", err)
+		log.Fatalf("Failed to create Docker provider: %v", err)
 	}
 
 	// Create activities
-	sandboxActivities := activity.NewSandboxActivities(dockerClient)
-	claudeActivities := activity.NewClaudeCodeActivities(dockerClient)
-	deterministicActivities := activity.NewDeterministicActivities(dockerClient)
-	githubActivities := activity.NewGitHubActivities(dockerClient)
+	sandboxActivities := activity.NewSandboxActivities(dockerProvider)
+	claudeActivities := activity.NewClaudeCodeActivities(dockerProvider)
+	deterministicActivities := activity.NewDeterministicActivities(dockerProvider)
+	githubActivities := activity.NewGitHubActivities(dockerProvider)
 	slackActivities := activity.NewSlackActivities()
 
 	// Create worker

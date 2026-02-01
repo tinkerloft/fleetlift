@@ -58,11 +58,12 @@ func (c *Client) Close() {
 }
 
 // StartTransform starts a new transform workflow.
-func (c *Client) StartTransform(ctx context.Context, task model.TransformTask) (string, error) {
-	workflowID := fmt.Sprintf("transform-%s", task.TaskID)
+func (c *Client) StartTransform(ctx context.Context, task model.Task) (string, error) {
+	workflowID := fmt.Sprintf("transform-%s", task.ID)
 
 	// Calculate workflow timeout: task timeout + buffer for setup/cleanup
-	workflowTimeout := time.Duration(task.TimeoutMinutes+WorkflowTimeoutBuffer) * time.Minute
+	timeoutMinutes := task.GetTimeoutMinutes()
+	workflowTimeout := time.Duration(timeoutMinutes+WorkflowTimeoutBuffer) * time.Minute
 
 	options := client.StartWorkflowOptions{
 		ID:                       workflowID,
@@ -94,10 +95,10 @@ func (c *Client) GetWorkflowStatus(ctx context.Context, workflowID string) (mode
 }
 
 // GetWorkflowResult waits for and returns the workflow result.
-func (c *Client) GetWorkflowResult(ctx context.Context, workflowID string) (*model.TransformResult, error) {
+func (c *Client) GetWorkflowResult(ctx context.Context, workflowID string) (*model.TaskResult, error) {
 	run := c.temporal.GetWorkflow(ctx, workflowID, "")
 
-	var result model.TransformResult
+	var result model.TaskResult
 	if err := run.Get(ctx, &result); err != nil {
 		return nil, fmt.Errorf("failed to get workflow result: %w", err)
 	}
@@ -179,7 +180,7 @@ func (c *Client) ListWorkflows(ctx context.Context, statusFilter string, limit i
 // and reusing it to reduce connection overhead.
 
 // StartTransform starts a new transform workflow (standalone version).
-func StartTransform(ctx context.Context, task model.TransformTask) (string, error) {
+func StartTransform(ctx context.Context, task model.Task) (string, error) {
 	c, err := NewClient()
 	if err != nil {
 		return "", err
@@ -199,7 +200,7 @@ func GetWorkflowStatus(ctx context.Context, workflowID string) (model.TaskStatus
 }
 
 // GetWorkflowResult waits for and returns the workflow result (standalone version).
-func GetWorkflowResult(ctx context.Context, workflowID string) (*model.TransformResult, error) {
+func GetWorkflowResult(ctx context.Context, workflowID string) (*model.TaskResult, error) {
 	c, err := NewClient()
 	if err != nil {
 		return nil, err

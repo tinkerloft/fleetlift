@@ -1,0 +1,40 @@
+# Example: Agentic Transform Task
+# This demonstrates an AI-powered code transformation that creates a PR.
+# Replace the repository URL with your actual repository.
+
+version: 1
+id: example-agentic
+title: "Example agentic transform"
+description: "Add input validation to API handlers using Claude Code"
+mode: transform
+
+repositories:
+  # Replace with your actual repository URL
+  - url: https://github.com/example/repo.git
+    branch: main
+    setup:
+      - go mod download
+
+execution:
+  agentic:
+    prompt: |
+      Add input validation to all API handlers.
+
+      Requirements:
+      - Validate request body fields for required values
+      - Return 400 Bad Request for invalid inputs
+      - Add appropriate error messages
+      - Follow existing code patterns
+    verifiers:
+      - name: build
+        command: ["go", "build", "./..."]
+      - name: test
+        command: ["go", "test", "./..."]
+
+timeout: 30m
+require_approval: true
+
+pull_request:
+  branch_prefix: "auto/input-validation"
+  title: "Add input validation"
+  labels: ["automated", "enhancement"]

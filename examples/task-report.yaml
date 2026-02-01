@@ -1,0 +1,67 @@
+# Example: Report Mode Task (Discovery)
+# This demonstrates a report-mode task that collects structured data without creating PRs.
+# Useful for security audits, dependency inventories, and discovery before transforms.
+# Replace the repository URL with your actual repository.
+
+version: 1
+id: example-report
+title: "Security audit"
+description: "Analyze authentication implementation and report findings"
+mode: report
+
+repositories:
+  # Replace with your actual repository URL
+  - url: https://github.com/example/repo.git
+    branch: main
+
+execution:
+  agentic:
+    prompt: |
+      Analyze this repository's authentication implementation.
+
+      Write your report to /workspace/REPORT.md with:
+      1. YAML frontmatter containing structured data (auth_library, score, issues)
+      2. Detailed markdown analysis with findings and recommendations
+
+      Example format:
+      ---
+      auth_library: "jwt"
+      score: 7
+      issues:
+        - severity: medium
+          location: "pkg/auth/jwt.go:42"
+          description: "Token expiration not checked"
+      ---
+
+      # Authentication Audit
+
+      ## Summary
+      ...
+
+    output:
+      schema:
+        type: object
+        required:
+          - auth_library
+          - score
+        properties:
+          auth_library:
+            type: string
+          score:
+            type: integer
+            minimum: 1
+            maximum: 10
+          issues:
+            type: array
+            items:
+              type: object
+              properties:
+                severity:
+                  type: string
+                  enum: ["low", "medium", "high", "critical"]
+                location:
+                  type: string
+                description:
+                  type: string
+
+timeout: 15m

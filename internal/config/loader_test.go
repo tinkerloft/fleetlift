@@ -1,0 +1,340 @@
+package config
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/andreweacott/agent-orchestrator/internal/model"
+)
+
+func TestLoadTask_Valid(t *testing.T) {
+	yaml := `
+version: 1
+id: test-task
+title: Test Task
+repositories:
+  - url: https://github.com/org/repo.git
+    branch: main
+execution:
+  agentic:
+    prompt: Fix the bug
+`
+	task, err := LoadTask([]byte(yaml))
+	require.NoError(t, err)
+	assert.Equal(t, 1, task.Version)
+	assert.Equal(t, "test-task", task.ID)
+	assert.Equal(t, "Test Task", task.Title)
+	assert.Len(t, task.Repositories, 1)
+	assert.Equal(t, "https://github.com/org/repo.git", task.Repositories[0].URL)
+	assert.NotNil(t, task.Execution.Agentic)
+	assert.Equal(t, "Fix the bug", task.Execution.Agentic.Prompt)
+}
+
+func TestLoadTask_MissingVersion(t *testing.T) {
+	yaml := `
+id: test-task
+title: Test Task
+repositories:
+  - url: https://github.com/org/repo.git
+execution:
+  agentic:
+    prompt: Fix the bug
+`
+	_, err := LoadTask([]byte(yaml))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "version field is required")
+}
+
+func TestLoadTask_UnsupportedVersion(t *testing.T) {
+	yaml := `
+version: 99
+id: test-task
+title: Test Task
+repositories:
+  - url: https://github.com/org/repo.git
+execution:
+  agentic:
+    prompt: Fix the bug
+`
+	_, err := LoadTask([]byte(yaml))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported schema version: 99")
+}
+
+func TestLoadTask_MissingID(t *testing.T) {
+	yaml := `
+version: 1
+title: Test Task
+repositories:
+  - url: https://github.com/org/repo.git
+execution:
+  agentic:
+    prompt: Fix the bug
+`
+	_, err := LoadTask([]byte(yaml))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "id field is required")
+}
+
+func TestLoadTask_MissingTitle(t *testing.T) {
+	yaml := `
+version: 1
+id: test-task
+repositories:
+  - url: https://github.com/org/repo.git
+execution:
+  agentic:
+    prompt: Fix the bug
+`
+	_, err := LoadTask([]byte(yaml))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "title field is required")
+}
+
+func TestLoadTask_MissingRepositories(t *testing.T) {
+	yaml := `
+version: 1
+id: test-task
+title: Test Task
+execution:
+  agentic:
+    prompt: Fix the bug
+`
+	_, err := LoadTask([]byte(yaml))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at least one repository is required")
+}
+
+func TestLoadTask_MissingExecution(t *testing.T) {
+	yaml := `
+version: 1
+id: test-task
+title: Test Task
+repositories:
+  - url: https://github.com/org/repo.git
+`
+	_, err := LoadTask([]byte(yaml))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "execution must specify either agentic or deterministic")
+}
+
+func TestLoadTask_BothExecutionTypes(t *testing.T) {
+	yaml := `
+version: 1
+id: test-task
+title: Test Task
+repositories:
+  - url: https://github.com/org/repo.git
+execution:
+  agentic:
+    prompt: Fix the bug
+  deterministic:
+    image: test:latest
+`
+	_, err := LoadTask([]byte(yaml))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "execution cannot specify both agentic and deterministic")
+}
+
+func TestLoadTask_AgenticMissingPrompt(t *testing.T) {
+	yaml := `
+version: 1
+id: test-task
+title: Test Task
+repositories:
+  - url: https://github.com/org/repo.git
+execution:
+  agentic:
+    verifiers:
+      - name: build
+        command: ["go", "build"]
+`
+	_, err := LoadTask([]byte(yaml))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agentic execution requires prompt")
+}
+
+func TestLoadTask_DeterministicMissingImage(t *testing.T) {
+	yaml := `
+version: 1
+id: test-task
+title: Test Task
+repositories:
+  - url: https://github.com/org/repo.git
+execution:
+  deterministic:
+    args: ["--fix"]
+`
+	_, err := LoadTask([]byte(yaml))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "deterministic execution requires image")
+}
+
+func TestLoadTask_Deterministic(t *testing.T) {
+	yaml := `
+version: 1
+id: test-det
+title: Deterministic Task
+repositories:
+  - url: https://github.com/org/repo.git
+execution:
+  deterministic:
+    image: my-transform:latest
+    args: ["--fix"]
+    env:
+      DEBUG: "1"
+    verifiers:
+      - name: test
+        command: ["go", "test"]
+`
+	task, err := LoadTask([]byte(yaml))
+	require.NoError(t, err)
+	assert.Nil(t, task.Execution.Agentic)
+	assert.NotNil(t, task.Execution.Deterministic)
+	assert.Equal(t, "my-transform:latest", task.Execution.Deterministic.Image)
+	assert.Equal(t, []string{"--fix"}, task.Execution.Deterministic.Args)
+	assert.Equal(t, "1", task.Execution.Deterministic.Env["DEBUG"])
+	assert.Len(t, task.Execution.Deterministic.Verifiers, 1)
+}
+
+func TestLoadTask_DefaultValues(t *testing.T) {
+	yaml := `
+version: 1
+id: test-task
+title: Test Task
+repositories:
+  - url: https://github.com/org/repo.git
+execution:
+  agentic:
+    prompt: Fix the bug
+`
+	task, err := LoadTask([]byte(yaml))
+	require.NoError(t, err)
+
+	// Check defaults
+	assert.True(t, task.RequireApproval)
+	assert.Equal(t, "main", task.Repositories[0].Branch)
+	assert.Equal(t, model.TaskModeTransform, task.GetMode())
+	assert.Equal(t, 30, task.GetTimeoutMinutes())
+}
+
+func TestLoadTask_WithPullRequestConfig(t *testing.T) {
+	yaml := `
+version: 1
+id: test-task
+title: Test Task
+repositories:
+  - url: https://github.com/org/repo.git
+execution:
+  agentic:
+    prompt: Fix the bug
+pull_request:
+  branch_prefix: "auto/fix"
+  title: "Automated Fix"
+  labels: ["automated"]
+  reviewers: ["alice", "bob"]
+`
+	task, err := LoadTask([]byte(yaml))
+	require.NoError(t, err)
+	require.NotNil(t, task.PullRequest)
+	assert.Equal(t, "auto/fix", task.PullRequest.BranchPrefix)
+	assert.Equal(t, "Automated Fix", task.PullRequest.Title)
+	assert.Equal(t, []string{"automated"}, task.PullRequest.Labels)
+	assert.Equal(t, []string{"alice", "bob"}, task.PullRequest.Reviewers)
+}
+
+func TestLoadTask_WithAgentLimits(t *testing.T) {
+	yaml := `
+version: 1
+id: test-task
+title: Test Task
+repositories:
+  - url: https://github.com/org/repo.git
+execution:
+  agentic:
+    prompt: Fix the bug
+    limits:
+      max_tokens: 100000
+      max_iterations: 50
+      max_verifier_retries: 5
+`
+	task, err := LoadTask([]byte(yaml))
+	require.NoError(t, err)
+	require.NotNil(t, task.Execution.Agentic)
+	require.NotNil(t, task.Execution.Agentic.Limits)
+	assert.Equal(t, 100000, task.Execution.Agentic.Limits.MaxTokens)
+	assert.Equal(t, 50, task.Execution.Agentic.Limits.MaxIterations)
+	assert.Equal(t, 5, task.Execution.Agentic.Limits.MaxVerifierRetries)
+}
+
+func TestLoadTask_WithAgentLimitsBackwardCompat(t *testing.T) {
+	// Test backward compatibility with old field names
+	yaml := `
+version: 1
+id: test-task
+title: Test Task
+repositories:
+  - url: https://github.com/org/repo.git
+execution:
+  agentic:
+    prompt: Fix the bug
+    limits:
+      max_tokens: 100000
+      max_turns: 50
+      max_file_reads: 3
+`
+	task, err := LoadTask([]byte(yaml))
+	require.NoError(t, err)
+	require.NotNil(t, task.Execution.Agentic)
+	require.NotNil(t, task.Execution.Agentic.Limits)
+	assert.Equal(t, 100000, task.Execution.Agentic.Limits.MaxTokens)
+	// Old max_turns maps to new MaxIterations
+	assert.Equal(t, 50, task.Execution.Agentic.Limits.MaxIterations)
+	// Old max_file_reads maps to new MaxVerifierRetries
+	assert.Equal(t, 3, task.Execution.Agentic.Limits.MaxVerifierRetries)
+}
+
+func TestLoadTask_RepositoryDefaults(t *testing.T) {
+	yaml := `
+version: 1
+id: test-task
+title: Test Task
+repositories:
+  - url: https://github.com/org/my-repo.git
+execution:
+  agentic:
+    prompt: Fix the bug
+`
+	task, err := LoadTask([]byte(yaml))
+	require.NoError(t, err)
+
+	// Auto-derived values
+	assert.Equal(t, "main", task.Repositories[0].Branch)
+	assert.Equal(t, "my-repo", task.Repositories[0].Name)
+}
+
+func TestLoadTask_ExplicitRepositoryValues(t *testing.T) {
+	yaml := `
+version: 1
+id: test-task
+title: Test Task
+repositories:
+  - url: https://github.com/org/my-repo.git
+    branch: develop
+    name: custom-name
+    setup:
+      - npm install
+      - npm run build
+execution:
+  agentic:
+    prompt: Fix the bug
+`
+	task, err := LoadTask([]byte(yaml))
+	require.NoError(t, err)
+
+	assert.Equal(t, "develop", task.Repositories[0].Branch)
+	assert.Equal(t, "custom-name", task.Repositories[0].Name)
+	assert.Equal(t, []string{"npm install", "npm run build"}, task.Repositories[0].Setup)
+}

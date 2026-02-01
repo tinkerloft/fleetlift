@@ -2,11 +2,15 @@
 package model
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 )
 
-// TaskStatus represents the status of a transformation task.
+// SchemaVersion is the current supported schema version.
+const SchemaVersion = 1
+
+// TaskStatus represents the status of a task.
 type TaskStatus string
 
 const (
@@ -21,26 +25,34 @@ const (
 	TaskStatusCancelled        TaskStatus = "cancelled"
 )
 
-// TransformMode specifies the transformation execution mode.
-type TransformMode string
+// ExecutionType specifies whether execution is agentic or deterministic.
+type ExecutionType string
 
 const (
-	TransformModeAgentic       TransformMode = "agentic"       // Claude Code (default)
-	TransformModeDeterministic TransformMode = "deterministic" // Docker image execution
+	ExecutionTypeAgentic       ExecutionType = "agentic"       // Claude Code (default)
+	ExecutionTypeDeterministic ExecutionType = "deterministic" // Docker image execution
+)
+
+// TaskMode specifies what the task produces.
+type TaskMode string
+
+const (
+	TaskModeTransform TaskMode = "transform" // Creates PRs (default)
+	TaskModeReport    TaskMode = "report"    // Collects structured output, no PRs
 )
 
 // Repository represents a repository to clone into the sandbox.
 type Repository struct {
-	URL    string   `json:"url"`             // e.g., "https://github.com/org/repo.git"
-	Branch string   `json:"branch"`          // Default: "main"
-	Name   string   `json:"name"`            // Directory name, derived from URL if not set
-	Setup  []string `json:"setup,omitempty"` // Commands to run after clone (e.g., "go mod download")
+	URL    string   `json:"url" yaml:"url"`                           // e.g., "https://github.com/org/repo.git"
+	Branch string   `json:"branch,omitempty" yaml:"branch,omitempty"` // Default: "main"
+	Name   string   `json:"name,omitempty" yaml:"name,omitempty"`     // Directory name, derived from URL if not set
+	Setup  []string `json:"setup,omitempty" yaml:"setup,omitempty"`   // Commands to run after clone (e.g., "go mod download")
 }
 
 // Verifier represents a validation command to run after transformation.
 type Verifier struct {
-	Name    string   `json:"name"`    // e.g., "build", "test", "lint"
-	Command []string `json:"command"` // e.g., ["go", "build", "./..."]
+	Name    string   `json:"name" yaml:"name"`       // e.g., "build", "test", "lint"
+	Command []string `json:"command" yaml:"command"` // e.g., ["go", "build", "./..."]
 }
 
 // NewVerifier creates a Verifier from a name and command.
@@ -79,42 +91,173 @@ func extractRepoName(url string) string {
 	return name
 }
 
-// TransformTask is the input for the Transform workflow.
-type TransformTask struct {
-	TaskID       string       `json:"task_id"`
-	Title        string       `json:"title"`
-	Description  string       `json:"description"`
-	Repositories []Repository `json:"repositories"`
-	Verifiers    []Verifier   `json:"verifiers,omitempty"` // Validation commands to run after transformation
-
-	// Optional context
-	TicketURL    *string `json:"ticket_url,omitempty"`    // e.g., Jira URL
-	SlackChannel *string `json:"slack_channel,omitempty"` // For notifications
-	Requester    *string `json:"requester,omitempty"`
-
-	// Execution settings
-	TimeoutMinutes  int  `json:"timeout_minutes"`
-	RequireApproval bool `json:"require_approval"`
-	Parallel        bool `json:"parallel"` // Execute PR creation in parallel for multi-repo tasks
-
-	// Transformation mode settings
-	TransformMode  TransformMode     `json:"transform_mode"`            // "agentic" or "deterministic"
-	TransformImage string            `json:"transform_image,omitempty"` // Docker image for deterministic mode
-	TransformArgs  []string          `json:"transform_args,omitempty"`  // Args passed to transform container
-	TransformEnv   map[string]string `json:"transform_env,omitempty"`   // Environment variables
+// AgentLimits defines resource limits for agentic execution.
+type AgentLimits struct {
+	MaxIterations      int `json:"max_iterations,omitempty" yaml:"max_iterations,omitempty"`
+	MaxTokens          int `json:"max_tokens,omitempty" yaml:"max_tokens,omitempty"`
+	MaxVerifierRetries int `json:"max_verifier_retries,omitempty" yaml:"max_verifier_retries,omitempty"`
 }
 
-// NewTransformTask creates a TransformTask with default values.
-// Note: TransformMode defaults to empty; the workflow defaults to TransformModeAgentic if not set.
-func NewTransformTask(taskID, title, description string, repos []Repository) TransformTask {
-	return TransformTask{
-		TaskID:          taskID,
-		Title:           title,
-		Description:     description,
-		Repositories:    repos,
-		TimeoutMinutes:  30,
-		RequireApproval: true,
+// OutputConfig defines how report mode output is captured and validated.
+type OutputConfig struct {
+	Schema json.RawMessage `json:"schema,omitempty" yaml:"schema,omitempty"` // JSON Schema for frontmatter validation
+}
+
+// AgenticExecution contains settings for agentic (Claude Code) execution.
+type AgenticExecution struct {
+	Prompt    string        `json:"prompt" yaml:"prompt"`
+	Verifiers []Verifier    `json:"verifiers,omitempty" yaml:"verifiers,omitempty"`
+	Limits    *AgentLimits  `json:"limits,omitempty" yaml:"limits,omitempty"`
+	Output    *OutputConfig `json:"output,omitempty" yaml:"output,omitempty"` // For report mode
+}
+
+// DeterministicExecution contains settings for deterministic (Docker) execution.
+type DeterministicExecution struct {
+	Image     string            `json:"image" yaml:"image"`
+	Command   []string          `json:"command,omitempty" yaml:"command,omitempty"`
+	Args      []string          `json:"args,omitempty" yaml:"args,omitempty"`
+	Env       map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
+	Verifiers []Verifier        `json:"verifiers,omitempty" yaml:"verifiers,omitempty"`
+}
+
+// Execution contains the execution configuration - either agentic or deterministic.
+type Execution struct {
+	Agentic       *AgenticExecution       `json:"agentic,omitempty" yaml:"agentic,omitempty"`
+	Deterministic *DeterministicExecution `json:"deterministic,omitempty" yaml:"deterministic,omitempty"`
+}
+
+// GetExecutionType returns the execution type based on which field is set.
+func (e Execution) GetExecutionType() ExecutionType {
+	if e.Deterministic != nil {
+		return ExecutionTypeDeterministic
 	}
+	return ExecutionTypeAgentic
+}
+
+// GetVerifiers returns verifiers from the appropriate execution type.
+func (e Execution) GetVerifiers() []Verifier {
+	if e.Deterministic != nil {
+		return e.Deterministic.Verifiers
+	}
+	if e.Agentic != nil {
+		return e.Agentic.Verifiers
+	}
+	return nil
+}
+
+// PullRequestConfig contains configurable PR settings.
+type PullRequestConfig struct {
+	BranchPrefix string   `json:"branch_prefix,omitempty" yaml:"branch_prefix,omitempty"`
+	Title        string   `json:"title,omitempty" yaml:"title,omitempty"`
+	Body         string   `json:"body,omitempty" yaml:"body,omitempty"`
+	Labels       []string `json:"labels,omitempty" yaml:"labels,omitempty"`
+	Reviewers    []string `json:"reviewers,omitempty" yaml:"reviewers,omitempty"`
+}
+
+// ForEachTarget represents a target for iteration within a repository (report mode).
+type ForEachTarget struct {
+	Name    string `json:"name" yaml:"name"`
+	Context string `json:"context" yaml:"context"`
+}
+
+// SandboxConfig contains Kubernetes sandbox settings for production.
+type SandboxConfig struct {
+	Namespace    string            `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+	RuntimeClass string            `json:"runtime_class,omitempty" yaml:"runtime_class,omitempty"`
+	NodeSelector map[string]string `json:"node_selector,omitempty" yaml:"node_selector,omitempty"`
+	Resources    *ResourceConfig   `json:"resources,omitempty" yaml:"resources,omitempty"`
+}
+
+// ResourceConfig contains resource limits and requests.
+type ResourceConfig struct {
+	Limits   ResourceSpec `json:"limits,omitempty" yaml:"limits,omitempty"`
+	Requests ResourceSpec `json:"requests,omitempty" yaml:"requests,omitempty"`
+}
+
+// ResourceSpec contains memory and CPU specifications.
+type ResourceSpec struct {
+	Memory string `json:"memory,omitempty" yaml:"memory,omitempty"`
+	CPU    string `json:"cpu,omitempty" yaml:"cpu,omitempty"`
+}
+
+// CredentialsConfig contains references to Kubernetes secrets for credentials.
+type CredentialsConfig struct {
+	GitHub    *SecretRef `json:"github,omitempty" yaml:"github,omitempty"`
+	Anthropic *SecretRef `json:"anthropic,omitempty" yaml:"anthropic,omitempty"`
+}
+
+// SecretRef references a Kubernetes secret.
+type SecretRef struct {
+	SecretRefSpec SecretRefSpec `json:"secret_ref" yaml:"secret_ref"`
+}
+
+// SecretRefSpec contains the name and key for a secret reference.
+type SecretRefSpec struct {
+	Name string `json:"name" yaml:"name"`
+	Key  string `json:"key" yaml:"key"`
+}
+
+// Task is the input for the Transform workflow.
+type Task struct {
+	// Schema version (required)
+	Version int `json:"version" yaml:"version"`
+
+	// Task identification
+	ID          string `json:"id" yaml:"id"`
+	Title       string `json:"title" yaml:"title"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+
+	// Task mode: transform (default) or report
+	Mode TaskMode `json:"mode,omitempty" yaml:"mode,omitempty"`
+
+	// Repositories to operate on
+	Repositories []Repository `json:"repositories" yaml:"repositories"`
+
+	// For report mode: iterate over targets within a repo
+	ForEach []ForEachTarget `json:"for_each,omitempty" yaml:"for_each,omitempty"`
+
+	// Execution configuration (agentic or deterministic)
+	Execution Execution `json:"execution" yaml:"execution"`
+
+	// Optional context
+	TicketURL    *string `json:"ticket_url,omitempty" yaml:"ticket_url,omitempty"`
+	SlackChannel *string `json:"slack_channel,omitempty" yaml:"slack_channel,omitempty"`
+	Requester    *string `json:"requester,omitempty" yaml:"requester,omitempty"`
+
+	// Execution settings
+	Timeout         string `json:"timeout,omitempty" yaml:"timeout,omitempty"` // e.g., "30m"
+	RequireApproval bool   `json:"require_approval,omitempty" yaml:"require_approval,omitempty"`
+	Parallel        bool   `json:"parallel,omitempty" yaml:"parallel,omitempty"` // Execute PR creation in parallel
+
+	// PR configuration (transform mode only)
+	PullRequest *PullRequestConfig `json:"pull_request,omitempty" yaml:"pull_request,omitempty"`
+
+	// Sandbox configuration (production K8s)
+	Sandbox *SandboxConfig `json:"sandbox,omitempty" yaml:"sandbox,omitempty"`
+
+	// Credentials configuration (production K8s)
+	Credentials *CredentialsConfig `json:"credentials,omitempty" yaml:"credentials,omitempty"`
+}
+
+// GetMode returns the task mode, defaulting to transform.
+func (t Task) GetMode() TaskMode {
+	if t.Mode == "" {
+		return TaskModeTransform
+	}
+	return t.Mode
+}
+
+// GetTimeoutMinutes returns the timeout in minutes, defaulting to 30.
+func (t Task) GetTimeoutMinutes() int {
+	if t.Timeout == "" {
+		return 30
+	}
+	// Parse duration string
+	d, err := time.ParseDuration(t.Timeout)
+	if err != nil {
+		return 30
+	}
+	return int(d.Minutes())
 }
 
 // SandboxInfo contains information about a provisioned sandbox.
@@ -176,43 +319,94 @@ type PullRequest struct {
 	Title      string `json:"title"`
 }
 
-// TransformResult is the final result of the Transform workflow.
-type TransformResult struct {
-	TaskID          string        `json:"task_id"`
-	Status          TaskStatus    `json:"status"`
-	PullRequests    []PullRequest `json:"pull_requests"`
-	Error           *string       `json:"error,omitempty"`
-	DurationSeconds *float64      `json:"duration_seconds,omitempty"`
+// ReportOutput represents the parsed output from a report-mode task.
+type ReportOutput struct {
+	Frontmatter      map[string]any `json:"frontmatter,omitempty"` // Structured data (validated against schema)
+	Body             string         `json:"body,omitempty"`        // Markdown prose
+	Raw              string         `json:"raw"`                   // Original unparsed output
+	Error            string         `json:"error,omitempty"`       // Error message if parsing failed
+	ValidationErrors []string       `json:"validation_errors,omitempty"`
 }
 
-// NewTransformResult creates a TransformResult with the given status.
-func NewTransformResult(taskID string, status TaskStatus) TransformResult {
-	return TransformResult{
+// RepositoryResult represents the result for a single repository.
+type RepositoryResult struct {
+	Repository    string         `json:"repository"`
+	Status        string         `json:"status"` // "success" | "failed" | "skipped"
+	FilesModified []string       `json:"files_modified,omitempty"`
+	PullRequest   *PullRequest   `json:"pull_request,omitempty"` // Transform mode
+	Report        *ReportOutput  `json:"report,omitempty"`       // Report mode
+	Error         *string        `json:"error,omitempty"`
+}
+
+// TaskResult is the final result of the Transform workflow.
+type TaskResult struct {
+	TaskID          string             `json:"task_id"`
+	Status          TaskStatus         `json:"status"`
+	Mode            TaskMode           `json:"mode,omitempty"`
+	Repositories    []RepositoryResult `json:"repositories,omitempty"`
+	StartedAt       *time.Time         `json:"started_at,omitempty"`
+	CompletedAt     *time.Time         `json:"completed_at,omitempty"`
+	Error           *string            `json:"error,omitempty"`
+	DurationSeconds *float64           `json:"duration_seconds,omitempty"`
+
+	// Deprecated: Use Repositories[].PullRequest instead. Kept for backward compatibility.
+	PullRequests []PullRequest `json:"pull_requests,omitempty"`
+}
+
+// NewTaskResult creates a TaskResult with the given status.
+func NewTaskResult(taskID string, status TaskStatus) TaskResult {
+	return TaskResult{
 		TaskID:       taskID,
 		Status:       status,
 		PullRequests: []PullRequest{},
+		Repositories: []RepositoryResult{},
 	}
 }
 
+// WithMode returns a copy of the result with the specified mode.
+func (r TaskResult) WithMode(mode TaskMode) TaskResult {
+	r.Mode = mode
+	return r
+}
+
+// WithStartedAt returns a copy of the result with the started timestamp.
+func (r TaskResult) WithStartedAt(t time.Time) TaskResult {
+	r.StartedAt = &t
+	return r
+}
+
+// WithCompletedAt returns a copy of the result with the completed timestamp.
+func (r TaskResult) WithCompletedAt(t time.Time) TaskResult {
+	r.CompletedAt = &t
+	return r
+}
+
+// WithRepositories returns a copy of the result with repository results.
+func (r TaskResult) WithRepositories(repos []RepositoryResult) TaskResult {
+	r.Repositories = repos
+	return r
+}
+
 // WithError returns a copy of the result with an error message.
-func (r TransformResult) WithError(err string) TransformResult {
+func (r TaskResult) WithError(err string) TaskResult {
 	r.Error = &err
 	return r
 }
 
 // WithDuration returns a copy of the result with a duration.
-func (r TransformResult) WithDuration(seconds float64) TransformResult {
+func (r TaskResult) WithDuration(seconds float64) TaskResult {
 	r.DurationSeconds = &seconds
 	return r
 }
 
 // WithPullRequests returns a copy of the result with pull requests.
-func (r TransformResult) WithPullRequests(prs []PullRequest) TransformResult {
+func (r TaskResult) WithPullRequests(prs []PullRequest) TaskResult {
 	r.PullRequests = prs
 	return r
 }
 
 // Helper functions for creating pointer values
+
 func StringPtr(s string) *string {
 	return &s
 }

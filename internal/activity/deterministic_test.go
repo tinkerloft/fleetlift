@@ -180,10 +180,10 @@ func TestBuildDockerRunCommandSecurityHardening(t *testing.T) {
 	result := buildDockerRunCommand("alpine:latest", nil, nil)
 
 	securityOptions := []string{
-		"--network none",              // Network isolation
-		"--cap-drop=ALL",              // Drop all capabilities
-		"--read-only",                 // Read-only root filesystem
-		"--security-opt=no-new-privileges:true", // Prevent privilege escalation
+		"--network none",                          // Network isolation
+		"--cap-drop=ALL",                          // Drop all capabilities
+		"--read-only",                             // Read-only root filesystem
+		"--security-opt=no-new-privileges:true",   // Prevent privilege escalation
 		"--tmpfs /tmp:rw,noexec,nosuid,size=512m", // Writable /tmp with noexec
 	}
 

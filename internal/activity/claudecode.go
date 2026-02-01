@@ -9,8 +9,8 @@ import (
 
 	"go.temporal.io/sdk/activity"
 
-	"github.com/andreweacott/agent-orchestrator/internal/docker"
 	"github.com/andreweacott/agent-orchestrator/internal/model"
+	"github.com/andreweacott/agent-orchestrator/internal/sandbox"
 )
 
 const (
@@ -20,12 +20,12 @@ const (
 
 // ClaudeCodeActivities contains activities for executing Claude Code.
 type ClaudeCodeActivities struct {
-	DockerClient *docker.Client
+	Provider sandbox.Provider
 }
 
 // NewClaudeCodeActivities creates a new ClaudeCodeActivities instance.
-func NewClaudeCodeActivities(client *docker.Client) *ClaudeCodeActivities {
-	return &ClaudeCodeActivities{DockerClient: client}
+func NewClaudeCodeActivities(provider sandbox.Provider) *ClaudeCodeActivities {
+	return &ClaudeCodeActivities{Provider: provider}
 }
 
 // Patterns that indicate Claude needs clarification
@@ -50,7 +50,7 @@ func (a *ClaudeCodeActivities) RunClaudeCode(ctx context.Context, containerID, p
 
 	// Write the prompt to a file using base64 decode (safe from injection)
 	writeCmd := fmt.Sprintf("echo '%s' | base64 -d > %s", encoded, promptFile)
-	if _, err := a.DockerClient.ExecShellCommand(ctx, containerID, writeCmd, AgentUser); err != nil {
+	if _, err := a.Provider.ExecShell(ctx, containerID, writeCmd, AgentUser); err != nil {
 		errorStr := fmt.Sprintf("failed to write prompt file: %v", err)
 		return &model.ClaudeCodeResult{
 			Success: false,
@@ -63,7 +63,7 @@ func (a *ClaudeCodeActivities) RunClaudeCode(ctx context.Context, containerID, p
 	command := fmt.Sprintf(`cd /workspace && claude -p "$(cat %s)" --dangerously-skip-permissions --allowedTools Read,Write,Edit,Bash --output-format json 2>&1`,
 		promptFile)
 
-	result, err := a.DockerClient.ExecShellCommand(ctx, containerID, command, AgentUser)
+	result, err := a.Provider.ExecShell(ctx, containerID, command, AgentUser)
 	if err != nil {
 		logger.Error("Claude Code execution failed", "error", err)
 		errorStr := err.Error()
@@ -117,7 +117,7 @@ func (a *ClaudeCodeActivities) getModifiedFiles(ctx context.Context, containerID
 	// Find all git repos and get their status
 	cmd := `cd /workspace && find . -name '.git' -type d -exec dirname {} \; | while read repo; do cd /workspace/$repo 2>/dev/null && git status --porcelain | sed "s|^|$repo/|" 2>/dev/null; done`
 
-	result, err := a.DockerClient.ExecShellCommand(ctx, containerID, cmd, AgentUser)
+	result, err := a.Provider.ExecShell(ctx, containerID, cmd, AgentUser)
 	if err != nil {
 		return nil
 	}
@@ -141,14 +141,14 @@ func (a *ClaudeCodeActivities) getModifiedFiles(ctx context.Context, containerID
 func (a *ClaudeCodeActivities) GetClaudeOutput(ctx context.Context, containerID, repoName string) (map[string]string, error) {
 	// Get diff
 	diffCmd := fmt.Sprintf("cd /workspace/%s && git diff", repoName)
-	diffResult, err := a.DockerClient.ExecShellCommand(ctx, containerID, diffCmd, AgentUser)
+	diffResult, err := a.Provider.ExecShell(ctx, containerID, diffCmd, AgentUser)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get diff: %w", err)
 	}
 
 	// Get status
 	statusCmd := fmt.Sprintf("cd /workspace/%s && git status --short", repoName)
-	statusResult, err := a.DockerClient.ExecShellCommand(ctx, containerID, statusCmd, AgentUser)
+	statusResult, err := a.Provider.ExecShell(ctx, containerID, statusCmd, AgentUser)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get status: %w", err)
 	}

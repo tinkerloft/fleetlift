@@ -41,35 +41,51 @@ func TestNewRepository(t *testing.T) {
 	assert.Equal(t, "my-repo", repo.Name)
 }
 
-func TestNewTransformTask(t *testing.T) {
+func TestTask(t *testing.T) {
 	repos := []Repository{
 		NewRepository("https://github.com/org/repo.git", "", ""),
 	}
 
-	task := NewTransformTask("task-123", "Fix bug", "Description", repos)
+	task := Task{
+		Version:      SchemaVersion,
+		ID:           "task-123",
+		Title:        "Fix bug",
+		Mode:         TaskModeTransform,
+		Repositories: repos,
+		Execution: Execution{
+			Agentic: &AgenticExecution{
+				Prompt: "Fix the bug",
+			},
+		},
+		RequireApproval: true,
+		Timeout:         "30m",
+	}
 
-	assert.Equal(t, "task-123", task.TaskID)
+	assert.Equal(t, "task-123", task.ID)
 	assert.Equal(t, "Fix bug", task.Title)
-	assert.Equal(t, "Description", task.Description)
 	assert.Len(t, task.Repositories, 1)
-	assert.Equal(t, 30, task.TimeoutMinutes)
+	assert.Equal(t, 30, task.GetTimeoutMinutes())
 	assert.True(t, task.RequireApproval)
-	// SIMP-002: AutoMerge field was removed as unused
 	assert.Nil(t, task.TicketURL)
 	assert.Nil(t, task.SlackChannel)
 }
 
-func TestTransformTaskJSON(t *testing.T) {
+func TestTaskJSON(t *testing.T) {
 	slackChannel := "#dev"
-	task := TransformTask{
-		TaskID:      "task-123",
-		Title:       "Fix bug",
-		Description: "Fix the bug in login",
+	task := Task{
+		Version: SchemaVersion,
+		ID:      "task-123",
+		Title:   "Fix bug",
 		Repositories: []Repository{
 			{URL: "https://github.com/org/repo.git", Branch: "main", Name: "repo"},
 		},
+		Execution: Execution{
+			Agentic: &AgenticExecution{
+				Prompt: "Fix the login bug",
+			},
+		},
 		SlackChannel:    &slackChannel,
-		TimeoutMinutes:  30,
+		Timeout:         "30m",
 		RequireApproval: true,
 	}
 
@@ -78,18 +94,18 @@ func TestTransformTaskJSON(t *testing.T) {
 	require.NoError(t, err)
 
 	// Unmarshal back
-	var decoded TransformTask
+	var decoded Task
 	err = json.Unmarshal(data, &decoded)
 	require.NoError(t, err)
 
-	assert.Equal(t, task.TaskID, decoded.TaskID)
+	assert.Equal(t, task.ID, decoded.ID)
 	assert.Equal(t, task.Title, decoded.Title)
 	assert.NotNil(t, decoded.SlackChannel)
 	assert.Equal(t, "#dev", *decoded.SlackChannel)
 }
 
-func TestTransformResult(t *testing.T) {
-	result := NewTransformResult("task-123", TaskStatusCompleted)
+func TestTaskResult(t *testing.T) {
+	result := NewTaskResult("task-123", TaskStatusCompleted)
 	assert.Equal(t, "task-123", result.TaskID)
 	assert.Equal(t, TaskStatusCompleted, result.Status)
 	assert.Empty(t, result.PullRequests)
@@ -168,4 +184,87 @@ func TestPullRequest(t *testing.T) {
 	assert.Equal(t, "my-repo", pr.RepoName)
 	assert.Equal(t, 42, pr.PRNumber)
 	assert.Contains(t, pr.PRURL, "pull/42")
+}
+
+func TestExecutionType(t *testing.T) {
+	// Test agentic execution
+	exec := Execution{
+		Agentic: &AgenticExecution{Prompt: "test"},
+	}
+	assert.Equal(t, ExecutionTypeAgentic, exec.GetExecutionType())
+
+	// Test deterministic execution
+	exec = Execution{
+		Deterministic: &DeterministicExecution{Image: "test:latest"},
+	}
+	assert.Equal(t, ExecutionTypeDeterministic, exec.GetExecutionType())
+
+	// Test default (empty)
+	exec = Execution{}
+	assert.Equal(t, ExecutionTypeAgentic, exec.GetExecutionType())
+}
+
+func TestTaskMode(t *testing.T) {
+	// Test default mode
+	task := Task{}
+	assert.Equal(t, TaskModeTransform, task.GetMode())
+
+	// Test explicit transform mode
+	task = Task{Mode: TaskModeTransform}
+	assert.Equal(t, TaskModeTransform, task.GetMode())
+
+	// Test report mode
+	task = Task{Mode: TaskModeReport}
+	assert.Equal(t, TaskModeReport, task.GetMode())
+}
+
+func TestGetVerifiers(t *testing.T) {
+	// Test agentic verifiers
+	exec := Execution{
+		Agentic: &AgenticExecution{
+			Prompt: "test",
+			Verifiers: []Verifier{
+				{Name: "build", Command: []string{"go", "build"}},
+			},
+		},
+	}
+	verifiers := exec.GetVerifiers()
+	assert.Len(t, verifiers, 1)
+	assert.Equal(t, "build", verifiers[0].Name)
+
+	// Test deterministic verifiers
+	exec = Execution{
+		Deterministic: &DeterministicExecution{
+			Image: "test:latest",
+			Verifiers: []Verifier{
+				{Name: "test", Command: []string{"go", "test"}},
+			},
+		},
+	}
+	verifiers = exec.GetVerifiers()
+	assert.Len(t, verifiers, 1)
+	assert.Equal(t, "test", verifiers[0].Name)
+
+	// Test empty
+	exec = Execution{}
+	verifiers = exec.GetVerifiers()
+	assert.Nil(t, verifiers)
+}
+
+func TestGetTimeoutMinutes(t *testing.T) {
+	// Test default
+	task := Task{}
+	assert.Equal(t, 30, task.GetTimeoutMinutes())
+
+	// Test with duration string
+	task = Task{Timeout: "1h"}
+	assert.Equal(t, 60, task.GetTimeoutMinutes())
+
+	// Test with minutes
+	task = Task{Timeout: "45m"}
+	assert.Equal(t, 45, task.GetTimeoutMinutes())
+
+	// Test invalid (falls back to default)
+	task = Task{Timeout: "invalid"}
+	assert.Equal(t, 30, task.GetTimeoutMinutes())
 }

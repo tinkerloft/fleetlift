@@ -10,18 +10,18 @@ import (
 	"go.temporal.io/sdk/activity"
 	"golang.org/x/oauth2"
 
-	"github.com/andreweacott/agent-orchestrator/internal/docker"
 	"github.com/andreweacott/agent-orchestrator/internal/model"
+	"github.com/andreweacott/agent-orchestrator/internal/sandbox"
 )
 
 // GitHubActivities contains activities for GitHub operations.
 type GitHubActivities struct {
-	DockerClient *docker.Client
+	Provider sandbox.Provider
 }
 
 // NewGitHubActivities creates a new GitHubActivities instance.
-func NewGitHubActivities(client *docker.Client) *GitHubActivities {
-	return &GitHubActivities{DockerClient: client}
+func NewGitHubActivities(provider sandbox.Provider) *GitHubActivities {
+	return &GitHubActivities{Provider: provider}
 }
 
 // extractOwnerRepo extracts owner and repo name from a GitHub URL.
@@ -36,24 +36,43 @@ func extractOwnerRepo(url string) (string, string) {
 	return parts[len(parts)-2], parts[len(parts)-1]
 }
 
+// CreatePullRequestInput contains all inputs for creating a pull request.
+type CreatePullRequestInput struct {
+	ContainerID string
+	Repo        model.Repository
+	TaskID      string
+	Title       string
+	Description string
+	PRConfig    *model.PullRequestConfig
+}
+
 // CreatePullRequest creates a pull request for changes in a repository.
-func (a *GitHubActivities) CreatePullRequest(ctx context.Context, containerID string, repo model.Repository, taskID, title, description string) (*model.PullRequest, error) {
+func (a *GitHubActivities) CreatePullRequest(ctx context.Context, input CreatePullRequestInput) (*model.PullRequest, error) {
 	logger := activity.GetLogger(ctx)
-	logger.Info("Creating PR", "repo", repo.Name)
+	logger.Info("Creating PR", "repo", input.Repo.Name)
 
 	// Check if there are changes
-	statusCmd := fmt.Sprintf("cd /workspace/%s && git status --porcelain", repo.Name)
-	statusResult, err := a.DockerClient.ExecShellCommand(ctx, containerID, statusCmd, AgentUser)
+	statusCmd := fmt.Sprintf("cd /workspace/%s && git status --porcelain", input.Repo.Name)
+	statusResult, err := a.Provider.ExecShell(ctx, input.ContainerID, statusCmd, AgentUser)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check git status: %w", err)
 	}
 
 	if strings.TrimSpace(statusResult.Stdout) == "" {
-		logger.Info("No changes in repo, skipping PR", "repo", repo.Name)
+		logger.Info("No changes in repo, skipping PR", "repo", input.Repo.Name)
 		return nil, nil
 	}
 
-	branchName := fmt.Sprintf("fix/claude-%s", taskID)
+	// Determine branch name
+	branchPrefix := BranchPrefix
+	if input.PRConfig != nil && input.PRConfig.BranchPrefix != "" {
+		branchPrefix = input.PRConfig.BranchPrefix
+		// Ensure it ends with a separator if not already
+		if !strings.HasSuffix(branchPrefix, "/") && !strings.HasSuffix(branchPrefix, "-") {
+			branchPrefix += "-"
+		}
+	}
+	branchName := fmt.Sprintf("%s%s", branchPrefix, input.TaskID)
 
 	// Configure git with configurable identity
 	gitEmail := getEnvOrDefault("GIT_USER_EMAIL", DefaultGitEmail)
@@ -64,22 +83,22 @@ func (a *GitHubActivities) CreatePullRequest(ctx context.Context, containerID st
 	}
 
 	for _, cmd := range gitConfigCmds {
-		result, err := a.DockerClient.ExecShellCommand(ctx, containerID, cmd, AgentUser)
+		result, err := a.Provider.ExecShell(ctx, input.ContainerID, cmd, AgentUser)
 		if err != nil || result.ExitCode != 0 {
 			return nil, fmt.Errorf("failed to configure git: %s", result.Stderr)
 		}
 	}
 
 	// Create branch
-	checkoutCmd := fmt.Sprintf("cd /workspace/%s && git checkout -b %s", repo.Name, branchName)
-	result, err := a.DockerClient.ExecShellCommand(ctx, containerID, checkoutCmd, AgentUser)
+	checkoutCmd := fmt.Sprintf("cd /workspace/%s && git checkout -b %s", input.Repo.Name, branchName)
+	result, err := a.Provider.ExecShell(ctx, input.ContainerID, checkoutCmd, AgentUser)
 	if err != nil || result.ExitCode != 0 {
 		return nil, fmt.Errorf("git checkout failed: %s", result.Stderr)
 	}
 
 	// Stage all changes
-	addCmd := fmt.Sprintf("cd /workspace/%s && git add -A", repo.Name)
-	result, err = a.DockerClient.ExecShellCommand(ctx, containerID, addCmd, AgentUser)
+	addCmd := fmt.Sprintf("cd /workspace/%s && git add -A", input.Repo.Name)
+	result, err = a.Provider.ExecShell(ctx, input.ContainerID, addCmd, AgentUser)
 	if err != nil || result.ExitCode != 0 {
 		return nil, fmt.Errorf("git add failed: %s", result.Stderr)
 	}
@@ -88,8 +107,8 @@ func (a *GitHubActivities) CreatePullRequest(ctx context.Context, containerID st
 	commitCmd := fmt.Sprintf(`cd /workspace/%s && git commit -m "$(cat <<'COMMIT_MSG_EOF'
 %s
 COMMIT_MSG_EOF
-)"`, repo.Name, title)
-	result, err = a.DockerClient.ExecShellCommand(ctx, containerID, commitCmd, AgentUser)
+)"`, input.Repo.Name, input.Title)
+	result, err = a.Provider.ExecShell(ctx, input.ContainerID, commitCmd, AgentUser)
 	if err != nil || result.ExitCode != 0 {
 		return nil, fmt.Errorf("git commit failed: %s", result.Stderr)
 	}
@@ -101,17 +120,17 @@ COMMIT_MSG_EOF
 	}
 
 	// Extract owner/repo from URL
-	owner, repoName := extractOwnerRepo(repo.URL)
+	owner, repoName := extractOwnerRepo(input.Repo.URL)
 	if owner == "" || repoName == "" {
-		return nil, fmt.Errorf("failed to extract owner/repo from URL: %s", repo.URL)
+		return nil, fmt.Errorf("failed to extract owner/repo from URL: %s", input.Repo.URL)
 	}
 
 	// SEC-002 Fix: Use environment variable expansion instead of embedding token in command
 	// The GITHUB_TOKEN is already set in the container environment by ProvisionSandbox
 	// This prevents the token from appearing in shell command strings and logs
 	pushCmd := fmt.Sprintf(`cd /workspace/%s && git push "https://x-access-token:${GITHUB_TOKEN}@github.com/%s/%s.git" %s`,
-		repo.Name, owner, repoName, branchName)
-	pushResult, err := a.DockerClient.ExecShellCommand(ctx, containerID, pushCmd, AgentUser)
+		input.Repo.Name, owner, repoName, branchName)
+	pushResult, err := a.Provider.ExecShell(ctx, input.ContainerID, pushCmd, AgentUser)
 	if err != nil {
 		return nil, fmt.Errorf("git push failed: %w", err)
 	}
@@ -124,21 +143,64 @@ COMMIT_MSG_EOF
 	tc := oauth2.NewClient(ctx, ts)
 	client := github.NewClient(tc)
 
+	// Use PR config title/body if provided
+	prTitle := input.Title
+	prBody := input.Description
+	if input.PRConfig != nil {
+		if input.PRConfig.Title != "" {
+			prTitle = input.PRConfig.Title
+		}
+		if input.PRConfig.Body != "" {
+			prBody = input.PRConfig.Body
+		}
+	}
+
 	pr, _, err := client.PullRequests.Create(ctx, owner, repoName, &github.NewPullRequest{
-		Title: &title,
-		Body:  &description,
+		Title: &prTitle,
+		Body:  &prBody,
 		Head:  &branchName,
-		Base:  &repo.Branch,
+		Base:  &input.Repo.Branch,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PR: %w", err)
 	}
 
+	// Add labels if configured
+	if input.PRConfig != nil && len(input.PRConfig.Labels) > 0 {
+		_, _, err := client.Issues.AddLabelsToIssue(ctx, owner, repoName, pr.GetNumber(), input.PRConfig.Labels)
+		if err != nil {
+			logger.Warn("Failed to add labels to PR", "error", err)
+		}
+	}
+
+	// Request reviewers if configured
+	if input.PRConfig != nil && len(input.PRConfig.Reviewers) > 0 {
+		_, _, err := client.PullRequests.RequestReviewers(ctx, owner, repoName, pr.GetNumber(), github.ReviewersRequest{
+			Reviewers: input.PRConfig.Reviewers,
+		})
+		if err != nil {
+			logger.Warn("Failed to request reviewers", "error", err)
+		}
+	}
+
 	return &model.PullRequest{
-		RepoName:   repo.Name,
+		RepoName:   input.Repo.Name,
 		PRURL:      pr.GetHTMLURL(),
 		PRNumber:   pr.GetNumber(),
 		BranchName: branchName,
-		Title:      title,
+		Title:      prTitle,
 	}, nil
+}
+
+// CreatePullRequestLegacy is the legacy signature for backward compatibility.
+// Deprecated: Use CreatePullRequest with CreatePullRequestInput instead.
+func (a *GitHubActivities) CreatePullRequestLegacy(ctx context.Context, containerID string, repo model.Repository, taskID, title, description string) (*model.PullRequest, error) {
+	return a.CreatePullRequest(ctx, CreatePullRequestInput{
+		ContainerID: containerID,
+		Repo:        repo,
+		TaskID:      taskID,
+		Title:       title,
+		Description: description,
+		PRConfig:    nil,
+	})
 }
