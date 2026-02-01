@@ -8,6 +8,21 @@ A platform for automated code transformations across repositories, supporting:
 - **Scope**: Single repo or multi-repo
 - **Execution**: Deterministic (Docker images) or agentic (AI prompts)
 
+### Vision: Managed Turbolift
+
+Think of this as **managed [Turbolift](https://github.com/Skyscanner/turbolift)** with two execution backends:
+
+| Turbolift | This Platform |
+|-----------|---------------|
+| CLI on your laptop | Managed service (Temporal + K8s) |
+| Script/command | Docker image OR agent prompt |
+| Dies if laptop closes | Durable execution, survives failures |
+| No approval flow | Human-in-the-loop before PR |
+| Stateless | Status tracking, audit trail |
+| Single user | Multi-tenant capable |
+
+The platform adds the "managed" layer that Turbolift deliberately doesn't have, while supporting both deterministic transforms (like Turbolift scripts) and agentic transforms (AI-driven code changes).
+
 ## Design Principles
 
 1. **Standards over custom** - Use existing open source solutions
@@ -71,9 +86,82 @@ A platform for automated code transformations across repositories, supporting:
 
 ## Core Data Model
 
-### Task
+### CodeTransform CRD (Kubernetes-Native Interface)
 
-The central unit of work.
+The primary interface for defining transformations is a Kubernetes Custom Resource:
+
+```yaml
+apiVersion: codetransform.io/v1alpha1
+kind: CodeTransform
+metadata:
+  name: upgrade-to-slog
+  namespace: transforms
+spec:
+  # Target repositories
+  repositories:
+    - url: https://github.com/org/service-a.git
+      branch: main
+    - url: https://github.com/org/service-b.git
+
+  # Transformation definition (one of):
+  transform:
+    # Option 1: Deterministic - Docker image execution
+    image:
+      ref: ghcr.io/moderneinc/mod:latest
+      args: ["mod", "run", "--recipe", "UpgradeLog4j"]
+      env:
+        LOG_LEVEL: info
+
+    # Option 2: Agentic - AI-driven transformation
+    # agent:
+    #   prompt: |
+    #     Migrate from log.Printf to slog package.
+    #     Use structured logging with context fields.
+    #   verifiers:
+    #     - name: build
+    #       command: ["go", "build", "./..."]
+    #     - name: test
+    #       command: ["go", "test", "./..."]
+
+  # Execution settings
+  resources:
+    limits:
+      memory: "4Gi"
+      cpu: "2"
+  timeout: 30m
+  requireApproval: true
+
+  # Sandbox settings
+  sandbox:
+    namespace: sandbox-isolated      # Where pods run
+    runtimeClassName: gvisor         # Optional: enhanced isolation
+    nodeSelector:
+      workload-type: sandbox
+
+  # PR settings
+  pullRequest:
+    branchPrefix: "auto/slog-migration"
+    title: "Migrate to structured logging (slog)"
+    labels: ["automated", "logging"]
+
+status:
+  phase: Running  # Pending | Running | AwaitingApproval | Completed | Failed
+  workflowID: "transform-xyz123"
+  repositories:
+    - name: service-a
+      status: Completed
+      pullRequest:
+        url: https://github.com/org/service-a/pull/123
+        number: 123
+    - name: service-b
+      status: Running
+  startedAt: "2026-01-31T10:00:00Z"
+  completedAt: null
+```
+
+### Internal Go Types
+
+The CRD maps to internal Go types used by the Temporal workflow:
 
 ```go
 type Task struct {
@@ -475,6 +563,10 @@ claude:
 
 ## Kubernetes Production Architecture
 
+### Recommended: Plain Kubernetes Jobs
+
+For most use cases, plain Kubernetes Jobs provide sufficient functionality without additional complexity:
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           EKS Cluster                                        │
@@ -483,11 +575,11 @@ claude:
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
 │  │                    Control Plane Namespace                           │    │
 │  │                                                                      │    │
-│  │   ┌─────────────┐    ┌─────────────────────┐                        │    │
-│  │   │  Temporal   │    │  Worker Pods        │                        │    │
-│  │   │  Server     │◄──►│  (HPA Scaled)       │                        │    │
-│  │   │  (or Cloud) │    │                     │                        │    │
-│  │   └─────────────┘    └─────────────────────┘                        │    │
+│  │   ┌─────────────┐    ┌─────────────────────┐    ┌────────────────┐  │    │
+│  │   │  Temporal   │    │  Worker Pods        │    │  Controller    │  │    │
+│  │   │  Server     │◄──►│  (HPA Scaled)       │    │  (CRD watch)   │  │    │
+│  │   │  (or Cloud) │    │                     │    │                │  │    │
+│  │   └─────────────┘    └─────────────────────┘    └────────────────┘  │    │
 │  │                                                                      │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                              │
@@ -495,53 +587,137 @@ claude:
 │  │                    Sandbox Node Pool                                 │    │
 │  │                                                                      │    │
 │  │   ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐       │    │
-│  │   │ Sandbox   │  │ Sandbox   │  │ Sandbox   │  │ Sandbox   │       │    │
-│  │   │ Pod       │  │ Pod       │  │ Pod       │  │ Pod       │       │    │
+│  │   │ Job/Pod   │  │ Job/Pod   │  │ Job/Pod   │  │ Job/Pod   │       │    │
 │  │   │ (task-1)  │  │ (task-2)  │  │ (task-3)  │  │ (task-4)  │       │    │
 │  │   └───────────┘  └───────────┘  └───────────┘  └───────────┘       │    │
 │  │                                                                      │    │
 │  │   Labels: node-type=sandbox, spot=true                              │    │
+│  │   RuntimeClass: gvisor (optional)                                   │    │
 │  └─────────────────────────────────────────────────────────────────────┘    │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Sandbox Profiles (Kubernetes)
+### Job-Based Sandbox Execution
 
-For production, define reusable sandbox configurations:
+The Temporal worker creates a Kubernetes Job for each transformation:
 
 ```yaml
-apiVersion: claude.example.com/v1
-kind: SandboxProfile
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: transform-task-abc123
+  namespace: sandbox-isolated
+  labels:
+    codetransform.io/task-id: abc123
+    codetransform.io/type: agentic
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 0  # No retries - Temporal handles retry logic
+  template:
+    spec:
+      runtimeClassName: gvisor  # Optional: kernel-level isolation
+      serviceAccountName: sandbox-runner
+      nodeSelector:
+        workload-type: sandbox
+      containers:
+      - name: sandbox
+        image: your-org/claude-sandbox:latest
+        resources:
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+        env:
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: claude-credentials
+              key: api-key
+      restartPolicy: Never
+```
+
+The worker then:
+1. Creates the Job via client-go
+2. Waits for the pod to be Running
+3. Execs commands into it (clone, transform, verify)
+4. Deletes the Job when complete (or lets TTL clean it up)
+
+### Optional: Agent Sandbox Integration
+
+For advanced use cases requiring warm pools or faster provisioning, [kubernetes-sigs/agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) can be used:
+
+```yaml
+apiVersion: agents.x-k8s.io/v1alpha1
+kind: SandboxTemplate
 metadata:
   name: go-standard
 spec:
-  baseImage: "123456789.dkr.ecr.us-west-2.amazonaws.com/claude-sandbox-go:1.22"
-  resources:
-    limits:
-      memory: "4Gi"
-      cpu: "2"
-  timeout: 30m
-  nodeSelector:
-    node-type: sandbox
-  securityContext:
-    runAsNonRoot: true
-    runAsUser: 1000
+  runtimeClassName: gvisor
+  containers:
+    - name: sandbox
+      image: claude-sandbox-go:1.22
+      resources:
+        limits:
+          memory: 4Gi
+          cpu: "2"
+---
+apiVersion: agents.x-k8s.io/v1alpha1
+kind: SandboxWarmPool
+metadata:
+  name: go-warm-pool
+spec:
+  templateRef:
+    name: go-standard
+  minSize: 2
+  maxSize: 10
 ```
+
+**When to use Agent Sandbox:**
+- You need sub-second sandbox provisioning (warm pools)
+- You want standardized sandbox lifecycle management across multiple platforms
+- You have complex multi-container sandbox requirements
+
+**When plain Jobs are sufficient:**
+- Transformation tasks take minutes (cold start overhead is negligible)
+- You don't need warm pools
+- You want simpler operational overhead
 
 ### Security
 
-- **RBAC**: Workers can exec into sandbox pods, sandboxes have no K8s API access
-- **Network Policies**: Sandboxes only allow outbound HTTPS (GitHub, APIs)
-- **gVisor/Kata**: Kernel-level isolation for untrusted code execution
+- **RBAC**: Workers can create Jobs and exec into sandbox pods; sandboxes have no K8s API access
+- **Network Policies**: Sandboxes allow egress to GitHub, package registries (npm, PyPI, Maven Central), and AI APIs
+- **gVisor/Kata**: Optional kernel-level isolation for defense-in-depth
 - **IRSA**: IAM roles for service accounts (ECR pull, secrets access)
+- **Namespace Isolation**: Each team/tenant can have dedicated sandbox namespace with ResourceQuotas
+
+### Network Policy Example
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-egress
+  namespace: sandbox-isolated
+spec:
+  podSelector:
+    matchLabels:
+      codetransform.io/sandbox: "true"
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+    ports:
+    - protocol: TCP
+      port: 443  # HTTPS only
+```
 
 ### Scaling
 
 - **Workers**: HPA based on Temporal task queue depth
-- **Sandboxes**: Cluster Autoscaler scales node pool
+- **Sandboxes**: Cluster Autoscaler scales node pool based on pending pods
 - **Spot Instances**: Cost-effective for ephemeral sandbox workloads
-- **Warm Pools**: Agent Sandbox pre-warms pods for <1s start time
 
 ---
 
@@ -585,11 +761,23 @@ orchestrator/
 
 | Build (Custom) | Adopt (Standard) |
 |----------------|------------------|
-| Task data model | Temporal (workflow orchestration) |
-| Workflow logic | Agent Sandbox (K8s sandbox lifecycle) |
-| CLI interface | Claude Code (agentic execution) |
-| GitHub PR integration | OpenRewrite/Scalafix (deterministic transforms) |
-| Verifier prompt generation | Docker/containerd (container runtime) |
-| Configuration loading | gVisor/Kata (isolation) |
+| `CodeTransform` CRD and controller | Temporal (workflow orchestration) |
+| Task data model | Kubernetes Jobs (sandbox execution) |
+| Workflow logic | Claude Code (agentic execution) |
+| CLI interface | OpenRewrite/Scalafix (deterministic transforms) |
+| GitHub PR integration | Docker/containerd (container runtime) |
+| Verifier prompt generation | gVisor/Kata (optional isolation) |
+| Configuration loading | Agent Sandbox (optional, for warm pools) |
+| Status synchronization (CRD ↔ Temporal) | |
 
 **Principle**: Build the orchestration glue, adopt standards for infrastructure.
+
+### Key Architectural Decisions
+
+1. **CRD as primary interface**: Users define transforms as Kubernetes resources (`kubectl apply -f transform.yaml`), enabling GitOps workflows and K8s-native tooling.
+
+2. **Temporal for durability**: The CRD controller triggers Temporal workflows. Temporal handles retries, timeouts, and human-in-the-loop signals. Status is synced back to the CRD.
+
+3. **Jobs over Agent Sandbox**: Plain Kubernetes Jobs are simpler and sufficient for most use cases. Agent Sandbox is an optional optimization for warm pools.
+
+4. **Two transform modes**: Deterministic (Docker images like OpenRewrite) and Agentic (Claude Code with prompts) share the same orchestration infrastructure but have different execution paths.
