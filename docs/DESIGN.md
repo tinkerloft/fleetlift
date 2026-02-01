@@ -797,6 +797,21 @@ orchestrator/
 
 4. **Two transform modes**: Deterministic (Docker images like OpenRewrite) and Agentic (Claude Code with prompts) share the same orchestration infrastructure but have different execution paths.
 
+5. **Agent-agnostic design**: The platform's value is in the orchestration layer (durability, HITL, multi-repo coordination, PR creation), not the specific AI agent. Claude Code is the current implementation, but the agent is a swappable component:
+
+   ```
+   Platform (durable)          Agent (swappable)
+   ─────────────────           ─────────────────
+   • Temporal workflows        • Claude Code CLI (today)
+   • Human-in-the-loop         • Other agents (future): Codex, Aider, custom
+   • Multi-repo coordination   • Interface: exec(prompt) → code changes
+   • PR creation               • Verifiers validate output regardless of agent
+   • Cost/rate limiting
+   • Audit trail
+   ```
+
+   This design de-risks the "is the agent good enough?" question—the platform provides value for deterministic transforms today, and agentic capabilities improve over time without architectural changes.
+
 ---
 
 ## Campaign Orchestration
