@@ -1,5 +1,9 @@
 # Claude Code Orchestrator
 
+![CI](https://github.com/andreweacott/agent-orchestrator/workflows/CI/badge.svg)
+![Go Version](https://img.shields.io/github/go-mod/go-version/andreweacott/agent-orchestrator)
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+
 A durable, scalable platform for automating code transformations and discovery across repositories using Claude Code and Temporal workflows.
 
 ## What is This?
@@ -78,8 +82,8 @@ This project enables you to run automated code changes and analysis tasks across
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/claude-code-orchestrator.git
-cd claude-code-orchestrator
+git clone https://github.com/andreweacott/agent-orchestrator.git
+cd agent-orchestrator
 
 # Build binaries
 make build
@@ -722,4 +726,4 @@ Before submitting changes:
 
 ## License
 
-[Your license here]
+MIT License - see [LICENSE](LICENSE) for details
