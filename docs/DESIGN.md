@@ -122,6 +122,21 @@ spec:
     #       command: ["go", "build", "./..."]
     #     - name: test
     #       command: ["go", "test", "./..."]
+    #   limits:
+    #     maxIterations: 10
+    #     maxTokens: 100000
+    #     maxVerifierRetries: 3
+
+  # Credentials (reference K8s secrets)
+  credentials:
+    github:
+      secretRef:
+        name: github-token
+        key: token
+    anthropic:
+      secretRef:
+        name: claude-credentials
+        key: api-key
 
   # Execution settings
   resources:
@@ -781,3 +796,186 @@ orchestrator/
 3. **Jobs over Agent Sandbox**: Plain Kubernetes Jobs are simpler and sufficient for most use cases. Agent Sandbox is an optional optimization for warm pools.
 
 4. **Two transform modes**: Deterministic (Docker images like OpenRewrite) and Agentic (Claude Code with prompts) share the same orchestration infrastructure but have different execution paths.
+
+---
+
+## Campaign Orchestration
+
+A **CodeTransform** is the atomic unit—it transforms a specific set of repositories. For large-scale rollouts (e.g., "upgrade logging across 200 services"), a higher-level **Campaign** orchestrator manages batches:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Campaign Orchestrator                        │
+│                                                                  │
+│   - Submits CodeTransform CRDs in batches                       │
+│   - Monitors progress across all transforms                     │
+│   - Pauses on failure threshold (e.g., >10% failed)             │
+│   - Asks human: abort / continue / retry failed                 │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│   CodeTransform    CodeTransform    CodeTransform    ...        │
+│   (service-a)      (service-b)      (service-c)                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Batch Failure Semantics
+
+When running transforms across many repositories:
+
+| Scenario | Behavior |
+|----------|----------|
+| All succeed | Campaign completes, PRs created |
+| Some fail (<threshold) | Continue, report failures at end |
+| Many fail (≥threshold) | **Pause and ask human**: abort / continue / retry failed |
+| Critical failure | Halt immediately, notify human |
+
+The failure threshold is configurable per campaign (default: 10%).
+
+### Campaign vs CodeTransform Separation
+
+| Concern | CodeTransform (CRD) | Campaign (Orchestrator) |
+|---------|---------------------|-------------------------|
+| Repository list | Explicit in spec | Manages which repos to include |
+| Execution | Single Temporal workflow | Submits multiple CodeTransforms |
+| Failure handling | Per-repo retry via Temporal | Batch-level pause on threshold |
+| Human approval | Per-transform approve/reject | Batch-level abort/continue |
+
+> **Note**: Campaign orchestration is a future capability. Initially, users submit CodeTransform CRDs
+> directly with explicit repository lists.
+
+---
+
+## Credential Handling
+
+Credentials are stored as Kubernetes Secrets and referenced in the CodeTransform spec:
+
+```yaml
+apiVersion: codetransform.io/v1alpha1
+kind: CodeTransform
+metadata:
+  name: upgrade-logging
+spec:
+  # ... repositories, transform, etc.
+
+  credentials:
+    github:
+      secretRef:
+        name: github-token
+        key: token
+    anthropic:
+      secretRef:
+        name: claude-credentials
+        key: api-key
+```
+
+### Credential Flow
+
+1. **Controller** reads secret references from CodeTransform spec
+2. **Worker** mounts secrets into sandbox pod (or passes via env)
+3. **Sandbox** uses credentials for git operations and API calls
+4. **Cleanup** ensures credentials are not persisted in sandbox
+
+### Security Considerations
+
+- Secrets are namespace-scoped; CodeTransform can only reference secrets in its namespace
+- Sandbox pods use a dedicated ServiceAccount with minimal RBAC
+- Audit logging tracks which transforms accessed which secrets
+- Consider [External Secrets Operator](https://external-secrets.io/) for centralized secret management
+
+---
+
+## Agent Failure Handling
+
+Agentic transforms can fail in ways that deterministic transforms cannot. The platform must handle:
+
+### Failure Modes
+
+| Failure Mode | Detection | Response |
+|--------------|-----------|----------|
+| **Claude stuck in loop** | Iteration count > max | Terminate, report partial output |
+| **Token budget exceeded** | Token counter > limit | Terminate, report what was accomplished |
+| **Verifiers keep failing** | Retry count > max | Stop iteration, ask human for guidance |
+| **Claude refuses (safety)** | Specific error patterns | Report refusal reason, allow human override |
+| **Timeout** | Wall clock > spec.timeout | Terminate sandbox, report timeout |
+
+### Iteration Limits
+
+```yaml
+apiVersion: codetransform.io/v1alpha1
+kind: CodeTransform
+spec:
+  transform:
+    agent:
+      prompt: "..."
+      limits:
+        maxIterations: 10        # Max Claude invocations
+        maxTokens: 100000        # Total input+output tokens
+        maxVerifierRetries: 3    # Retries after verifier failure
+```
+
+### Graceful Degradation
+
+When an agentic transform fails:
+
+1. **Preserve partial work**: Commit changes to a WIP branch even if incomplete
+2. **Capture diagnostics**: Save Claude's conversation history, verifier output
+3. **Enable recovery**: Allow human to:
+   - Review partial changes and steer ("try a different approach")
+   - Approve partial changes ("good enough, create PR")
+   - Abort and discard
+
+### Stuck Detection
+
+The workflow monitors for progress:
+
+```go
+// If no new file changes in N iterations, consider stuck
+if iterationsSinceLastChange > 3 {
+    return StuckError("No progress after 3 iterations")
+}
+```
+
+---
+
+## Rate Limiting
+
+The platform must respect external API limits and control costs.
+
+### GitHub API Limits
+
+| Limit | Value | Mitigation |
+|-------|-------|------------|
+| REST API | 5,000 req/hr per token | Queue requests, use conditional requests |
+| Git operations | Varies by plan | Batch clones, use shallow clones |
+| PR creation | No hard limit | Self-imposed limit per campaign |
+
+### Claude API Limits
+
+| Concern | Mitigation |
+|---------|------------|
+| Tokens per minute | Configurable delay between transforms |
+| Cost per transform | Token budget per CodeTransform (see above) |
+| Runaway costs | Campaign-level budget with hard stop |
+
+### Implementation
+
+```yaml
+# Operator config
+rateLimits:
+  github:
+    requestsPerHour: 4000      # Leave headroom
+    parallelClones: 5          # Max concurrent git operations
+  claude:
+    tokensPerMinute: 100000    # Anthropic tier limit
+    maxCostPerTransform: 5.00  # USD, terminate if exceeded
+    maxCostPerCampaign: 500.00 # USD, pause campaign if exceeded
+```
+
+### Cost Attribution
+
+- Track token usage per CodeTransform
+- Attribute to team/namespace for chargeback
+- Surface in observability metrics (`codetransform_cost_usd` gauge)
