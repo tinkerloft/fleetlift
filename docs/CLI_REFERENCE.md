@@ -2,6 +2,27 @@
 
 Complete command-line reference for the Claude Code Orchestrator.
 
+## Workflow ID Memory
+
+Fleetlift automatically remembers the last workflow you started. This makes it easy to run follow-up commands without specifying the workflow ID each time.
+
+```bash
+# Start a workflow
+./bin/fleetlift run -f task.yaml
+# Workflow started: transform-my-task-1738512345
+
+# Check status (uses last workflow automatically)
+./bin/fleetlift status
+
+# Approve when ready
+./bin/fleetlift approve
+
+# Get final result
+./bin/fleetlift result
+```
+
+The last workflow ID is stored in `~/.fleetlift/last-workflow`. You can always override it by passing `--workflow-id` explicitly.
+
 ## Starting Workflows
 
 ### From YAML File
@@ -30,8 +51,14 @@ Complete command-line reference for the Claude Code Orchestrator.
 ### List Workflows
 
 ```bash
-# List all workflows
+# List recent workflows (default: 10)
 ./bin/fleetlift list
+
+# Show more workflows
+./bin/fleetlift list -n 50
+
+# Show all workflows (no limit)
+./bin/fleetlift list -n 0
 
 # Filter by status
 ./bin/fleetlift list --status Running
@@ -42,14 +69,20 @@ Complete command-line reference for the Claude Code Orchestrator.
 ### Check Status (Running Workflows)
 
 ```bash
-# Only works while workflow is running
+# Uses last workflow automatically
+./bin/fleetlift status
+
+# Or specify explicitly
 ./bin/fleetlift status --workflow-id transform-<task-id>
 ```
 
 ### Get Result (Completed Workflows)
 
 ```bash
-# Works for completed workflows
+# Uses last workflow automatically
+./bin/fleetlift result
+
+# Or specify explicitly
 ./bin/fleetlift result --workflow-id transform-<task-id>
 ```
 
@@ -58,20 +91,23 @@ Complete command-line reference for the Claude Code Orchestrator.
 ### View Reports (Report Mode Only)
 
 ```bash
-# Table format (body truncated for readability)
+# Uses last workflow automatically
+./bin/fleetlift reports
+
+# Or specify workflow ID
 ./bin/fleetlift reports transform-<task-id>
 
 # Full JSON output
-./bin/fleetlift reports transform-<task-id> -o json
+./bin/fleetlift reports -o json
 
 # Save to file
-./bin/fleetlift reports transform-<task-id> -o json > report.json
+./bin/fleetlift reports -o json > report.json
 
 # Only frontmatter (structured data)
-./bin/fleetlift reports transform-<task-id> --frontmatter-only -o json
+./bin/fleetlift reports --frontmatter-only -o json
 
 # Filter to specific target (forEach mode)
-./bin/fleetlift reports transform-<task-id> --target users-api
+./bin/fleetlift reports --target users-api
 ```
 
 ## Workflow Control
@@ -79,39 +115,65 @@ Complete command-line reference for the Claude Code Orchestrator.
 ### Approve Changes
 
 ```bash
-# Approve when require_approval: true
+# Uses last workflow automatically
+./bin/fleetlift approve
+
+# Or specify explicitly
 ./bin/fleetlift approve --workflow-id transform-<task-id>
 ```
 
 ### Reject Changes
 
 ```bash
-# Reject and stop workflow
+# Uses last workflow automatically
+./bin/fleetlift reject
+
+# Or specify explicitly
 ./bin/fleetlift reject --workflow-id transform-<task-id>
 ```
 
 ### Cancel Workflow
 
 ```bash
-# Cancel running workflow
+# Uses last workflow automatically
+./bin/fleetlift cancel
+
+# Or specify explicitly
 ./bin/fleetlift cancel --workflow-id transform-<task-id>
 ```
 
 ## Important Notes
 
-### Workflow ID Prefix
+### Workflow ID Format
 
-Workflow IDs are automatically prefixed with `transform-`:
+Workflow IDs are formatted as `transform-<task-id>-<timestamp>`:
 
 ```yaml
 # In task file
 id: smoke-test
 
-# Actual workflow ID
-transform-smoke-test
+# Actual workflow ID (includes Unix timestamp for uniqueness)
+transform-smoke-test-1738512345
 ```
 
-Use `transform-<task-id>` in all CLI commands.
+The timestamp ensures multiple runs of the same task create distinct workflows.
+
+### Workflow ID Memory
+
+After running a workflow, fleetlift remembers it so you don't need to type the ID:
+
+```bash
+./bin/fleetlift run -f task.yaml
+# Workflow started: transform-smoke-test-1738512345
+
+# All these commands use the last workflow automatically:
+./bin/fleetlift status
+./bin/fleetlift approve
+./bin/fleetlift result
+./bin/fleetlift reports
+```
+
+The last workflow is stored in `~/.fleetlift/last-workflow`.
 
 ### Status vs Result
 
@@ -120,10 +182,10 @@ Use `transform-<task-id>` in all CLI commands.
 
 ```bash
 # While running
-./bin/fleetlift status --workflow-id transform-my-task
+./bin/fleetlift status
 
 # After completion
-./bin/fleetlift result --workflow-id transform-my-task
+./bin/fleetlift result
 ```
 
 ### Temporal UI
@@ -140,23 +202,23 @@ Navigate to: `Namespaces > default > Workflows > transform-<task-id>`
 ### Complete Workflow Lifecycle
 
 ```bash
-# 1. Start workflow
+# 1. Start workflow (ID is remembered automatically)
 ./bin/fleetlift run -f examples/task-agentic.yaml
 
 # 2. Monitor progress
 ./bin/fleetlift list --status Running
 
 # 3. Check status while running
-./bin/fleetlift status --workflow-id transform-example-agentic
+./bin/fleetlift status
 
 # 4. View in UI
 open http://localhost:8233
 
 # 5. Approve (if require_approval: true)
-./bin/fleetlift approve --workflow-id transform-example-agentic
+./bin/fleetlift approve
 
 # 6. Get final result
-./bin/fleetlift result --workflow-id transform-example-agentic
+./bin/fleetlift result
 ```
 
 ### Report Mode Workflow
@@ -166,13 +228,13 @@ open http://localhost:8233
 ./bin/fleetlift run -f examples/task-report.yaml
 
 # 2. Wait for completion (or check status)
-./bin/fleetlift status --workflow-id transform-example-report
+./bin/fleetlift status
 
 # 3. View reports
-./bin/fleetlift reports transform-example-report
+./bin/fleetlift reports
 
 # 4. Export to JSON
-./bin/fleetlift reports transform-example-report -o json > results.json
+./bin/fleetlift reports -o json > results.json
 
 # 5. Process structured data
 cat results.json | jq '.[] | .frontmatter'
@@ -185,10 +247,10 @@ cat results.json | jq '.[] | .frontmatter'
 ./bin/fleetlift run -f examples/task-foreach.yaml
 
 # 2. Get all results
-./bin/fleetlift reports transform-example-foreach -o json
+./bin/fleetlift reports -o json
 
 # 3. Filter to specific target
-./bin/fleetlift reports transform-example-foreach --target users-api -o json
+./bin/fleetlift reports --target users-api -o json
 ```
 
 ## Global Flags
@@ -230,15 +292,15 @@ export TEMPORAL_NAMESPACE=production
 ### Using jq with Reports
 
 ```bash
-# Extract all security scores
-./bin/fleetlift reports transform-security-audit -o json | jq '.[] | .frontmatter.score'
+# Extract all security scores (uses last workflow)
+./bin/fleetlift reports -o json | jq '.[] | .frontmatter.score'
 
 # Find high-severity issues
-./bin/fleetlift reports transform-audit -o json | \
+./bin/fleetlift reports -o json | \
   jq '.[] | .frontmatter.issues[] | select(.severity == "high")'
 
 # Group by repository
-./bin/fleetlift reports transform-audit -o json | jq 'group_by(.repository)'
+./bin/fleetlift reports -o json | jq 'group_by(.repository)'
 ```
 
 ### Debugging Workflows
@@ -257,11 +319,11 @@ make run-worker  # Worker outputs detailed logs
 ### Batch Operations
 
 ```bash
-# List all failed workflows
-./bin/fleetlift list --status Failed
+# List all failed workflows (no limit)
+./bin/fleetlift list --status Failed -n 0
 
 # Cancel all running workflows (careful!)
-./bin/fleetlift list --status Running | \
+./bin/fleetlift list --status Running -n 0 | \
   awk '{print $1}' | \
   xargs -I {} ./bin/fleetlift cancel --workflow-id {}
 ```

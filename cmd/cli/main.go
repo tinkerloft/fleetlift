@@ -13,6 +13,7 @@ import (
 	"github.com/tinkerloft/fleetlift/internal/client"
 	"github.com/tinkerloft/fleetlift/internal/config"
 	"github.com/tinkerloft/fleetlift/internal/model"
+	"github.com/tinkerloft/fleetlift/internal/state"
 )
 
 // OutputFormat specifies the output format for CLI commands.
@@ -22,13 +23,6 @@ const (
 	OutputFormatTable OutputFormat = "table"
 	OutputFormatJSON  OutputFormat = "json"
 )
-
-// must panics if err is non-nil. Used for initialization errors.
-func must(err error) {
-	if err != nil {
-		panic(fmt.Errorf("initialization error: %w", err))
-	}
-}
 
 var rootCmd = &cobra.Command{
 	Use:   "fleetlift",
@@ -86,10 +80,10 @@ var runCmd = &cobra.Command{
 }
 
 var reportsCmd = &cobra.Command{
-	Use:   "reports <workflow-id>",
+	Use:   "reports [workflow-id]",
 	Short: "View reports from completed workflow",
-	Long:  "Display reports collected from a report-mode workflow",
-	Args:  cobra.ExactArgs(1),
+	Long:  "Display reports collected from a report-mode workflow. If workflow-id is not provided, uses the last run.",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runReports,
 }
 
@@ -114,29 +108,25 @@ func init() {
 	runCmd.Flags().String("mode", "transform", "Task mode: transform or report")
 
 	// Status command flags
-	statusCmd.Flags().String("workflow-id", "", "Workflow ID (required)")
+	statusCmd.Flags().String("workflow-id", "", "Workflow ID (defaults to last run)")
 	statusCmd.Flags().StringP("output", "o", "table", "Output format (table, json)")
-	must(statusCmd.MarkFlagRequired("workflow-id"))
 
 	// Result command flags
-	resultCmd.Flags().String("workflow-id", "", "Workflow ID (required)")
+	resultCmd.Flags().String("workflow-id", "", "Workflow ID (defaults to last run)")
 	resultCmd.Flags().StringP("output", "o", "table", "Output format (table, json)")
-	must(resultCmd.MarkFlagRequired("workflow-id"))
 
 	// Approve command flags
-	approveCmd.Flags().String("workflow-id", "", "Workflow ID (required)")
-	must(approveCmd.MarkFlagRequired("workflow-id"))
+	approveCmd.Flags().String("workflow-id", "", "Workflow ID (defaults to last run)")
 
 	// Reject command flags
-	rejectCmd.Flags().String("workflow-id", "", "Workflow ID (required)")
-	must(rejectCmd.MarkFlagRequired("workflow-id"))
+	rejectCmd.Flags().String("workflow-id", "", "Workflow ID (defaults to last run)")
 
 	// Cancel command flags
-	cancelCmd.Flags().String("workflow-id", "", "Workflow ID (required)")
-	must(cancelCmd.MarkFlagRequired("workflow-id"))
+	cancelCmd.Flags().String("workflow-id", "", "Workflow ID (defaults to last run)")
 
 	// List command flags
 	listCmd.Flags().String("status", "", "Filter by status (Running, Completed, Failed, Canceled, Terminated)")
+	listCmd.Flags().IntP("limit", "n", 10, "Maximum number of workflows to show (0 for unlimited)")
 	listCmd.Flags().StringP("output", "o", "table", "Output format (table, json)")
 
 	// Reports command flags
@@ -155,8 +145,24 @@ func init() {
 	rootCmd.AddCommand(reportsCmd)
 }
 
-func runStatus(cmd *cobra.Command, args []string) error {
+// getWorkflowID returns the workflow ID from the flag or falls back to the last workflow.
+func getWorkflowID(cmd *cobra.Command) (string, error) {
 	workflowID, _ := cmd.Flags().GetString("workflow-id")
+	if workflowID == "" {
+		var err error
+		workflowID, err = state.GetLastWorkflow()
+		if err != nil {
+			return "", fmt.Errorf("no workflow specified and no last workflow found: %w", err)
+		}
+	}
+	return workflowID, nil
+}
+
+func runStatus(cmd *cobra.Command, args []string) error {
+	workflowID, err := getWorkflowID(cmd)
+	if err != nil {
+		return err
+	}
 	output, _ := cmd.Flags().GetString("output")
 
 	status, err := client.GetWorkflowStatus(context.Background(), workflowID)
@@ -184,7 +190,10 @@ func runStatus(cmd *cobra.Command, args []string) error {
 }
 
 func runResult(cmd *cobra.Command, args []string) error {
-	workflowID, _ := cmd.Flags().GetString("workflow-id")
+	workflowID, err := getWorkflowID(cmd)
+	if err != nil {
+		return err
+	}
 	output, _ := cmd.Flags().GetString("output")
 
 	if output != "json" {
@@ -259,7 +268,10 @@ func runResult(cmd *cobra.Command, args []string) error {
 }
 
 func runApprove(cmd *cobra.Command, args []string) error {
-	workflowID, _ := cmd.Flags().GetString("workflow-id")
+	workflowID, err := getWorkflowID(cmd)
+	if err != nil {
+		return err
+	}
 
 	if err := client.ApproveWorkflow(context.Background(), workflowID); err != nil {
 		return fmt.Errorf("failed to approve: %w", err)
@@ -270,7 +282,10 @@ func runApprove(cmd *cobra.Command, args []string) error {
 }
 
 func runReject(cmd *cobra.Command, args []string) error {
-	workflowID, _ := cmd.Flags().GetString("workflow-id")
+	workflowID, err := getWorkflowID(cmd)
+	if err != nil {
+		return err
+	}
 
 	if err := client.RejectWorkflow(context.Background(), workflowID); err != nil {
 		return fmt.Errorf("failed to reject: %w", err)
@@ -281,7 +296,10 @@ func runReject(cmd *cobra.Command, args []string) error {
 }
 
 func runCancel(cmd *cobra.Command, args []string) error {
-	workflowID, _ := cmd.Flags().GetString("workflow-id")
+	workflowID, err := getWorkflowID(cmd)
+	if err != nil {
+		return err
+	}
 
 	if err := client.CancelWorkflow(context.Background(), workflowID); err != nil {
 		return fmt.Errorf("failed to cancel: %w", err)
@@ -293,9 +311,10 @@ func runCancel(cmd *cobra.Command, args []string) error {
 
 func runList(cmd *cobra.Command, args []string) error {
 	statusFilter, _ := cmd.Flags().GetString("status")
+	limit, _ := cmd.Flags().GetInt("limit")
 	output, _ := cmd.Flags().GetString("output")
 
-	workflows, err := client.ListWorkflows(context.Background(), statusFilter)
+	workflows, err := client.ListWorkflows(context.Background(), statusFilter, limit)
 	if err != nil {
 		return fmt.Errorf("failed to list workflows: %w", err)
 	}
@@ -314,11 +333,11 @@ func runList(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("%-40s %-15s %s\n", "WORKFLOW ID", "STATUS", "START TIME")
-	fmt.Println(strings.Repeat("-", 80))
+	fmt.Printf("%-50s %-15s %s\n", "WORKFLOW ID", "STATUS", "START TIME")
+	fmt.Println(strings.Repeat("-", 90))
 
 	for _, wf := range workflows {
-		fmt.Printf("%-40s %-15s %s\n", wf.WorkflowID, wf.Status, wf.StartTime)
+		fmt.Printf("%-50s %-15s %s\n", wf.WorkflowID, wf.Status, wf.StartTime)
 	}
 
 	return nil
@@ -453,6 +472,11 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to start workflow: %w", err)
 	}
 
+	// Save workflow ID for later status/reports commands
+	if saveErr := state.SaveLastWorkflow(workflowID); saveErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to save last workflow: %v\n", saveErr)
+	}
+
 	executionType := task.Execution.GetExecutionType()
 
 	if output == "json" {
@@ -530,7 +554,16 @@ func parseEnvVars(envStrs []string) map[string]string {
 }
 
 func runReports(cmd *cobra.Command, args []string) error {
-	workflowID := args[0]
+	var workflowID string
+	if len(args) > 0 {
+		workflowID = args[0]
+	} else {
+		var err error
+		workflowID, err = state.GetLastWorkflow()
+		if err != nil {
+			return fmt.Errorf("no workflow specified and no last workflow found: %w", err)
+		}
+	}
 	output, _ := cmd.Flags().GetString("output")
 	frontmatterOnly, _ := cmd.Flags().GetBool("frontmatter-only")
 	targetFilter, _ := cmd.Flags().GetString("target")

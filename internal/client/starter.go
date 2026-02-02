@@ -59,7 +59,7 @@ func (c *Client) Close() {
 
 // StartTransform starts a new transform workflow.
 func (c *Client) StartTransform(ctx context.Context, task model.Task) (string, error) {
-	workflowID := fmt.Sprintf("transform-%s", task.ID)
+	workflowID := fmt.Sprintf("transform-%s-%d", task.ID, time.Now().Unix())
 
 	// Calculate workflow timeout: task timeout + buffer for setup/cleanup
 	timeoutMinutes := task.GetTimeoutMinutes()
@@ -240,11 +240,11 @@ func CancelWorkflow(ctx context.Context, workflowID string) error {
 }
 
 // ListWorkflows lists workflows matching the given status filter (standalone version).
-func ListWorkflows(ctx context.Context, statusFilter string) ([]WorkflowInfo, error) {
+func ListWorkflows(ctx context.Context, statusFilter string, limit int) ([]WorkflowInfo, error) {
 	c, err := NewClient()
 	if err != nil {
 		return nil, err
 	}
 	defer c.Close()
-	return c.ListWorkflows(ctx, statusFilter, 0)
+	return c.ListWorkflows(ctx, statusFilter, limit)
 }
