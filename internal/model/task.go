@@ -258,9 +258,10 @@ type Task struct {
 	Requester    *string `json:"requester,omitempty" yaml:"requester,omitempty"`
 
 	// Execution settings
-	Timeout         string `json:"timeout,omitempty" yaml:"timeout,omitempty"` // e.g., "30m"
-	RequireApproval bool   `json:"require_approval,omitempty" yaml:"require_approval,omitempty"`
-	MaxParallel     int    `json:"max_parallel,omitempty" yaml:"max_parallel,omitempty"` // Concurrency limit across groups (default: 5)
+	Timeout               string `json:"timeout,omitempty" yaml:"timeout,omitempty"` // e.g., "30m"
+	RequireApproval       bool   `json:"require_approval,omitempty" yaml:"require_approval,omitempty"`
+	MaxParallel           int    `json:"max_parallel,omitempty" yaml:"max_parallel,omitempty"`           // Concurrency limit across groups (default: 5)
+	MaxSteeringIterations int    `json:"max_steering_iterations,omitempty" yaml:"max_steering_iterations,omitempty"` // Max HITL steering iterations (default: 5)
 
 	// Repository groups - defines how repos are organized into sandboxes
 	// If empty, auto-generated from Repositories field (one group with all repos)
@@ -504,6 +505,54 @@ func (r TaskResult) WithDuration(seconds float64) TaskResult {
 func (r TaskResult) WithPullRequests(prs []PullRequest) TaskResult {
 	r.PullRequests = prs
 	return r
+}
+
+// SteeringIteration represents one human-guided refinement cycle.
+type SteeringIteration struct {
+	IterationNumber int       `json:"iteration_number"`
+	Prompt          string    `json:"prompt"`
+	Timestamp       time.Time `json:"timestamp"`
+	FilesModified   []string  `json:"files_modified,omitempty"`
+	Output          string    `json:"output,omitempty"`
+}
+
+// SteeringState tracks iterative steering history.
+type SteeringState struct {
+	CurrentIteration int                 `json:"current_iteration"`
+	MaxIterations    int                 `json:"max_iterations"` // Default: 5
+	History          []SteeringIteration `json:"history,omitempty"`
+}
+
+// DiffOutput represents git diff results.
+type DiffOutput struct {
+	Repository string     `json:"repository"`
+	Files      []FileDiff `json:"files"`
+	Summary    string     `json:"summary"`
+	TotalLines int        `json:"total_lines"`
+	Truncated  bool       `json:"truncated"`
+}
+
+// FileDiff represents a single file's diff.
+type FileDiff struct {
+	Path      string `json:"path"`
+	Status    string `json:"status"` // modified, added, deleted
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	Diff      string `json:"diff"`
+}
+
+// VerifierOutput represents detailed verifier execution results.
+type VerifierOutput struct {
+	Verifier string `json:"verifier"`
+	ExitCode int    `json:"exit_code"`
+	Stdout   string `json:"stdout"`
+	Stderr   string `json:"stderr"`
+	Success  bool   `json:"success"`
+}
+
+// SteeringSignalPayload is sent with the steer signal.
+type SteeringSignalPayload struct {
+	Prompt string `json:"prompt"`
 }
 
 // Helper functions for creating pointer values

@@ -31,8 +31,9 @@ Think of this as **managed [Turbolift](https://github.com/Skyscanner/turbolift)*
 | CLI interface | OpenRewrite/Scalafix (deterministic transforms) |
 | GitHub PR integration | Docker/containerd (container runtime) |
 | Verifier prompt generation | gVisor/Kata (optional isolation) |
-| Configuration loading | |
-| Campaign orchestration | |
+| Configuration loading | controller-runtime (K8s controller framework) |
+| Campaign orchestration | kubebuilder (CRD scaffolding) |
+| Sandbox Controller (CRD + reconciler) | |
 
 **Principle**: Build the orchestration glue, adopt standards for infrastructure.
 
@@ -109,7 +110,7 @@ Claude Code runs from `/workspace`, so transformation repo skills are automatica
 │   Interface Layer                                                           │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │   CLI                    │   (Optional) K8s Operator                │   │
-│   │   fleetlift run       │   Watches YAML, submits to Temporal      │   │
+│   │   fleetlift run          │   Watches YAML, submits to Temporal      │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │       │                                        │                             │
 │       └────────────────────┬───────────────────┘                             │
@@ -130,9 +131,21 @@ Claude Code runs from `/workspace`, so transformation repo skills are automatica
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │                      Sandbox Provider                                │   │
 │   │                                                                      │   │
-│   │   Local:      Docker containers                                     │   │
-│   │   Production: Kubernetes Jobs                                       │   │
+│   │   Local:      Docker containers (direct)                            │   │
+│   │   Production: Kubernetes (via Sandbox Controller)                   │   │
 │   │                                                                      │   │
+│   │   ┌─────────────────────────────────────────────────────────────┐   │   │
+│   │   │  Production Flow:                                            │   │   │
+│   │   │                                                              │   │   │
+│   │   │  Worker ──creates──▶ SandboxRequest CR                      │   │   │
+│   │   │                            │                                 │   │   │
+│   │   │                            ▼                                 │   │   │
+│   │   │                    Sandbox Controller                        │   │   │
+│   │   │                            │                                 │   │   │
+│   │   │              ┌─────────────┼─────────────┐                   │   │   │
+│   │   │              ▼             ▼             ▼                   │   │   │
+│   │   │         Create Job    Exec into Pod   Cleanup               │   │   │
+│   │   └─────────────────────────────────────────────────────────────┘   │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │       │                                                                      │
 │       ▼                                                                      │
@@ -944,17 +957,328 @@ Provisions containers with:
 - Configurable resource limits
 - Automatic cleanup on completion
 
-### Kubernetes Jobs Provider (Production)
+### Kubernetes Sandbox Provider (Production)
 
-For production workloads, the provider creates Kubernetes Jobs:
+For production workloads, the Kubernetes provider uses a **controller pattern** for security and operational best practices. The worker creates a `SandboxRequest` custom resource, and a dedicated controller reconciles it into a Job.
+
+#### Why a Controller?
+
+| Direct API Access | Controller Pattern |
+|-------------------|-------------------|
+| Worker has broad K8s permissions | Worker only creates CRs |
+| Harder to audit at K8s level | Kubernetes-native visibility |
+| No policy enforcement point | Controller enforces invariants |
+| Simpler architecture | Better security posture |
+
+**Principle of Least Privilege**: The worker (which executes user-defined prompts) should have minimal Kubernetes API access. The controller, which runs trusted code, holds the elevated permissions.
+
+#### SandboxRequest CRD
+
+```yaml
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: sandboxrequests.fleetlift.io
+spec:
+  group: fleetlift.io
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: ["spec"]
+          properties:
+            spec:
+              type: object
+              required: ["taskId", "image"]
+              properties:
+                taskId:
+                  type: string
+                image:
+                  type: string
+                workingDir:
+                  type: string
+                  default: "/workspace"
+                env:
+                  type: object
+                  additionalProperties:
+                    type: string
+                resources:
+                  type: object
+                  properties:
+                    limits:
+                      type: object
+                      properties:
+                        memory:
+                          type: string
+                        cpu:
+                          type: string
+                runtimeClassName:
+                  type: string
+                nodeSelector:
+                  type: object
+                  additionalProperties:
+                    type: string
+                credentials:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      secretRef:
+                        type: string
+                      key:
+                        type: string
+                ttlAfterComplete:
+                  type: integer
+                  default: 3600
+                execRequests:
+                  type: array
+                  description: "Queue of exec requests from worker"
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      command:
+                        type: array
+                        items:
+                          type: string
+                      workingDir:
+                        type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: ["Pending", "Provisioning", "Running", "Succeeded", "Failed"]
+                podName:
+                  type: string
+                jobName:
+                  type: string
+                startTime:
+                  type: string
+                  format: date-time
+                completionTime:
+                  type: string
+                  format: date-time
+                execResults:
+                  type: array
+                  description: "Results of exec requests"
+                  items:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      exitCode:
+                        type: integer
+                      stdout:
+                        type: string
+                      stderr:
+                        type: string
+                      error:
+                        type: string
+                message:
+                  type: string
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Pod
+          type: string
+          jsonPath: .status.podName
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+  scope: Namespaced
+  names:
+    plural: sandboxrequests
+    singular: sandboxrequest
+    kind: SandboxRequest
+    shortNames:
+      - sbr
+```
+
+#### Example SandboxRequest
+
+```yaml
+apiVersion: fleetlift.io/v1alpha1
+kind: SandboxRequest
+metadata:
+  name: task-abc123
+  namespace: sandbox-isolated
+spec:
+  taskId: "abc123"
+  image: "ghcr.io/org/claude-sandbox:latest"
+  workingDir: "/workspace"
+  resources:
+    limits:
+      memory: "4Gi"
+      cpu: "2"
+  credentials:
+    - secretRef: github-credentials
+      key: token
+    - secretRef: claude-credentials
+      key: api-key
+  runtimeClassName: gvisor  # Optional
+  nodeSelector:
+    workload-type: sandbox
+  ttlAfterComplete: 3600
+status:
+  phase: Running
+  podName: task-abc123-xyz
+  jobName: task-abc123
+  startTime: "2024-01-15T10:00:00Z"
+```
+
+#### Sandbox Controller
+
+The controller watches `SandboxRequest` resources and reconciles them:
 
 ```go
-func NewKubernetesProvider(clientset *kubernetes.Clientset) Provider {
-    return &k8sProvider{clientset: clientset}
+// Controller reconciliation loop
+func (r *SandboxRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+    var sbr fleetliftv1alpha1.SandboxRequest
+    if err := r.Get(ctx, req.NamespacedName, &sbr); err != nil {
+        return ctrl.Result{}, client.IgnoreNotFound(err)
+    }
+
+    switch sbr.Status.Phase {
+    case "", "Pending":
+        return r.handlePending(ctx, &sbr)
+    case "Provisioning":
+        return r.handleProvisioning(ctx, &sbr)
+    case "Running":
+        return r.handleRunning(ctx, &sbr)
+    case "Succeeded", "Failed":
+        return r.handleCompleted(ctx, &sbr)
+    }
+    return ctrl.Result{}, nil
+}
+
+func (r *SandboxRequestReconciler) handlePending(ctx context.Context, sbr *fleetliftv1alpha1.SandboxRequest) (ctrl.Result, error) {
+    // 1. Validate request against policies
+    if err := r.validateRequest(sbr); err != nil {
+        return r.failRequest(ctx, sbr, err)
+    }
+
+    // 2. Create Job
+    job := r.buildJob(sbr)
+    if err := r.Create(ctx, job); err != nil {
+        return ctrl.Result{}, err
+    }
+
+    // 3. Update status
+    sbr.Status.Phase = "Provisioning"
+    sbr.Status.JobName = job.Name
+    return ctrl.Result{RequeueAfter: 5 * time.Second}, r.Status().Update(ctx, sbr)
+}
+
+func (r *SandboxRequestReconciler) handleRunning(ctx context.Context, sbr *fleetliftv1alpha1.SandboxRequest) (ctrl.Result, error) {
+    // Process any pending exec requests
+    for _, execReq := range sbr.Spec.ExecRequests {
+        if r.hasResult(sbr, execReq.ID) {
+            continue // Already processed
+        }
+
+        result, err := r.execInPod(ctx, sbr.Status.PodName, execReq)
+        if err != nil {
+            result = &ExecResult{ID: execReq.ID, Error: err.Error()}
+        }
+
+        sbr.Status.ExecResults = append(sbr.Status.ExecResults, *result)
+    }
+
+    return ctrl.Result{RequeueAfter: 2 * time.Second}, r.Status().Update(ctx, sbr)
 }
 ```
 
-**Job Specification:**
+#### Worker Provider Implementation
+
+The worker's Kubernetes provider creates CRs instead of Jobs directly:
+
+```go
+type k8sProvider struct {
+    client    client.Client
+    namespace string
+}
+
+func (p *k8sProvider) Provision(ctx context.Context, opts ProvisionOptions) (*Sandbox, error) {
+    sbr := &fleetliftv1alpha1.SandboxRequest{
+        ObjectMeta: metav1.ObjectMeta{
+            Name:      fmt.Sprintf("task-%s", opts.TaskID),
+            Namespace: p.namespace,
+        },
+        Spec: fleetliftv1alpha1.SandboxRequestSpec{
+            TaskID:           opts.TaskID,
+            Image:            opts.Image,
+            WorkingDir:       opts.WorkingDir,
+            Env:              opts.Env,
+            Resources:        convertResources(opts.Resources),
+            RuntimeClassName: opts.RuntimeClass,
+            NodeSelector:     opts.NodeSelector,
+            Credentials:      opts.Credentials,
+        },
+    }
+
+    if err := p.client.Create(ctx, sbr); err != nil {
+        return nil, fmt.Errorf("failed to create SandboxRequest: %w", err)
+    }
+
+    // Wait for Running phase
+    if err := p.waitForPhase(ctx, sbr.Name, "Running", opts.Timeout); err != nil {
+        return nil, err
+    }
+
+    return &Sandbox{
+        ID:         sbr.Name,
+        Provider:   "kubernetes",
+        WorkingDir: opts.WorkingDir,
+        Status:     SandboxPhaseRunning,
+    }, nil
+}
+
+func (p *k8sProvider) Exec(ctx context.Context, id string, cmd ExecCommand) (*ExecResult, error) {
+    // 1. Add exec request to CR
+    execID := uuid.New().String()
+    patch := client.MergeFrom(&fleetliftv1alpha1.SandboxRequest{})
+
+    sbr := &fleetliftv1alpha1.SandboxRequest{}
+    if err := p.client.Get(ctx, client.ObjectKey{Name: id, Namespace: p.namespace}, sbr); err != nil {
+        return nil, err
+    }
+
+    sbr.Spec.ExecRequests = append(sbr.Spec.ExecRequests, fleetliftv1alpha1.ExecRequest{
+        ID:         execID,
+        Command:    cmd.Command,
+        WorkingDir: cmd.WorkingDir,
+    })
+
+    if err := p.client.Patch(ctx, sbr, patch); err != nil {
+        return nil, err
+    }
+
+    // 2. Poll for result
+    return p.waitForExecResult(ctx, id, execID, cmd.Timeout)
+}
+
+func (p *k8sProvider) Cleanup(ctx context.Context, id string) error {
+    sbr := &fleetliftv1alpha1.SandboxRequest{
+        ObjectMeta: metav1.ObjectMeta{
+            Name:      id,
+            Namespace: p.namespace,
+        },
+    }
+    return client.IgnoreNotFound(p.client.Delete(ctx, sbr))
+}
+```
+
+#### Job Specification (Created by Controller)
+
+The controller creates Jobs based on the SandboxRequest:
 
 ```yaml
 apiVersion: batch/v1
@@ -963,9 +1287,15 @@ metadata:
   name: task-{{.TaskID}}
   namespace: {{.Namespace}}
   labels:
-    app.kubernetes.io/name: code-transform-sandbox
+    app.kubernetes.io/name: fleetlift-sandbox
     app.kubernetes.io/component: sandbox
-    codetransform.io/task-id: {{.TaskID}}
+    fleetlift.io/task-id: {{.TaskID}}
+  ownerReferences:
+    - apiVersion: fleetlift.io/v1alpha1
+      kind: SandboxRequest
+      name: {{.SandboxRequestName}}
+      uid: {{.SandboxRequestUID}}
+      controller: true
 spec:
   ttlSecondsAfterFinished: 3600
   backoffLimit: 0  # No retries - Temporal handles retry logic
@@ -980,6 +1310,8 @@ spec:
       containers:
       - name: sandbox
         image: {{.Image}}
+        command: ["sleep", "infinity"]  # Keep alive for exec
+        workingDir: {{.WorkingDir}}
         resources:
           limits:
             memory: {{.Resources.Memory}}
@@ -998,14 +1330,16 @@ spec:
       restartPolicy: Never
 ```
 
-**Provider Selection:**
+#### Provider Selection
 
 ```go
 func NewProvider() (Provider, error) {
     switch os.Getenv("SANDBOX_PROVIDER") {
     case "kubernetes":
+        // Uses controller pattern - worker only creates CRs
         return kubernetes.NewProvider()
     default:
+        // Direct Docker API access for local development
         return docker.NewProvider()
     }
 }
@@ -1013,11 +1347,150 @@ func NewProvider() (Provider, error) {
 
 ### Security (Production)
 
-**RBAC:**
-- Worker ServiceAccount: create Jobs, exec into pods, read secrets
-- Sandbox ServiceAccount: no K8s API access (empty RBAC)
+#### RBAC - Split Permissions Model
 
-**Network Policy:**
+The controller pattern enables least-privilege access:
+
+| Component | Permissions | Rationale |
+|-----------|-------------|-----------|
+| **Worker** | Create/get/delete SandboxRequest CRs | Minimal access; cannot directly create Jobs or exec |
+| **Controller** | Create/delete Jobs, exec into pods, read secrets | Elevated access in trusted, auditable code |
+| **Sandbox Pod** | None | No K8s API access (empty RBAC) |
+
+**Worker ServiceAccount RBAC:**
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fleetlift-worker
+  namespace: sandbox-isolated
+rules:
+  # Create and manage SandboxRequest CRs only
+  - apiGroups: ["fleetlift.io"]
+    resources: ["sandboxrequests"]
+    verbs: ["create", "get", "list", "watch", "patch", "delete"]
+  - apiGroups: ["fleetlift.io"]
+    resources: ["sandboxrequests/status"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fleetlift-worker
+  namespace: sandbox-isolated
+subjects:
+  - kind: ServiceAccount
+    name: fleetlift-worker
+    namespace: fleetlift-system
+roleRef:
+  kind: Role
+  name: fleetlift-worker
+  apiGroup: rbac.authorization.k8s.io
+```
+
+**Controller ServiceAccount RBAC:**
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fleetlift-controller
+  namespace: sandbox-isolated
+rules:
+  # Manage SandboxRequest CRs
+  - apiGroups: ["fleetlift.io"]
+    resources: ["sandboxrequests"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["fleetlift.io"]
+    resources: ["sandboxrequests/status"]
+    verbs: ["get", "update", "patch"]
+
+  # Create and manage Jobs
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+
+  # Find and monitor pods
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+
+  # Execute commands in sandbox pods
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+
+  # Read pod logs for diagnostics
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+
+  # Read credentials secrets
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+    resourceNames: ["github-credentials", "claude-credentials"]
+
+  # Create events for observability
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fleetlift-controller
+  namespace: sandbox-isolated
+subjects:
+  - kind: ServiceAccount
+    name: fleetlift-controller
+    namespace: fleetlift-system
+roleRef:
+  kind: Role
+  name: fleetlift-controller
+  apiGroup: rbac.authorization.k8s.io
+```
+
+**Sandbox ServiceAccount (Empty RBAC):**
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sandbox-runner
+  namespace: sandbox-isolated
+# No RoleBinding - sandbox pods have zero K8s API access
+```
+
+#### Policy Enforcement
+
+The controller can enforce policies that the worker cannot bypass:
+
+```go
+func (r *SandboxRequestReconciler) validateRequest(sbr *fleetliftv1alpha1.SandboxRequest) error {
+    // Enforce gVisor for all sandboxes
+    if r.config.RequireGVisor && sbr.Spec.RuntimeClassName != "gvisor" {
+        return fmt.Errorf("gVisor runtime is required")
+    }
+
+    // Enforce resource limits
+    if memory := sbr.Spec.Resources.Limits.Memory; memory != "" {
+        if qty, _ := resource.ParseQuantity(memory); qty.Cmp(r.config.MaxMemory) > 0 {
+            return fmt.Errorf("memory limit %s exceeds maximum %s", memory, r.config.MaxMemory)
+        }
+    }
+
+    // Enforce allowed images
+    if !r.isAllowedImage(sbr.Spec.Image) {
+        return fmt.Errorf("image %s is not in allowed list", sbr.Spec.Image)
+    }
+
+    return nil
+}
+```
+
+#### Network Policy
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -1042,7 +1515,8 @@ spec:
       port: 443  # HTTPS only
 ```
 
-**Resource Limits:**
+#### Resource Limits
+
 ```yaml
 resources:
   limits:
@@ -1685,12 +2159,19 @@ credentials:
 ## Directory Structure
 
 ```
-orchestrator/
+fleetlift/
 ├── cmd/
 │   ├── worker/              # Temporal worker
 │   │   └── main.go
+│   ├── controller/          # Kubernetes sandbox controller
+│   │   └── main.go
 │   └── cli/                 # CLI tool
 │       └── main.go
+├── api/
+│   └── v1alpha1/            # CRD API types
+│       ├── sandboxrequest_types.go
+│       ├── groupversion_info.go
+│       └── zz_generated.deepcopy.go
 ├── internal/
 │   ├── model/               # Data models
 │   │   ├── task.go          # Task, Campaign types
@@ -1706,14 +2187,28 @@ orchestrator/
 │   │   └── github.go        # PR creation
 │   ├── sandbox/             # Sandbox abstraction
 │   │   ├── provider.go      # Interface
-│   │   ├── docker/          # Docker implementation
-│   │   └── kubernetes/      # K8s Jobs implementation
+│   │   ├── docker/          # Docker implementation (direct)
+│   │   └── kubernetes/      # K8s implementation (via CRs)
+│   ├── controller/          # Sandbox controller logic
+│   │   ├── sandboxrequest_controller.go
+│   │   ├── job_builder.go
+│   │   └── exec_handler.go
 │   └── config/              # Configuration loading
 ├── config/
 │   ├── local.yaml
-│   └── production.yaml
+│   ├── production.yaml
+│   ├── crd/                 # CRD manifests
+│   │   └── fleetlift.io_sandboxrequests.yaml
+│   ├── rbac/                # RBAC manifests
+│   │   ├── worker_role.yaml
+│   │   ├── controller_role.yaml
+│   │   └── sandbox_serviceaccount.yaml
+│   └── controller/          # Controller deployment
+│       └── manager.yaml
 ├── docker/
-│   └── Dockerfile.sandbox
+│   ├── Dockerfile.sandbox
+│   ├── Dockerfile.worker
+│   └── Dockerfile.controller
 └── docs/
     ├── OVERVIEW.md          # User-facing documentation
     ├── DESIGN.md            # This document
@@ -1728,7 +2223,11 @@ orchestrator/
 
 2. **Temporal for durability**: Temporal handles retries, timeouts, and human-in-the-loop signals. All state is durable and recoverable.
 
-3. **Jobs over custom controllers**: Plain Kubernetes Jobs are simpler than custom CRDs or operators. The Temporal worker creates Jobs and manages their lifecycle.
+3. **Controller for Kubernetes sandboxes**: Instead of giving the worker direct K8s API access, we use a controller pattern:
+   - Worker creates `SandboxRequest` custom resources (minimal permissions)
+   - Dedicated controller reconciles CRs into Jobs (elevated permissions in trusted code)
+   - Benefits: least privilege, policy enforcement, Kubernetes-native observability
+   - The controller is the only component with permissions to create Jobs, exec into pods, and read secrets
 
 4. **Two transform modes**: Deterministic (Docker images) and Agentic (Claude Code) share the same orchestration but have different execution paths.
 
@@ -1748,3 +2247,5 @@ orchestrator/
 6. **Campaign as first-class**: Campaigns orchestrate Tasks at scale with batch execution and failure thresholds. This is core functionality, not a future capability.
 
 7. **Report mode integrated**: Report mode (discovery, audits) is a core mode alongside transform mode, not an afterthought.
+
+8. **Provider abstraction**: The sandbox provider interface abstracts the difference between local (Docker) and production (Kubernetes) environments. Local development uses Docker directly for simplicity; production uses the controller pattern for security.

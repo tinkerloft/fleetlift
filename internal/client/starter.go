@@ -121,6 +121,57 @@ func (c *Client) CancelWorkflow(ctx context.Context, workflowID string) error {
 	return c.temporal.SignalWorkflow(ctx, workflowID, "", workflow.SignalCancel, nil)
 }
 
+// SteerWorkflow sends a steering signal with prompt payload.
+func (c *Client) SteerWorkflow(ctx context.Context, workflowID, prompt string) error {
+	payload := model.SteeringSignalPayload{Prompt: prompt}
+	return c.temporal.SignalWorkflow(ctx, workflowID, "", workflow.SignalSteer, payload)
+}
+
+// GetWorkflowDiff queries workflow for current diff state.
+func (c *Client) GetWorkflowDiff(ctx context.Context, workflowID string) ([]model.DiffOutput, error) {
+	resp, err := c.temporal.QueryWorkflow(ctx, workflowID, "", workflow.QueryDiff)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query workflow diff: %w", err)
+	}
+
+	var diffs []model.DiffOutput
+	if err := resp.Get(&diffs); err != nil {
+		return nil, fmt.Errorf("failed to decode diff: %w", err)
+	}
+
+	return diffs, nil
+}
+
+// GetWorkflowVerifierLogs queries workflow for verifier output.
+func (c *Client) GetWorkflowVerifierLogs(ctx context.Context, workflowID string) ([]model.VerifierOutput, error) {
+	resp, err := c.temporal.QueryWorkflow(ctx, workflowID, "", workflow.QueryVerifierLogs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query workflow verifier logs: %w", err)
+	}
+
+	var logs []model.VerifierOutput
+	if err := resp.Get(&logs); err != nil {
+		return nil, fmt.Errorf("failed to decode verifier logs: %w", err)
+	}
+
+	return logs, nil
+}
+
+// GetSteeringState queries workflow for steering iteration history.
+func (c *Client) GetSteeringState(ctx context.Context, workflowID string) (*model.SteeringState, error) {
+	resp, err := c.temporal.QueryWorkflow(ctx, workflowID, "", workflow.QuerySteeringState)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query workflow steering state: %w", err)
+	}
+
+	var state model.SteeringState
+	if err := resp.Get(&state); err != nil {
+		return nil, fmt.Errorf("failed to decode steering state: %w", err)
+	}
+
+	return &state, nil
+}
+
 // WorkflowInfo contains summary information about a workflow.
 type WorkflowInfo struct {
 	WorkflowID string
@@ -247,4 +298,44 @@ func ListWorkflows(ctx context.Context, statusFilter string, limit int) ([]Workf
 	}
 	defer c.Close()
 	return c.ListWorkflows(ctx, statusFilter, limit)
+}
+
+// SteerWorkflow sends a steering signal to a workflow (standalone version).
+func SteerWorkflow(ctx context.Context, workflowID, prompt string) error {
+	c, err := NewClient()
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	return c.SteerWorkflow(ctx, workflowID, prompt)
+}
+
+// GetWorkflowDiff queries workflow for current diff state (standalone version).
+func GetWorkflowDiff(ctx context.Context, workflowID string) ([]model.DiffOutput, error) {
+	c, err := NewClient()
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	return c.GetWorkflowDiff(ctx, workflowID)
+}
+
+// GetWorkflowVerifierLogs queries workflow for verifier output (standalone version).
+func GetWorkflowVerifierLogs(ctx context.Context, workflowID string) ([]model.VerifierOutput, error) {
+	c, err := NewClient()
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	return c.GetWorkflowVerifierLogs(ctx, workflowID)
+}
+
+// GetSteeringState queries workflow for steering state (standalone version).
+func GetSteeringState(ctx context.Context, workflowID string) (*model.SteeringState, error) {
+	c, err := NewClient()
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	return c.GetSteeringState(ctx, workflowID)
 }

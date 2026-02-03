@@ -20,9 +20,17 @@ const (
 	SignalApprove = "approve"
 	SignalReject  = "reject"
 	SignalCancel  = "cancel"
-	QueryStatus   = "get_status"
-	QueryResult   = "get_claude_result"
+	SignalSteer   = "steer"
+
+	QueryStatus        = "get_status"
+	QueryResult        = "get_claude_result"
+	QueryDiff          = "get_diff"
+	QueryVerifierLogs  = "get_verifier_logs"
+	QuerySteeringState = "get_steering_state"
 )
+
+// DefaultMaxSteeringIterations is the default limit for steering iterations.
+const DefaultMaxSteeringIterations = 5
 
 // Transform is the main workflow for code transformations.
 // It supports both agentic (Claude Code) and deterministic (Docker) transformations.
@@ -37,7 +45,19 @@ func Transform(ctx workflow.Context, task model.Task) (*model.TaskResult, error)
 		claudeResult          *model.ClaudeCodeResult
 		approved              *bool
 		cancellationRequested bool
+
+		// Steering state
+		steerRequested       bool
+		steeringPrompt       string
+		steeringState        = model.SteeringState{MaxIterations: DefaultMaxSteeringIterations}
+		cachedDiffs          []model.DiffOutput
+		cachedVerifierOutput []model.VerifierOutput
 	)
+
+	// Apply task-level max steering iterations if set
+	if task.MaxSteeringIterations > 0 {
+		steeringState.MaxIterations = task.MaxSteeringIterations
+	}
 
 	// Register query handlers
 	if err := workflow.SetQueryHandler(ctx, QueryStatus, func() (model.TaskStatus, error) {
@@ -52,10 +72,29 @@ func Transform(ctx workflow.Context, task model.Task) (*model.TaskResult, error)
 		return nil, fmt.Errorf("failed to register result query: %w", err)
 	}
 
+	if err := workflow.SetQueryHandler(ctx, QueryDiff, func() ([]model.DiffOutput, error) {
+		return cachedDiffs, nil
+	}); err != nil {
+		return nil, fmt.Errorf("failed to register diff query: %w", err)
+	}
+
+	if err := workflow.SetQueryHandler(ctx, QueryVerifierLogs, func() ([]model.VerifierOutput, error) {
+		return cachedVerifierOutput, nil
+	}); err != nil {
+		return nil, fmt.Errorf("failed to register verifier logs query: %w", err)
+	}
+
+	if err := workflow.SetQueryHandler(ctx, QuerySteeringState, func() (*model.SteeringState, error) {
+		return &steeringState, nil
+	}); err != nil {
+		return nil, fmt.Errorf("failed to register steering state query: %w", err)
+	}
+
 	// Set up signal channels
 	approveChannel := workflow.GetSignalChannel(ctx, SignalApprove)
 	rejectChannel := workflow.GetSignalChannel(ctx, SignalReject)
 	cancelChannel := workflow.GetSignalChannel(ctx, SignalCancel)
+	steerChannel := workflow.GetSignalChannel(ctx, SignalSteer)
 
 	// BUG-003 Fix: Use done channel to signal goroutine termination
 	doneChannel := workflow.NewChannel(ctx)
@@ -89,6 +128,14 @@ func Transform(ctx workflow.Context, task model.Task) (*model.TaskResult, error)
 				c.Receive(ctx, nil)
 				logger.Info("Received cancellation signal")
 				cancellationRequested = true
+			})
+
+			selector.AddReceive(steerChannel, func(c workflow.ReceiveChannel, more bool) {
+				var payload model.SteeringSignalPayload
+				c.Receive(ctx, &payload)
+				logger.Info("Received steering signal", "prompt", payload.Prompt)
+				steerRequested = true
+				steeringPrompt = payload.Prompt
 			})
 
 			selector.Select(ctx)
@@ -334,49 +381,171 @@ func Transform(ctx workflow.Context, task model.Task) (*model.TaskResult, error)
 				}
 			}
 
-			// 5. Human approval for changes (agentic mode only, if required)
+			// 5. Human approval/steering loop for changes (agentic mode only, if required)
 			if task.RequireApproval && len(filesModified) > 0 {
+				// Cache diff and verifier output for queries
+				diffInput := activity.GetDiffInput{
+					ContainerID:             sandbox.ContainerID,
+					Repos:                   effectiveRepos,
+					UseTransformationLayout: task.UsesTransformationRepo(),
+				}
+				if err := workflow.ExecuteActivity(ctx, activity.ActivityGetDiff, diffInput).Get(ctx, &cachedDiffs); err != nil {
+					logger.Warn("Failed to cache diff, queries may return stale data", "error", err)
+				}
+
+				if len(verifiers) > 0 {
+					verifierInput := activity.GetVerifierOutputInput{
+						ContainerID:             sandbox.ContainerID,
+						Repos:                   effectiveRepos,
+						Verifiers:               verifiers,
+						UseTransformationLayout: task.UsesTransformationRepo(),
+					}
+					if err := workflow.ExecuteActivity(ctx, activity.ActivityGetVerifierOutput, verifierInput).Get(ctx, &cachedVerifierOutput); err != nil {
+						logger.Warn("Failed to cache verifier output, queries may return stale data", "error", err)
+					}
+				}
+
+				// Build diff summary for notification
+				diffSummary := buildDiffSummary(cachedDiffs)
+
 				status = model.TaskStatusAwaitingApproval
 
 				if task.SlackChannel != nil {
-					// Get changes summary
-					summary := getChangesSummary(ctx, sandbox.ContainerID, effectiveRepos)
-					msg := fmt.Sprintf("Claude completed %s. Changes:\n```\n%s\n```\nReply with 'approve' or 'reject'",
-						task.ID, summary)
+					msg := fmt.Sprintf("Claude completed %s.\n\n%s\n\nReply: `approve`, `reject`, or `steer \"<prompt>\"`",
+						task.ID, diffSummary)
 					_ = workflow.ExecuteActivity(ctx, activity.ActivityNotifySlack, *task.SlackChannel, msg, (*string)(nil)).Get(ctx, nil)
 				}
 
-				// Wait for approval with 24hr timeout
-				ok, err := workflow.AwaitWithTimeout(ctx, 24*time.Hour, func() bool {
-					return approved != nil || cancellationRequested
-				})
-				if err != nil {
-					return failedResult(fmt.Sprintf("Error waiting for approval: %v", err)), nil
-				}
-				if !ok {
-					signalDone()
-					errMsg := "Approval timeout (24 hours)"
-					duration := workflow.Now(ctx).Sub(startTime).Seconds()
-					return &model.TaskResult{
-						TaskID:          task.ID,
-						Status:          model.TaskStatusCancelled,
-						Error:           &errMsg,
-						DurationSeconds: &duration,
-					}, nil
-				}
-				if cancellationRequested {
-					return cancelledResult(), nil
-				}
-				if approved != nil && !*approved {
-					signalDone()
-					errMsg := "Changes rejected"
-					duration := workflow.Now(ctx).Sub(startTime).Seconds()
-					return &model.TaskResult{
-						TaskID:          task.ID,
-						Status:          model.TaskStatusCancelled,
-						Error:           &errMsg,
-						DurationSeconds: &duration,
-					}, nil
+				// Steering loop
+			steeringLoop:
+				for {
+					// Reset per-iteration state
+					steerRequested = false
+					steeringPrompt = ""
+
+					// Wait for signal with 24hr timeout
+					ok, err := workflow.AwaitWithTimeout(ctx, 24*time.Hour, func() bool {
+						return approved != nil || cancellationRequested || steerRequested
+					})
+
+					if err != nil {
+						return failedResult(fmt.Sprintf("Error waiting for approval: %v", err)), nil
+					}
+					if !ok {
+						signalDone()
+						errMsg := "Approval timeout (24 hours)"
+						duration := workflow.Now(ctx).Sub(startTime).Seconds()
+						return &model.TaskResult{
+							TaskID:          task.ID,
+							Status:          model.TaskStatusCancelled,
+							Error:           &errMsg,
+							DurationSeconds: &duration,
+						}, nil
+					}
+
+					if cancellationRequested {
+						return cancelledResult(), nil
+					}
+
+					if approved != nil && !*approved {
+						signalDone()
+						errMsg := "Changes rejected"
+						duration := workflow.Now(ctx).Sub(startTime).Seconds()
+						return &model.TaskResult{
+							TaskID:          task.ID,
+							Status:          model.TaskStatusCancelled,
+							Error:           &errMsg,
+							DurationSeconds: &duration,
+						}, nil
+					}
+
+					if approved != nil && *approved {
+						// Approved - break out of steering loop
+						break steeringLoop
+					}
+
+					if steerRequested {
+						// Check iteration limit
+						if steeringState.CurrentIteration >= steeringState.MaxIterations {
+							logger.Warn("Max steering iterations reached", "max", steeringState.MaxIterations)
+							if task.SlackChannel != nil {
+								msg := fmt.Sprintf("Max steering iterations (%d) reached for %s. Please `approve` or `reject`.",
+									steeringState.MaxIterations, task.ID)
+								_ = workflow.ExecuteActivity(ctx, activity.ActivityNotifySlack, *task.SlackChannel, msg, (*string)(nil)).Get(ctx, nil)
+							}
+							continue
+						}
+
+						// Increment iteration
+						steeringState.CurrentIteration++
+						status = model.TaskStatusRunning
+						logger.Info("Processing steering request", "iteration", steeringState.CurrentIteration, "prompt", steeringPrompt)
+
+						// Build steering prompt with context
+						basePrompt := buildPrompt(task)
+						previousOutput := ""
+						if claudeResult != nil {
+							previousOutput = claudeResult.Output
+						}
+						fullSteeringPrompt := activity.BuildSteeringPrompt(basePrompt, steeringPrompt, steeringState.CurrentIteration, previousOutput)
+
+						// Run Claude Code with steering prompt
+						claudeOptions := workflow.ActivityOptions{
+							StartToCloseTimeout: time.Duration(timeoutMinutes+5) * time.Minute,
+							HeartbeatTimeout:    5 * time.Minute,
+							RetryPolicy:         retryPolicy,
+						}
+						claudeCtx := workflow.WithActivityOptions(ctx, claudeOptions)
+
+						var steerResult *model.ClaudeCodeResult
+						if err := workflow.ExecuteActivity(claudeCtx, activity.ActivityRunClaudeCode, sandbox.ContainerID, fullSteeringPrompt, timeoutMinutes*60).Get(claudeCtx, &steerResult); err != nil {
+							logger.Error("Steering Claude Code execution failed", "error", err)
+							// Continue to allow retry or approval of current state
+						} else {
+							claudeResult = steerResult
+							filesModified = steerResult.FilesModified
+						}
+
+						// Record steering iteration
+						iteration := model.SteeringIteration{
+							IterationNumber: steeringState.CurrentIteration,
+							Prompt:          steeringPrompt,
+							Timestamp:       workflow.Now(ctx),
+							FilesModified:   filesModified,
+						}
+						if claudeResult != nil {
+							iteration.Output = claudeResult.Output
+						}
+						steeringState.History = append(steeringState.History, iteration)
+
+						// Re-cache diff
+						if err := workflow.ExecuteActivity(ctx, activity.ActivityGetDiff, diffInput).Get(ctx, &cachedDiffs); err != nil {
+							logger.Warn("Failed to re-cache diff after steering", "iteration", steeringState.CurrentIteration, "error", err)
+						}
+
+						// Re-run verifiers if defined
+						if len(verifiers) > 0 {
+							verifierInput := activity.GetVerifierOutputInput{
+								ContainerID:             sandbox.ContainerID,
+								Repos:                   effectiveRepos,
+								Verifiers:               verifiers,
+								UseTransformationLayout: task.UsesTransformationRepo(),
+							}
+							if err := workflow.ExecuteActivity(ctx, activity.ActivityGetVerifierOutput, verifierInput).Get(ctx, &cachedVerifierOutput); err != nil {
+								logger.Warn("Failed to re-cache verifier output after steering", "iteration", steeringState.CurrentIteration, "error", err)
+							}
+						}
+
+						// Notify with updated changes
+						diffSummary = buildDiffSummary(cachedDiffs)
+						status = model.TaskStatusAwaitingApproval
+
+						if task.SlackChannel != nil {
+							msg := fmt.Sprintf("Steering iteration %d complete for %s.\n\n%s\n\nReply: `approve`, `reject`, or `steer \"<prompt>\"`",
+								steeringState.CurrentIteration, task.ID, diffSummary)
+							_ = workflow.ExecuteActivity(ctx, activity.ActivityNotifySlack, *task.SlackChannel, msg, (*string)(nil)).Get(ctx, nil)
+						}
+					}
 				}
 			}
 		}
@@ -817,29 +986,6 @@ func buildPRDescriptionWithFiles(task model.Task, filesModified []string) string
 	return sb.String()
 }
 
-// getChangesSummary gets a summary of changes for notification.
-func getChangesSummary(ctx workflow.Context, containerID string, repos []model.Repository) string {
-	var summaries []string
-
-	for _, repo := range repos {
-		var output map[string]string
-		err := workflow.ExecuteActivity(ctx, activity.ActivityGetClaudeOutput, containerID, repo.Name).Get(ctx, &output)
-		if err != nil {
-			continue
-		}
-
-		if status, ok := output["status"]; ok && strings.TrimSpace(status) != "" {
-			summaries = append(summaries, fmt.Sprintf("%s:\n%s", repo.Name, status))
-		}
-	}
-
-	if len(summaries) == 0 {
-		return "No changes detected"
-	}
-
-	return strings.Join(summaries, "\n\n")
-}
-
 // executeGroupedStrategy executes the grouped execution strategy.
 // It spawns child workflows for each group with concurrency limiting.
 func executeGroupedStrategy(ctx workflow.Context, task model.Task, startTime time.Time, signalDone func()) *model.TaskResult {
@@ -1093,4 +1239,28 @@ func buildPromptForTarget(task model.Task, target model.ForEachTarget, reportPat
 	}
 
 	return sb.String(), nil
+}
+
+// buildDiffSummary creates a human-readable summary of diffs for notifications.
+func buildDiffSummary(diffs []model.DiffOutput) string {
+	if len(diffs) == 0 {
+		return "No changes detected."
+	}
+
+	var sb strings.Builder
+	sb.WriteString("**Diff summary:**\n")
+
+	for _, diff := range diffs {
+		if len(diff.Files) == 0 {
+			sb.WriteString(fmt.Sprintf("- **%s**: no changes\n", diff.Repository))
+			continue
+		}
+
+		sb.WriteString(fmt.Sprintf("- **%s**: %s\n", diff.Repository, diff.Summary))
+		for _, f := range diff.Files {
+			sb.WriteString(fmt.Sprintf("  - %s (%s, +%d/-%d)\n", f.Path, f.Status, f.Additions, f.Deletions))
+		}
+	}
+
+	return sb.String()
 }
