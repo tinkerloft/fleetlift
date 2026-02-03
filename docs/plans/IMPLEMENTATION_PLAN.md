@@ -2,7 +2,7 @@
 
 Incremental implementation phases for the code transformation and discovery platform.
 
-> **Last Updated**: 2026-02-01 (Phase 4c Transformation Repository complete)
+> **Last Updated**: 2026-02-02 (Phase 9.2 HITL Iterative Steering complete)
 >
 > **Note**: Implementation uses Task/Campaign terminology aligned with the design documents.
 >
@@ -551,46 +551,73 @@ orchestrator campaign continue slog-migration-campaign-abc123
 
 ---
 
-## Phase 6: Kubernetes Jobs Sandbox Provider
+## Phase 6: Kubernetes Sandbox Provider with Controller
 
-**Goal**: Run sandboxes on Kubernetes using Jobs for production workloads.
+**Goal**: Run sandboxes on Kubernetes using a controller pattern for production workloads.
 
-> **Design Rationale**: Plain Kubernetes Jobs are simpler than custom CRDs and
-> sufficient for ephemeral transformation workloads. The Temporal worker creates Jobs,
-> execs into them, and deletes them when done.
+> **Design Rationale**: The controller pattern provides better security than direct K8s API access
+> from the worker. The worker creates `SandboxRequest` custom resources with minimal permissions,
+> and a dedicated controller reconciles them into Jobs with elevated permissions. This enables
+> least-privilege access, policy enforcement, and Kubernetes-native observability.
 
-### 6.1 Kubernetes Sandbox Provider
+### 6.1 SandboxRequest CRD
 
-- [ ] Implement `Provider` interface for K8s using client-go
-- [ ] `Provision()` - create Job with pod template
-- [ ] `WaitReady()` - wait for pod Running state
-- [ ] `Exec()` - exec into pod via K8s API (like kubectl exec)
-- [ ] `Cleanup()` - delete Job (or rely on TTL)
+- [ ] Define `SandboxRequest` CRD schema (api/v1alpha1/)
+- [ ] Fields: taskId, image, resources, credentials, runtimeClassName, nodeSelector
+- [ ] Status: phase, podName, jobName, execResults
+- [ ] Generate CRD manifests with controller-gen
 
-### 6.2 Job Specification
+### 6.2 Sandbox Controller
 
-- [ ] Generate Job spec from Task settings
+- [ ] Scaffold controller with kubebuilder
+- [ ] Implement reconciliation loop:
+  - [ ] `Pending` → validate request, create Job → `Provisioning`
+  - [ ] `Provisioning` → wait for pod Running → `Running`
+  - [ ] `Running` → process exec requests, update results
+  - [ ] `Succeeded/Failed` → cleanup (or rely on TTL)
+- [ ] Policy enforcement (allowed images, max resources, require gVisor)
+- [ ] Exec handling via K8s exec API
+
+### 6.3 Kubernetes Sandbox Provider (Worker Side)
+
+- [ ] Implement `Provider` interface using CR-based approach
+- [ ] `Provision()` - create SandboxRequest CR, wait for Running phase
+- [ ] `Exec()` - add exec request to CR, poll for result in status
+- [ ] `CopyFrom()` - exec `cat` command to read files
+- [ ] `Cleanup()` - delete SandboxRequest CR
+
+### 6.4 Job Specification (Controller Side)
+
+- [ ] Generate Job spec from SandboxRequest
 - [ ] Configure resources (CPU, memory) from spec
 - [ ] Set `runtimeClassName` for gVisor if specified
 - [ ] Apply node selectors and tolerations
 - [ ] Mount secrets for GitHub token, API keys
+- [ ] Set ownerReference for garbage collection
 - [ ] Set `ttlSecondsAfterFinished` for automatic cleanup
 
-### 6.3 Provider Selection
+### 6.5 RBAC Configuration
+
+- [ ] Worker Role: create/get/patch/delete SandboxRequest CRs only
+- [ ] Controller Role: create/delete Jobs, exec into pods, read secrets
+- [ ] Sandbox ServiceAccount: no K8s API access (empty RBAC)
+
+### 6.6 Provider Selection
 
 - [ ] Factory function based on `SANDBOX_PROVIDER` env var
 - [ ] Auto-detect: Docker socket → Docker, ServiceAccount → Kubernetes
 - [ ] Fallback chain: Kubernetes → Docker → error
 
-### 6.4 Namespace and Multi-tenancy
+### 6.7 Namespace and Multi-tenancy
 
 - [ ] Configurable sandbox namespace (default: `sandbox-isolated`)
 - [ ] Support namespace-per-team for isolation
 - [ ] ResourceQuota enforcement per namespace
 
-### 6.5 Local K8s Testing
+### 6.8 Local K8s Testing
 
 - [ ] kind cluster setup script
+- [ ] Deploy CRD and controller to kind
 - [ ] Integration tests against real cluster
 - [ ] CI pipeline with kind
 
@@ -613,7 +640,12 @@ sandbox:
 ```
 
 ```bash
-# Worker creates this Job:
+# Worker creates SandboxRequest CR:
+kubectl get sandboxrequests -n sandbox-isolated
+NAME              PHASE     POD                   AGE
+task-abc123       Running   task-abc123-xyz       2m
+
+# Controller creates and manages Job:
 kubectl get jobs -n sandbox-isolated
 NAME                      COMPLETIONS   DURATION   AGE
 task-abc123               0/1           2m         2m
@@ -681,20 +713,23 @@ spec:
 
 ## Phase 8: Security Hardening
 
-**Goal**: Production-grade security, RBAC, and operational resilience.
+**Goal**: Production-grade security and operational resilience.
+
+> **Note**: Core RBAC (worker, controller, sandbox service accounts) is implemented in Phase 6
+> as part of the controller pattern. This phase focuses on additional security hardening.
 
 ### 8.1 Network Policies
 
 - [ ] Sandbox egress policy: allow HTTPS to GitHub, package registries, AI APIs
 - [ ] Deny all ingress to sandbox pods
-- [ ] Worker-to-sandbox communication via K8s exec API only
+- [ ] Worker-to-controller communication via CRs only (no direct pod exec)
 - [ ] Document required egress destinations for common ecosystems
 
-### 8.2 RBAC
+### 8.2 Advanced RBAC
 
-- [ ] Worker ServiceAccount: create Jobs, exec into pods, read secrets
-- [ ] Sandbox ServiceAccount: no K8s API access (empty RBAC)
 - [ ] Namespace-scoped roles for multi-tenant deployments
+- [ ] Admission webhooks for additional policy enforcement
+- [ ] Pod Security Standards (restricted profile for sandboxes)
 
 ### 8.3 Secret Management
 
@@ -747,7 +782,7 @@ helm install codetransform ./charts/codetransform \
 - [x] Slack integration for notifications *(NotifySlack activity)*
 - [x] Approval timeout handling *(24-hour timeout with AwaitWithTimeout)*
 
-### 9.2 Human-in-the-Loop (Iterative Steering)
+### 9.2 Human-in-the-Loop (Iterative Steering) - COMPLETE
 
 **Goal**: Enable iterative human-agent collaboration instead of binary approve/reject.
 
@@ -756,25 +791,26 @@ helm install codetransform ./charts/codetransform \
 
 #### 9.2.1 View Changes
 
-- [ ] `GetDiff` activity - return full git diffs for all modified files
-- [ ] `GetVerifierOutput` activity - return detailed test/build output
-- [ ] CLI: `orchestrator diff --workflow-id <id>` - view changes in terminal
-- [ ] CLI: `orchestrator logs --workflow-id <id>` - view verifier output
-- [ ] Slack: Include diff snippets or link to full diff viewer
+- [x] `GetDiff` activity - return full git diffs for all modified files
+- [x] `GetVerifierOutput` activity - return detailed test/build output
+- [x] CLI: `fleetlift diff --workflow-id <id>` - view changes in terminal
+- [x] CLI: `fleetlift logs --workflow-id <id>` - view verifier output
+- [x] Slack: Include diff summary in approval notifications
 
 #### 9.2.2 Steering Prompts
 
-- [ ] Add `steer` signal with prompt payload to workflow
-- [ ] Workflow loops back to Claude Code with steering prompt
-- [ ] Preserve conversation context across steering iterations
-- [ ] CLI: `orchestrator steer --workflow-id <id> --prompt "try X instead"`
-- [ ] Track iteration count and history
+- [x] Add `steer` signal with prompt payload to workflow
+- [x] Workflow loops back to Claude Code with steering prompt
+- [x] Preserve conversation context across steering iterations
+- [x] CLI: `fleetlift steer --workflow-id <id> --prompt "try X instead"`
+- [x] Track iteration count and history
+- [x] Configurable max iterations (`max_steering_iterations` in task, default 5)
+- [x] Query handlers for diff, verifier logs, and steering state (web-ready)
 
 #### 9.2.3 Partial Approval
 
-- [ ] Allow approving specific files while requesting changes to others
-- [ ] `fleetlift approve --workflow-id <id> --files "src/main.go,src/util.go"`
-- [ ] `orchestrator steer --workflow-id <id> --files "src/test.go" --prompt "add edge case tests"`
+> **Explicitly out of scope** - Partial/granular file-level approval was excluded per requirements.
+> Users can steer to request specific file changes, then approve all changes together.
 
 ### 9.3 Scheduled Tasks
 
@@ -815,10 +851,10 @@ helm install codetransform ./charts/codetransform \
 | 4b | forEach Discovery | Multi-target iteration within repos | ✅ Complete |
 | 4c | Transformation Repo | Reusable skills, recipe/targets separation | ✅ Complete |
 | 5 | **Campaign** | Batch orchestration, failure handling | ⬜ Not started |
-| 6 | **Kubernetes Jobs** | K8s sandbox provider | ⬜ Not started |
+| 6 | **K8s Controller** | Sandbox controller + CRD for production | ⬜ Not started |
 | 7 | **Observability** | Metrics, logging, dashboards | ⬜ Not started |
-| 8 | **Security** | RBAC, NetworkPolicy, secrets, scaling | ⬜ Not started |
-| 9 | Advanced | HITL steering, scheduling, cost tracking | 🟡 ~20% (basic HITL) |
+| 8 | **Security** | NetworkPolicy, secrets, scaling | ⬜ Not started |
+| 9 | Advanced | HITL steering, scheduling, cost tracking | 🟡 ~40% (basic HITL + iterative steering) |
 
 Each phase builds on the previous and delivers working functionality.
 
@@ -829,9 +865,9 @@ Each phase builds on the previous and delivers working functionality.
 2. **Phase 9.2** - Iterative HITL steering (key differentiator)
 
 **Parallel Track B (Production Infrastructure):**
-1. **Phase 6** - Kubernetes Jobs sandbox provider
+1. **Phase 6** - Kubernetes sandbox controller (CRD + controller for least-privilege)
 2. **Phase 7** - Observability (needed to tune production)
-3. **Phase 8** - Security hardening
+3. **Phase 8** - Security hardening (NetworkPolicy, secrets, scaling)
 
 > **Priority Note**: Campaign orchestration (Phase 5) is the next core platform capability.
 > It enables batch execution across many repositories which is valuable for fleet-wide
@@ -845,4 +881,5 @@ Each phase builds on the previous and delivers working functionality.
 | Phase 4: CRD & Controller | Phase 4: Report Mode | Report mode is core functionality; CRD is optional convenience layer |
 | Phase 8: Agent Sandbox | Removed | Plain K8s Jobs are sufficient; Agent Sandbox adds complexity without clear benefit |
 | Phase 9.6: Report Mode | Phase 4: Report Mode | Promoted to core phase—discovery is first-class, not an afterthought |
-| Campaign as "future" | Phase 6: Campaign | Campaign is core functionality for fleet-wide operations |
+| Campaign as "future" | Phase 5: Campaign | Campaign is core functionality for fleet-wide operations |
+| Direct K8s API from worker | Phase 6: Controller pattern | Least-privilege: worker creates CRs, controller has elevated permissions |

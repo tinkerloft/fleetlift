@@ -7,62 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestShellQuote(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "simple string",
-			input:    "simple",
-			expected: "'simple'",
-		},
-		{
-			name:     "string with spaces",
-			input:    "with spaces",
-			expected: "'with spaces'",
-		},
-		{
-			name:     "string with single quote",
-			input:    "it's",
-			expected: "'it'\"'\"'s'",
-		},
-		{
-			name:     "string with multiple quotes",
-			input:    "it's a 'test'",
-			expected: "'it'\"'\"'s a '\"'\"'test'\"'\"''",
-		},
-		{
-			name:     "empty string",
-			input:    "",
-			expected: "''",
-		},
-		{
-			name:     "string with special chars",
-			input:    "hello$world",
-			expected: "'hello$world'",
-		},
-		{
-			name:     "string with newline",
-			input:    "hello\nworld",
-			expected: "'hello\nworld'",
-		},
-		{
-			name:     "string with backticks",
-			input:    "echo `date`",
-			expected: "'echo `date`'",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result := shellQuote(tc.input)
-			assert.Equal(t, tc.expected, result)
-		})
-	}
-}
-
 func TestIsValidEnvKey(t *testing.T) {
 	tests := []struct {
 		name     string

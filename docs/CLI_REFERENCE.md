@@ -142,6 +142,59 @@ The last workflow ID is stored in `~/.fleetlift/last-workflow`. You can always o
 ./bin/fleetlift cancel --workflow-id transform-<task-id>
 ```
 
+## HITL Steering Commands
+
+These commands enable iterative human-agent collaboration during the approval phase.
+
+> **Note**: Steering is only supported for single-group tasks. For tasks with multiple execution groups, approval is binary (approve/reject only). To use steering, configure a single group or use the default combined strategy.
+
+### View Diff
+
+View changes made by Claude Code while awaiting approval:
+
+```bash
+# Uses last workflow automatically
+./bin/fleetlift diff
+
+# Show full diff content (not just summary)
+./bin/fleetlift diff --full
+
+# Filter to specific file
+./bin/fleetlift diff --file auth.go
+
+# JSON output
+./bin/fleetlift diff -o json
+```
+
+### View Verifier Logs
+
+View verifier output (test results, build output):
+
+```bash
+# Uses last workflow automatically
+./bin/fleetlift logs
+
+# Filter to specific verifier
+./bin/fleetlift logs --verifier test
+
+# JSON output
+./bin/fleetlift logs -o json
+```
+
+### Steer Agent
+
+Send follow-up prompts to refine Claude's work:
+
+```bash
+# Uses last workflow automatically
+./bin/fleetlift steer --prompt "Add error handling for the edge case"
+
+# Or specify workflow
+./bin/fleetlift steer --workflow-id transform-<task-id> --prompt "Use slog instead of log"
+```
+
+After steering, Claude processes the prompt and the workflow returns to awaiting approval. You can check progress with `status`, then view the updated changes with `diff`.
+
 ## Important Notes
 
 ### Workflow ID Format
@@ -219,6 +272,40 @@ open http://localhost:8233
 
 # 6. Get final result
 ./bin/fleetlift result
+```
+
+### Steering Workflow (HITL)
+
+```bash
+# 1. Start workflow with approval required
+./bin/fleetlift run -f task.yaml
+# (task.yaml has require_approval: true)
+
+# 2. Wait for awaiting_approval status
+./bin/fleetlift status
+# Status: awaiting_approval
+
+# 3. View what changed
+./bin/fleetlift diff
+# Repository: my-service
+#   Summary: 3 files changed, +45, -12
+#   modified src/auth.go (+30/-5)
+#   modified src/util.go (+15/-7)
+
+# 4. View test results
+./bin/fleetlift logs
+# [PASS] my-service:test (exit code: 0)
+
+# 5. Request changes
+./bin/fleetlift steer --prompt "Also add validation for empty strings"
+
+# 6. Wait for completion, check updated diff
+./bin/fleetlift status
+./bin/fleetlift diff
+# Now shows 4 files with additional validation
+
+# 7. Approve final changes
+./bin/fleetlift approve
 ```
 
 ### Report Mode Workflow

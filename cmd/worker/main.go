@@ -68,6 +68,7 @@ func main() {
 	githubActivities := activity.NewGitHubActivities(dockerProvider)
 	slackActivities := activity.NewSlackActivities()
 	reportActivities := activity.NewReportActivities(dockerProvider)
+	steeringActivities := activity.NewSteeringActivities(dockerProvider)
 
 	// Create worker
 	w := worker.New(c, internalclient.TaskQueue, worker.Options{})
@@ -88,6 +89,8 @@ func main() {
 	w.RegisterActivityWithOptions(slackActivities.NotifySlack, temporalactivity.RegisterOptions{Name: activity.ActivityNotifySlack})
 	w.RegisterActivityWithOptions(reportActivities.CollectReport, temporalactivity.RegisterOptions{Name: activity.ActivityCollectReport})
 	w.RegisterActivityWithOptions(reportActivities.ValidateSchema, temporalactivity.RegisterOptions{Name: activity.ActivityValidateSchema})
+	w.RegisterActivityWithOptions(steeringActivities.GetDiff, temporalactivity.RegisterOptions{Name: activity.ActivityGetDiff})
+	w.RegisterActivityWithOptions(steeringActivities.GetVerifierOutput, temporalactivity.RegisterOptions{Name: activity.ActivityGetVerifierOutput})
 
 	log.Println("Worker started. Press Ctrl+C to stop.")
 

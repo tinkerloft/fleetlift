@@ -13,12 +13,6 @@ import (
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
 )
 
-// shellQuote properly quotes a string for safe use in shell commands.
-func shellQuote(s string) string {
-	escaped := strings.ReplaceAll(s, "'", "'\"'\"'")
-	return "'" + escaped + "'"
-}
-
 // isValidEnvKey validates environment variable key format.
 func isValidEnvKey(key string) bool {
 	if len(key) == 0 {

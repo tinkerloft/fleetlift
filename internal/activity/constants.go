@@ -32,6 +32,10 @@ const (
 	// Report activities
 	ActivityCollectReport  = "CollectReport"
 	ActivityValidateSchema = "ValidateSchema"
+
+	// Steering activities
+	ActivityGetDiff           = "GetDiff"
+	ActivityGetVerifierOutput = "GetVerifierOutput"
 )
 
 // Default configuration values (SIMP-004)

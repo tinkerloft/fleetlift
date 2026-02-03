@@ -87,6 +87,27 @@ var reportsCmd = &cobra.Command{
 	RunE:  runReports,
 }
 
+var diffCmd = &cobra.Command{
+	Use:   "diff",
+	Short: "View changes made by workflow",
+	Long:  "Display git diffs for files modified by a workflow awaiting approval",
+	RunE:  runDiff,
+}
+
+var logsCmd = &cobra.Command{
+	Use:   "logs",
+	Short: "View verifier output",
+	Long:  "Display verifier execution output for a workflow awaiting approval",
+	RunE:  runLogs,
+}
+
+var steerCmd = &cobra.Command{
+	Use:   "steer",
+	Short: "Send steering prompt to workflow",
+	Long:  "Send a follow-up prompt to guide Claude Code through refinements",
+	RunE:  runSteer,
+}
+
 func init() {
 	// Run command flags (matches design doc interface)
 	runCmd.Flags().StringP("file", "f", "", "Path to task YAML file")
@@ -134,6 +155,22 @@ func init() {
 	reportsCmd.Flags().Bool("frontmatter-only", false, "Show only frontmatter data")
 	reportsCmd.Flags().String("target", "", "Filter to specific target (forEach mode)")
 
+	// Diff command flags
+	diffCmd.Flags().String("workflow-id", "", "Workflow ID (defaults to last run)")
+	diffCmd.Flags().StringP("output", "o", "table", "Output format (table, json)")
+	diffCmd.Flags().Bool("full", false, "Show full diff content (default: summary only)")
+	diffCmd.Flags().String("file", "", "Filter to specific file path")
+
+	// Logs command flags
+	logsCmd.Flags().String("workflow-id", "", "Workflow ID (defaults to last run)")
+	logsCmd.Flags().StringP("output", "o", "table", "Output format (table, json)")
+	logsCmd.Flags().String("verifier", "", "Filter to specific verifier name")
+
+	// Steer command flags
+	steerCmd.Flags().String("workflow-id", "", "Workflow ID (defaults to last run)")
+	steerCmd.Flags().StringP("prompt", "p", "", "Steering prompt (required)")
+	_ = steerCmd.MarkFlagRequired("prompt")
+
 	// Add commands
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(statusCmd)
@@ -143,6 +180,9 @@ func init() {
 	rootCmd.AddCommand(cancelCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(reportsCmd)
+	rootCmd.AddCommand(diffCmd)
+	rootCmd.AddCommand(logsCmd)
+	rootCmd.AddCommand(steerCmd)
 }
 
 // getWorkflowID returns the workflow ID from the flag or falls back to the last workflow.
@@ -726,6 +766,180 @@ func displayReport(report *model.ReportOutput, indent string, frontmatterOnly bo
 		}
 		fmt.Printf("%s  %s\n", indent, strings.ReplaceAll(body, "\n", "\n"+indent+"  "))
 	}
+}
+
+func runDiff(cmd *cobra.Command, args []string) error {
+	workflowID, err := getWorkflowID(cmd)
+	if err != nil {
+		return err
+	}
+	output, _ := cmd.Flags().GetString("output")
+	fullDiff, _ := cmd.Flags().GetBool("full")
+	fileFilter, _ := cmd.Flags().GetString("file")
+
+	diffs, err := client.GetWorkflowDiff(context.Background(), workflowID)
+	if err != nil {
+		return fmt.Errorf("failed to get diff: %w", err)
+	}
+
+	// Filter by file if specified
+	if fileFilter != "" {
+		var filteredDiffs []model.DiffOutput
+		for _, d := range diffs {
+			var filteredFiles []model.FileDiff
+			for _, f := range d.Files {
+				if strings.Contains(f.Path, fileFilter) {
+					filteredFiles = append(filteredFiles, f)
+				}
+			}
+			if len(filteredFiles) > 0 {
+				filtered := d
+				filtered.Files = filteredFiles
+				filteredDiffs = append(filteredDiffs, filtered)
+			}
+		}
+		diffs = filteredDiffs
+	}
+
+	if output == "json" {
+		data, err := json.MarshalIndent(diffs, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal output: %w", err)
+		}
+		fmt.Println(string(data))
+		return nil
+	}
+
+	if len(diffs) == 0 {
+		fmt.Println("No changes detected or workflow not in approval state")
+		return nil
+	}
+
+	fmt.Printf("Diff for workflow: %s\n\n", workflowID)
+
+	for _, diff := range diffs {
+		fmt.Printf("Repository: %s\n", diff.Repository)
+		if len(diff.Files) == 0 {
+			fmt.Println("  No changes")
+			fmt.Println()
+			continue
+		}
+
+		fmt.Printf("  Summary: %s\n", diff.Summary)
+		if diff.Truncated {
+			fmt.Println("  (output truncated)")
+		}
+		fmt.Println()
+
+		for _, f := range diff.Files {
+			fmt.Printf("  %s (%s, +%d/-%d)\n", f.Path, f.Status, f.Additions, f.Deletions)
+			if fullDiff && f.Diff != "" {
+				// Indent the diff output
+				lines := strings.Split(f.Diff, "\n")
+				for _, line := range lines {
+					if line != "" {
+						fmt.Printf("    %s\n", line)
+					}
+				}
+				fmt.Println()
+			}
+		}
+		fmt.Println()
+	}
+
+	return nil
+}
+
+func runLogs(cmd *cobra.Command, args []string) error {
+	workflowID, err := getWorkflowID(cmd)
+	if err != nil {
+		return err
+	}
+	output, _ := cmd.Flags().GetString("output")
+	verifierFilter, _ := cmd.Flags().GetString("verifier")
+
+	logs, err := client.GetWorkflowVerifierLogs(context.Background(), workflowID)
+	if err != nil {
+		return fmt.Errorf("failed to get verifier logs: %w", err)
+	}
+
+	// Filter by verifier if specified
+	if verifierFilter != "" {
+		var filtered []model.VerifierOutput
+		for _, l := range logs {
+			if strings.Contains(l.Verifier, verifierFilter) {
+				filtered = append(filtered, l)
+			}
+		}
+		logs = filtered
+	}
+
+	if output == "json" {
+		data, err := json.MarshalIndent(logs, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal output: %w", err)
+		}
+		fmt.Println(string(data))
+		return nil
+	}
+
+	if len(logs) == 0 {
+		fmt.Println("No verifier output available or workflow not in approval state")
+		return nil
+	}
+
+	fmt.Printf("Verifier logs for workflow: %s\n\n", workflowID)
+
+	for _, log := range logs {
+		status := "PASS"
+		if !log.Success {
+			status = "FAIL"
+		}
+		fmt.Printf("[%s] %s (exit code: %d)\n", status, log.Verifier, log.ExitCode)
+
+		if log.Stdout != "" {
+			fmt.Println("  stdout:")
+			lines := strings.Split(log.Stdout, "\n")
+			for _, line := range lines {
+				if line != "" {
+					fmt.Printf("    %s\n", line)
+				}
+			}
+		}
+
+		if log.Stderr != "" {
+			fmt.Println("  stderr:")
+			lines := strings.Split(log.Stderr, "\n")
+			for _, line := range lines {
+				if line != "" {
+					fmt.Printf("    %s\n", line)
+				}
+			}
+		}
+		fmt.Println()
+	}
+
+	return nil
+}
+
+func runSteer(cmd *cobra.Command, args []string) error {
+	workflowID, err := getWorkflowID(cmd)
+	if err != nil {
+		return err
+	}
+	prompt, _ := cmd.Flags().GetString("prompt")
+
+	if prompt == "" {
+		return fmt.Errorf("--prompt is required")
+	}
+
+	if err := client.SteerWorkflow(context.Background(), workflowID, prompt); err != nil {
+		return fmt.Errorf("failed to send steering signal: %w", err)
+	}
+
+	fmt.Printf("Steering signal sent to: %s\n", workflowID)
+	fmt.Println("Use 'fleetlift status' to monitor progress.")
+	return nil
 }
 
 func main() {
