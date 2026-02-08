@@ -15,12 +15,12 @@ import (
 
 // GroupTransformInput contains the input for processing a repository group.
 type GroupTransformInput struct {
-	Task      model.Task
-	Group     model.RepositoryGroup
-	AgentsMD  string
-	PRTitle   string
-	PRDesc    string
-	Approved  bool // Pre-approval status (approved at parent workflow level)
+	Task     model.Task
+	Group    model.RepositoryGroup
+	AgentsMD string
+	PRTitle  string
+	PRDesc   string
+	Approved bool // Pre-approval status (approved at parent workflow level)
 }
 
 // GroupTransformResult contains the result of processing a repository group.

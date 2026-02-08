@@ -69,7 +69,6 @@ func BuildManifest(task model.Task) protocol.TaskManifest {
 	return manifest
 }
 
-
 func convertRepo(r *model.Repository) *protocol.ManifestRepo {
 	if r == nil {
 		return nil

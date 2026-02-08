@@ -369,9 +369,9 @@ execution:
 
 func TestLoadTask_ForEachInvalidTargetName(t *testing.T) {
 	tests := []struct {
-		name        string
-		targetName  string
-		wantErr     string
+		name       string
+		targetName string
+		wantErr    string
 	}{
 		{
 			name:       "empty name",

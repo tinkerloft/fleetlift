@@ -8,11 +8,11 @@ import (
 	"io"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
 	"github.com/tinkerloft/fleetlift/internal/model"
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/testsuite"
 )
 
@@ -405,11 +405,11 @@ func TestValidateSchema(t *testing.T) {
 	activities := &ReportActivities{}
 
 	tests := []struct {
-		name            string
-		frontmatter     map[string]any
-		schema          string
-		wantErrors      bool
-		wantErrorCount  int
+		name           string
+		frontmatter    map[string]any
+		schema         string
+		wantErrors     bool
+		wantErrorCount int
 	}{
 		{
 			name: "valid frontmatter against schema",

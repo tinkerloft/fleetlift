@@ -11,14 +11,14 @@ import (
 
 // blockedEnvVars are environment variable names that manifest env overrides cannot set.
 var blockedEnvVars = map[string]bool{
-	"PATH":             true,
-	"HOME":             true,
-	"USER":             true,
-	"SHELL":            true,
-	"LD_PRELOAD":       true,
-	"LD_LIBRARY_PATH":  true,
+	"PATH":              true,
+	"HOME":              true,
+	"USER":              true,
+	"SHELL":             true,
+	"LD_PRELOAD":        true,
+	"LD_LIBRARY_PATH":   true,
 	"ANTHROPIC_API_KEY": true,
-	"GITHUB_TOKEN":     true,
+	"GITHUB_TOKEN":      true,
 }
 
 // filterEnv removes blocked keys from an environment slice.

@@ -21,9 +21,9 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 
 	// Workflow state for query handlers
 	var (
-		status       = model.TaskStatusPending
-		cachedDiffs  []model.DiffOutput
-		steeringState = model.SteeringState{MaxIterations: DefaultMaxSteeringIterations}
+		status                = model.TaskStatusPending
+		cachedDiffs           []model.DiffOutput
+		steeringState         = model.SteeringState{MaxIterations: DefaultMaxSteeringIterations}
 		cancellationRequested bool
 		approved              *bool
 		steerRequested        bool

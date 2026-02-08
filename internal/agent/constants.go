@@ -16,6 +16,6 @@ const (
 
 // Truncation limits.
 const (
-	MaxOutputTruncation      = 10000
-	MaxSteeringContextChars  = 4000
+	MaxOutputTruncation     = 10000
+	MaxSteeringContextChars = 4000
 )

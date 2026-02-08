@@ -36,9 +36,9 @@ type CommandExecutor interface {
 
 // CommandOpts configures a command execution.
 type CommandOpts struct {
-	Name  string
-	Args  []string
-	Dir   string
+	Name string
+	Args []string
+	Dir  string
 	// Env, if non-empty, REPLACES the process environment entirely.
 	// Use os.Environ() as a base and append to augment rather than replace.
 	Env   []string
@@ -55,12 +55,14 @@ type CommandResult struct {
 // osFileSystem implements FileSystem using the real OS.
 type osFileSystem struct{}
 
-func (osFileSystem) ReadFile(path string) ([]byte, error)                  { return os.ReadFile(path) }
-func (osFileSystem) WriteFile(path string, data []byte, perm os.FileMode) error { return os.WriteFile(path, data, perm) }
-func (osFileSystem) MkdirAll(path string, perm os.FileMode) error         { return os.MkdirAll(path, perm) }
-func (osFileSystem) Remove(path string) error                             { return os.Remove(path) }
-func (osFileSystem) Rename(oldpath, newpath string) error                 { return os.Rename(oldpath, newpath) }
-func (osFileSystem) Stat(path string) (os.FileInfo, error)                { return os.Stat(path) }
+func (osFileSystem) ReadFile(path string) ([]byte, error) { return os.ReadFile(path) }
+func (osFileSystem) WriteFile(path string, data []byte, perm os.FileMode) error {
+	return os.WriteFile(path, data, perm)
+}
+func (osFileSystem) MkdirAll(path string, perm os.FileMode) error { return os.MkdirAll(path, perm) }
+func (osFileSystem) Remove(path string) error                     { return os.Remove(path) }
+func (osFileSystem) Rename(oldpath, newpath string) error         { return os.Rename(oldpath, newpath) }
+func (osFileSystem) Stat(path string) (os.FileInfo, error)        { return os.Stat(path) }
 
 // osCommandExecutor implements CommandExecutor using os/exec.
 type osCommandExecutor struct{}

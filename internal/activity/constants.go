@@ -43,9 +43,9 @@ const (
 	// Agent-mode activities (sidecar agent pattern)
 	ActivityProvisionAgentSandbox = "ProvisionAgentSandbox"
 	ActivitySubmitTaskManifest    = "SubmitTaskManifest"
-	ActivityWaitForAgentPhase   = "WaitForAgentPhase"
-	ActivityReadAgentResult     = "ReadAgentResult"
-	ActivitySubmitSteeringAction = "SubmitSteeringAction"
+	ActivityWaitForAgentPhase     = "WaitForAgentPhase"
+	ActivityReadAgentResult       = "ReadAgentResult"
+	ActivitySubmitSteeringAction  = "SubmitSteeringAction"
 )
 
 // Default configuration values (SIMP-004)

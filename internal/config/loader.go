@@ -58,27 +58,27 @@ func LoadTaskFile(path string) (*model.Task, error) {
 
 // taskV1 is the internal representation for schema version 1.
 type taskV1 struct {
-	Version         int              `yaml:"version"`
-	ID              string           `yaml:"id"`
-	Title           string           `yaml:"title"`
-	Description     string           `yaml:"description,omitempty"`
-	Mode            string           `yaml:"mode,omitempty"`
-	Transformation  *repositoryV1    `yaml:"transformation,omitempty"` // Transformation repo (recipe)
-	Targets         []repositoryV1   `yaml:"targets,omitempty"`        // Target repos when using transformation
-	Repositories    []repositoryV1   `yaml:"repositories,omitempty"`   // Legacy: repos to operate on
-	ForEach         []forEachV1      `yaml:"for_each,omitempty"`
-	Execution       executionV1      `yaml:"execution"`
-	TicketURL       string           `yaml:"ticket_url,omitempty"`
-	SlackChannel    string           `yaml:"slack_channel,omitempty"`
-	Requester       string           `yaml:"requester,omitempty"`
+	Version         int            `yaml:"version"`
+	ID              string         `yaml:"id"`
+	Title           string         `yaml:"title"`
+	Description     string         `yaml:"description,omitempty"`
+	Mode            string         `yaml:"mode,omitempty"`
+	Transformation  *repositoryV1  `yaml:"transformation,omitempty"` // Transformation repo (recipe)
+	Targets         []repositoryV1 `yaml:"targets,omitempty"`        // Target repos when using transformation
+	Repositories    []repositoryV1 `yaml:"repositories,omitempty"`   // Legacy: repos to operate on
+	ForEach         []forEachV1    `yaml:"for_each,omitempty"`
+	Execution       executionV1    `yaml:"execution"`
+	TicketURL       string         `yaml:"ticket_url,omitempty"`
+	SlackChannel    string         `yaml:"slack_channel,omitempty"`
+	Requester       string         `yaml:"requester,omitempty"`
 	Timeout         string         `yaml:"timeout,omitempty"`
 	RequireApproval *bool          `yaml:"require_approval,omitempty"`
 	MaxParallel     int            `yaml:"max_parallel,omitempty"`
 	Groups          []groupV1      `yaml:"groups,omitempty"`
 	Failure         *failureV1     `yaml:"failure,omitempty"`
 	PullRequest     *pullRequestV1 `yaml:"pull_request,omitempty"`
-	Sandbox         *sandboxV1       `yaml:"sandbox,omitempty"`
-	Credentials     *credentialsV1   `yaml:"credentials,omitempty"`
+	Sandbox         *sandboxV1     `yaml:"sandbox,omitempty"`
+	Credentials     *credentialsV1 `yaml:"credentials,omitempty"`
 }
 
 type groupV1 struct {

@@ -149,13 +149,13 @@ type StatusProgress struct {
 
 // AgentResult is the full structured result written by the agent.
 type AgentResult struct {
-	Status          Phase              `json:"status"` // mirrors phase: "awaiting_input", "complete", "failed", "cancelled"
-	Repositories    []RepoResult       `json:"repositories"`
-	AgentOutput     string             `json:"agent_output,omitempty"`
-	SteeringHistory []SteeringRecord   `json:"steering_history,omitempty"`
-	Error           *string            `json:"error,omitempty"`
-	StartedAt       time.Time          `json:"started_at"`
-	CompletedAt     *time.Time         `json:"completed_at,omitempty"`
+	Status          Phase            `json:"status"` // mirrors phase: "awaiting_input", "complete", "failed", "cancelled"
+	Repositories    []RepoResult     `json:"repositories"`
+	AgentOutput     string           `json:"agent_output,omitempty"`
+	SteeringHistory []SteeringRecord `json:"steering_history,omitempty"`
+	Error           *string          `json:"error,omitempty"`
+	StartedAt       time.Time        `json:"started_at"`
+	CompletedAt     *time.Time       `json:"completed_at,omitempty"`
 }
 
 // RepoResult contains the result for a single repository.
@@ -242,4 +242,3 @@ type SteeringInstruction struct {
 
 // MaxDiffLinesPerFile is the default truncation limit for per-file diffs.
 const MaxDiffLinesPerFile = 1000
-
