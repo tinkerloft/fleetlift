@@ -410,11 +410,12 @@ func (p *Provider) PollStatus(ctx context.Context, id string) (*protocol.AgentSt
 		return nil, err
 	}
 	if data == nil {
-		// File doesn't exist yet — agent hasn't started writing status
+		// File doesn't exist yet — agent hasn't started writing status.
+		// UpdatedAt intentionally left as zero-time so the staleness detector
+		// (which guards with !status.UpdatedAt.IsZero()) skips this case.
 		return &protocol.AgentStatus{
-			Phase:     protocol.PhaseInitializing,
-			Message:   "Waiting for agent to start",
-			UpdatedAt: time.Now().UTC(),
+			Phase:   protocol.PhaseInitializing,
+			Message: "Waiting for agent to start",
 		}, nil
 	}
 

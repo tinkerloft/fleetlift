@@ -184,7 +184,7 @@ func TestCollectResults_ReportMode_ForEach(t *testing.T) {
 		},
 	}
 
-	results := p.collectResults(ctx(), manifest, nil)
+	results := p.collectResults(testCtx(), manifest, nil)
 
 	require.Len(t, results, 1)
 	require.Len(t, results[0].ForEachResults, 2)
@@ -193,6 +193,6 @@ func TestCollectResults_ReportMode_ForEach(t *testing.T) {
 	assert.Equal(t, 8, results[0].ForEachResults[0].Report.Frontmatter["score"])
 }
 
-func ctx() context.Context {
+func testCtx() context.Context {
 	return context.Background()
 }

@@ -98,7 +98,16 @@ func (p *Pipeline) runDeterministicTransformation(ctx context.Context, manifest 
 			p.logger.Warn("Blocked env var override", "key", k)
 			continue
 		}
-		env = append(env, fmt.Sprintf("%s=%s", k, v))
+		// Remove existing key so the manifest override takes effect.
+		// Duplicate env vars have undefined POSIX behavior (most impls use first occurrence).
+		prefix := k + "="
+		filtered := env[:0]
+		for _, e := range env {
+			if !strings.HasPrefix(e, prefix) {
+				filtered = append(filtered, e)
+			}
+		}
+		env = append(filtered, fmt.Sprintf("%s=%s", k, v))
 	}
 
 	p.logger.Info("Running deterministic transformation", "command", strings.Join(manifest.Execution.Command, " "))

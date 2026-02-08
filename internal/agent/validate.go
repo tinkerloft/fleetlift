@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"unicode"
@@ -12,10 +13,10 @@ import (
 // Command content is trusted (manifest authors are privileged) — only structural and path safety validated.
 func ValidateManifest(m *protocol.TaskManifest) error {
 	if m.TaskID == "" {
-		return fmt.Errorf("task_id is required")
+		return errors.New("task_id is required")
 	}
 	if m.Mode == "" {
-		return fmt.Errorf("mode is required")
+		return errors.New("mode is required")
 	}
 	if m.Mode != "transform" && m.Mode != "report" {
 		return fmt.Errorf("mode must be 'transform' or 'report', got %q", m.Mode)

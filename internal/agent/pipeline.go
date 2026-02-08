@@ -41,10 +41,14 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	// Handle SIGTERM/SIGINT
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(sigCh)
 	go func() {
-		<-sigCh
-		p.logger.Info("Received shutdown signal")
-		cancel()
+		select {
+		case <-sigCh:
+			p.logger.Info("Received shutdown signal")
+			cancel()
+		case <-ctx.Done():
+		}
 	}()
 
 	p.logger.Info("Agent starting, waiting for manifest...")

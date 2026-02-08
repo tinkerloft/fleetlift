@@ -3,6 +3,7 @@ package activity
 import (
 	"os"
 
+	"github.com/tinkerloft/fleetlift/internal/agent"
 	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
 	"github.com/tinkerloft/fleetlift/internal/model"
 )
@@ -112,6 +113,6 @@ func buildGitConfig() protocol.ManifestGitConfig {
 	return protocol.ManifestGitConfig{
 		UserEmail:  email,
 		UserName:   name,
-		CloneDepth: 50, // matches DefaultCloneDepth constant
+		CloneDepth: agent.DefaultCloneDepth,
 	}
 }

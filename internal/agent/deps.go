@@ -39,6 +39,8 @@ type CommandOpts struct {
 	Name  string
 	Args  []string
 	Dir   string
+	// Env, if non-empty, REPLACES the process environment entirely.
+	// Use os.Environ() as a base and append to augment rather than replace.
 	Env   []string
 	Stdin io.Reader
 }

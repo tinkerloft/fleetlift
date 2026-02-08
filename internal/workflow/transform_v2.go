@@ -213,9 +213,6 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 
 	steeringLoop:
 		for {
-			steerRequested = false
-			steeringPrompt = ""
-
 			ok, err := workflow.AwaitWithTimeout(ctx, 24*time.Hour, func() bool {
 				return approved != nil || cancellationRequested || steerRequested
 			})
@@ -268,6 +265,8 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 			if steerRequested {
 				if steeringState.CurrentIteration >= steeringState.MaxIterations {
 					logger.Warn("Max steering iterations reached", "max", steeringState.MaxIterations)
+					steerRequested = false
+					steeringPrompt = ""
 					continue
 				}
 
@@ -283,6 +282,8 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 				}
 				if err := workflow.ExecuteActivity(shortCtx, activity.ActivitySubmitSteeringAction, steerInput).Get(shortCtx, nil); err != nil {
 					logger.Error("Failed to submit steering", "error", err)
+					steerRequested = false
+					steeringPrompt = ""
 					continue
 				}
 
@@ -313,6 +314,10 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 						steeringState.CurrentIteration, task.ID, diffSummary)
 					_ = workflow.ExecuteActivity(shortCtx, activity.ActivityNotifySlack, *task.SlackChannel, msg, (*string)(nil)).Get(shortCtx, nil)
 				}
+
+				// Reset after processing steer
+				steerRequested = false
+				steeringPrompt = ""
 			}
 		}
 	}

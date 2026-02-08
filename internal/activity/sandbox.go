@@ -142,7 +142,12 @@ func parseCPU(s string) (int64, error) {
 // ProvisionAgentSandboxInput contains options for agent-mode sandbox provisioning.
 type ProvisionAgentSandboxInput struct {
 	TaskID string `json:"task_id"`
-	Image  string `json:"image,omitempty"` // Override sandbox image (M2 fix)
+	// Image optionally overrides the sandbox container image (M2 fix).
+	// TRUST BOUNDARY: This value originates from the task manifest authored by
+	// a trusted operator (not end-users). Production deployments that accept
+	// manifests from less-trusted sources should validate images against an
+	// allowlist in a policy layer above this activity.
+	Image string `json:"image,omitempty"`
 }
 
 // ProvisionAgentSandbox creates a Docker container for the sidecar agent pattern.
