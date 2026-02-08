@@ -8,6 +8,7 @@ import (
 	"io"
 	"testing"
 
+	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
 	"github.com/tinkerloft/fleetlift/internal/model"
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
 	"github.com/stretchr/testify/assert"
@@ -53,6 +54,22 @@ func (m *mockProvider) Cleanup(_ context.Context, _ string) error {
 
 func (m *mockProvider) Name() string {
 	return "mock"
+}
+
+func (m *mockProvider) SubmitManifest(_ context.Context, _ string, _ []byte) error {
+	return errors.New("not implemented")
+}
+
+func (m *mockProvider) PollStatus(_ context.Context, _ string) (*protocol.AgentStatus, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockProvider) ReadResult(_ context.Context, _ string) ([]byte, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (m *mockProvider) SubmitSteering(_ context.Context, _ string, _ []byte) error {
+	return errors.New("not implemented")
 }
 
 // createTarArchive creates a tar archive containing a single file with the given content.

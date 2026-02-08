@@ -5,9 +5,11 @@ import (
 	"context"
 	"io"
 	"time"
+
+	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
 )
 
-// Provider defines the interface for sandbox container providers.
+// Provider defines the interface for basic sandbox container operations.
 // Implementations include Docker (local development) and Kubernetes (production).
 type Provider interface {
 	// Provision creates a new sandbox container.
@@ -36,14 +38,32 @@ type Provider interface {
 	Name() string
 }
 
+// AgentProvider extends Provider with agent-specific file-based protocol operations (M5 fix).
+type AgentProvider interface {
+	Provider
+
+	// SubmitManifest writes the task manifest to the sandbox for the agent to execute.
+	SubmitManifest(ctx context.Context, id string, manifest []byte) error
+
+	// PollStatus reads the agent's current status from the sandbox.
+	PollStatus(ctx context.Context, id string) (*protocol.AgentStatus, error)
+
+	// ReadResult reads the agent's full result from the sandbox.
+	ReadResult(ctx context.Context, id string) ([]byte, error)
+
+	// SubmitSteering writes a steering instruction for the agent.
+	SubmitSteering(ctx context.Context, id string, instruction []byte) error
+}
+
 // ProvisionOptions contains options for provisioning a sandbox.
 type ProvisionOptions struct {
-	TaskID     string
-	Image      string
-	WorkingDir string
-	Env        map[string]string
-	Resources  ResourceLimits
-	Timeout    time.Duration
+	TaskID       string
+	Image        string
+	WorkingDir   string
+	Env          map[string]string
+	Resources    ResourceLimits
+	Timeout      time.Duration
+	UseAgentMode bool // C2 fix: when true, omit Cmd to let Dockerfile CMD run
 }
 
 // ResourceLimits defines resource constraints for a sandbox.

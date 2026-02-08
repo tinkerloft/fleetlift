@@ -5,11 +5,13 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -17,10 +19,17 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 
+	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
 )
 
-// Provider implements sandbox.Provider using Docker containers.
+// MaxFileReadSize is the maximum bytes to read from sandbox files (H3 fix).
+const MaxFileReadSize = 10 << 20 // 10 MB
+
+// validNetworkName matches safe Docker network names (M7 fix).
+var validNetworkName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]+$`)
+
+// Provider implements sandbox.AgentProvider using Docker containers.
 type Provider struct {
 	client *client.Client
 }
@@ -68,9 +77,12 @@ func (p *Provider) Provision(ctx context.Context, opts sandbox.ProvisionOptions)
 		Image:     opts.Image,
 		Tty:       true,
 		OpenStdin: true,
-		// Use /tmp for the log file since /var/log may not be writable by non-root users
-		Cmd: []string{"sh", "-c", "touch /tmp/claude-code.log && tail -f /tmp/claude-code.log"},
-		Env: envMapToSlice(opts.Env),
+		Env:       envMapToSlice(opts.Env),
+	}
+
+	// C2 fix: only set Cmd when not in agent mode — let Dockerfile CMD run the agent
+	if !opts.UseAgentMode {
+		containerConfig.Cmd = []string{"sh", "-c", "touch /tmp/claude-code.log && tail -f /tmp/claude-code.log"}
 	}
 
 	hostConfig := &container.HostConfig{
@@ -82,10 +94,13 @@ func (p *Provider) Provision(ctx context.Context, opts sandbox.ProvisionOptions)
 		SecurityOpt: []string{"no-new-privileges:true"},
 	}
 
-	// Apply network mode from environment
+	// M7 fix: validate network mode
 	networkMode := os.Getenv("SANDBOX_NETWORK_MODE")
 	if networkMode == "" {
 		networkMode = "bridge"
+	}
+	if err := validateNetworkMode(networkMode); err != nil {
+		return nil, fmt.Errorf("invalid network mode: %w", err)
 	}
 	hostConfig.NetworkMode = container.NetworkMode(networkMode)
 
@@ -107,6 +122,21 @@ func (p *Provider) Provision(ctx context.Context, opts sandbox.ProvisionOptions)
 		Provider:   "docker",
 		WorkingDir: opts.WorkingDir,
 	}, nil
+}
+
+// validateNetworkMode checks the network mode against an allowlist (M7 fix).
+func validateNetworkMode(mode string) error {
+	switch mode {
+	case "bridge", "none":
+		return nil
+	case "host":
+		return fmt.Errorf("'host' network mode is not allowed for sandbox containers")
+	default:
+		if !validNetworkName.MatchString(mode) {
+			return fmt.Errorf("network name %q contains invalid characters", mode)
+		}
+		return nil
+	}
 }
 
 // Exec executes a command in a Docker container.
@@ -209,10 +239,14 @@ func (p *Provider) CopyFrom(ctx context.Context, id string, srcPath string) (io.
 
 // CopyTo copies data into a Docker container.
 func (p *Provider) CopyTo(ctx context.Context, id string, src io.Reader, destPath string) error {
-	// Read all data from src
-	data, err := io.ReadAll(src)
+	// H3 fix: bounded read to prevent OOM
+	limited := io.LimitReader(src, MaxFileReadSize+1)
+	data, err := io.ReadAll(limited)
 	if err != nil {
 		return fmt.Errorf("failed to read source data: %w", err)
+	}
+	if len(data) > MaxFileReadSize {
+		return fmt.Errorf("source data exceeds maximum size (%d bytes)", MaxFileReadSize)
 	}
 
 	// Create a tar archive with the file
@@ -351,6 +385,89 @@ func (p *Provider) PullImageIfNeeded(ctx context.Context, imageName string) erro
 	}
 
 	return nil
+}
+
+// --- Agent task operations (file-based protocol) ---
+
+// SubmitManifest writes the task manifest into the sandbox.
+func (p *Provider) SubmitManifest(ctx context.Context, id string, manifest []byte) error {
+	// Ensure the .fleetlift directory exists
+	_, err := p.Exec(ctx, id, sandbox.ExecCommand{
+		Command: []string{"mkdir", "-p", protocol.BasePath},
+		User:    "agent",
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create fleetlift directory: %w", err)
+	}
+
+	return p.CopyTo(ctx, id, bytes.NewReader(manifest), protocol.ManifestPath)
+}
+
+// PollStatus reads the agent's current status from the sandbox.
+func (p *Provider) PollStatus(ctx context.Context, id string) (*protocol.AgentStatus, error) {
+	data, err := p.readFile(ctx, id, protocol.StatusPath)
+	if err != nil {
+		return nil, err
+	}
+	if data == nil {
+		// File doesn't exist yet — agent hasn't started writing status
+		return &protocol.AgentStatus{
+			Phase:     protocol.PhaseInitializing,
+			Message:   "Waiting for agent to start",
+			UpdatedAt: time.Now().UTC(),
+		}, nil
+	}
+
+	var status protocol.AgentStatus
+	if err := json.Unmarshal(data, &status); err != nil {
+		return nil, fmt.Errorf("failed to parse status.json: %w", err)
+	}
+	return &status, nil
+}
+
+// ReadResult reads the agent's full result from the sandbox.
+func (p *Provider) ReadResult(ctx context.Context, id string) ([]byte, error) {
+	data, err := p.readFile(ctx, id, protocol.ResultPath)
+	if err != nil {
+		return nil, err
+	}
+	if data == nil {
+		return nil, fmt.Errorf("result.json not found")
+	}
+	return data, nil
+}
+
+// SubmitSteering writes a steering instruction for the agent.
+func (p *Provider) SubmitSteering(ctx context.Context, id string, instruction []byte) error {
+	return p.CopyTo(ctx, id, bytes.NewReader(instruction), protocol.SteeringPath)
+}
+
+// readFile reads a file from the sandbox, returning nil if it doesn't exist.
+func (p *Provider) readFile(ctx context.Context, id string, filePath string) ([]byte, error) {
+	reader, err := p.CopyFrom(ctx, id, filePath)
+	if err != nil {
+		// CopyFrom returns error if file doesn't exist
+		return nil, nil //nolint:nilerr // file not existing is expected
+	}
+	defer reader.Close()
+
+	// CopyFrom returns a tar archive; extract the file
+	tr := tar.NewReader(reader)
+	_, err = tr.Next()
+	if err != nil {
+		return nil, nil //nolint:nilerr // empty tar is treated as file-not-found
+	}
+
+	// H3 fix: bounded read to prevent OOM
+	limited := io.LimitReader(tr, MaxFileReadSize+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file %s: %w", filePath, err)
+	}
+	if len(data) > MaxFileReadSize {
+		return nil, fmt.Errorf("file %s exceeds maximum size (%d bytes)", filePath, MaxFileReadSize)
+	}
+	return data, nil
 }
 
 // GetClient returns the underlying Docker client for advanced operations.

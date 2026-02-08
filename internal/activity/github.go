@@ -198,16 +198,3 @@ COMMIT_MSG_EOF
 		Title:      prTitle,
 	}, nil
 }
-
-// CreatePullRequestLegacy is the legacy signature for backward compatibility.
-// Deprecated: Use CreatePullRequest with CreatePullRequestInput instead.
-func (a *GitHubActivities) CreatePullRequestLegacy(ctx context.Context, containerID string, repo model.Repository, taskID, title, description string) (*model.PullRequest, error) {
-	return a.CreatePullRequest(ctx, CreatePullRequestInput{
-		ContainerID: containerID,
-		Repo:        repo,
-		TaskID:      taskID,
-		Title:       title,
-		Description: description,
-		PRConfig:    nil,
-	})
-}
