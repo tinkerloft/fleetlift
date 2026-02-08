@@ -79,9 +79,9 @@ func (p *Pipeline) createPR(ctx context.Context, manifest *protocol.TaskManifest
 
 	// H2 fix: inject .gitignore to block sensitive patterns before git add -A
 	gitignorePath := filepath.Join(repoPath, ".gitignore")
-	original, _ := p.fs.ReadFile(gitignorePath)
+	preAddContent, _ := p.fs.ReadFile(gitignorePath) // capture current state (includes transformation changes)
 	marker := "\n# fleetlift-agent: sensitive pattern injection\n"
-	gitignoreContent := string(original) + marker + strings.Join(sensitivePatterns, "\n") + "\n"
+	gitignoreContent := string(preAddContent) + marker + strings.Join(sensitivePatterns, "\n") + "\n"
 	if err := p.fs.WriteFile(gitignorePath, []byte(gitignoreContent), 0644); err != nil {
 		p.logger.Warn("Failed to write .gitignore for secret exclusion", "error", err)
 	}
@@ -91,12 +91,17 @@ func (p *Pipeline) createPR(ctx context.Context, manifest *protocol.TaskManifest
 		return nil, fmt.Errorf("git add: %w", err)
 	}
 
-	// Remove the injected .gitignore from staging (don't commit it)
-	_ = p.gitExec(ctx, repoPath, "reset", "HEAD", ".gitignore")
-	// Restore original .gitignore if it existed, otherwise remove
-	if err := p.gitExec(ctx, repoPath, "checkout", "--", ".gitignore"); err != nil && len(original) > 0 {
-		// Fallback: restore original content if checkout fails
-		_ = p.fs.WriteFile(gitignorePath, original, 0644)
+	// Restore the pre-injection .gitignore content (preserving transformation changes, removing injection)
+	if len(preAddContent) > 0 {
+		if err := p.fs.WriteFile(gitignorePath, preAddContent, 0644); err != nil {
+			p.logger.Warn("Failed to restore .gitignore", "error", err)
+		}
+		// Re-stage the restored .gitignore so the commit has the correct version
+		_ = p.gitExec(ctx, repoPath, "add", ".gitignore")
+	} else {
+		// No .gitignore existed before the transformation or injection -- unstage it
+		_ = p.gitExec(ctx, repoPath, "reset", "HEAD", ".gitignore")
+		_ = p.fs.Remove(gitignorePath)
 	}
 
 	// Commit

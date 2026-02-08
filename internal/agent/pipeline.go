@@ -221,6 +221,13 @@ func (p *Pipeline) steeringLoop(ctx context.Context, manifest *protocol.TaskMani
 
 	iteration := 0
 	for {
+		// Check for context cancellation (e.g., timeout)
+		select {
+		case <-ctx.Done():
+			return protocol.SteeringAction(""), fmt.Errorf("steering loop timed out: %w", ctx.Err())
+		default:
+		}
+
 		instruction, err := p.waitForSteering(ctx)
 		if err != nil {
 			return protocol.SteeringAction(""), err
@@ -346,26 +353,37 @@ func (p *Pipeline) waitForSteering(ctx context.Context) (*protocol.SteeringInstr
 	}
 }
 
-// writeStatus writes the status file.
+// writeStatus writes the status file atomically to prevent partial reads.
 func (p *Pipeline) writeStatus(status protocol.AgentStatus) {
 	data, err := json.Marshal(status)
 	if err != nil {
 		p.logger.Error("Failed to marshal status", "error", err)
 		return
 	}
-	if err := p.fs.WriteFile(filepath.Join(p.basePath, "status.json"), data, 0644); err != nil {
-		p.logger.Warn("Failed to write status", "error", err)
+	// Atomic write via rename to prevent partial reads
+	tmpPath := filepath.Join(p.basePath, "status.json.tmp")
+	if err := p.fs.WriteFile(tmpPath, data, 0644); err != nil {
+		p.logger.Warn("Failed to write status tmp", "error", err)
+		return
+	}
+	if err := p.fs.Rename(tmpPath, filepath.Join(p.basePath, "status.json")); err != nil {
+		p.logger.Warn("Failed to rename status", "error", err)
 	}
 }
 
-// writeResult writes the result file. Returns error because result is critical.
+// writeResult writes the result file atomically. Returns error because result is critical.
 func (p *Pipeline) writeResult(result *protocol.AgentResult) error {
 	data, err := json.Marshal(result)
 	if err != nil {
 		return fmt.Errorf("marshal result: %w", err)
 	}
-	if err := p.fs.WriteFile(filepath.Join(p.basePath, "result.json"), data, 0644); err != nil {
-		return fmt.Errorf("write result: %w", err)
+	// Atomic write via rename to prevent partial reads
+	tmpPath := filepath.Join(p.basePath, "result.json.tmp")
+	if err := p.fs.WriteFile(tmpPath, data, 0644); err != nil {
+		return fmt.Errorf("write result tmp: %w", err)
+	}
+	if err := p.fs.Rename(tmpPath, filepath.Join(p.basePath, "result.json")); err != nil {
+		return fmt.Errorf("rename result: %w", err)
 	}
 	return nil
 }

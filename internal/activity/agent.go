@@ -71,9 +71,14 @@ func (a *AgentActivities) WaitForAgentPhase(ctx context.Context, input WaitForAg
 		}
 
 		// Staleness detection: if agent hasn't updated in a while, it may have crashed
+		// Double-check by verifying container status to avoid false positives from clock skew
 		if !status.UpdatedAt.IsZero() && time.Since(status.UpdatedAt) > AgentStaleThreshold {
-			return nil, fmt.Errorf("agent stale: last update %s, phase %s",
-				status.UpdatedAt.Format(time.RFC3339), status.Phase)
+			containerStatus, err := a.provider.Status(ctx, input.SandboxID)
+			if err == nil && containerStatus.Phase != sandbox.SandboxPhaseRunning {
+				return nil, fmt.Errorf("agent stale: last update %s, phase %s, container %s",
+					status.UpdatedAt.Format(time.RFC3339), status.Phase, containerStatus.Phase)
+			}
+			// Container is still running -- clock skew likely, continue polling
 		}
 
 		select {
@@ -114,8 +119,18 @@ type SubmitSteeringActionInput struct {
 
 // SubmitSteeringAction writes a steering instruction to the sandbox for the agent to process.
 func (a *AgentActivities) SubmitSteeringAction(ctx context.Context, input SubmitSteeringActionInput) error {
+	// Validate steering action
+	action := protocol.SteeringAction(input.Action)
+	switch action {
+	case protocol.SteeringActionSteer, protocol.SteeringActionApprove,
+		protocol.SteeringActionReject, protocol.SteeringActionCancel:
+		// valid
+	default:
+		return fmt.Errorf("invalid steering action: %q", input.Action)
+	}
+
 	instruction := protocol.SteeringInstruction{
-		Action:    protocol.SteeringAction(input.Action),
+		Action:    action,
 		Prompt:    input.Prompt,
 		Iteration: input.Iteration,
 		Timestamp: time.Now().UTC(),

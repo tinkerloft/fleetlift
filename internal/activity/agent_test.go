@@ -23,6 +23,7 @@ type agentMockProvider struct {
 	pollStatusFunc     func(ctx context.Context, id string) (*protocol.AgentStatus, error)
 	readResultFunc     func(ctx context.Context, id string) ([]byte, error)
 	submitSteeringFunc func(ctx context.Context, id string, instruction []byte) error
+	statusFunc         func(ctx context.Context, id string) (*sandbox.SandboxStatus, error)
 }
 
 func (m *agentMockProvider) Provision(_ context.Context, _ sandbox.ProvisionOptions) (*sandbox.Sandbox, error) {
@@ -40,7 +41,10 @@ func (m *agentMockProvider) CopyTo(_ context.Context, _ string, _ io.Reader, _ s
 func (m *agentMockProvider) CopyFrom(_ context.Context, _, _ string) (io.ReadCloser, error) {
 	return nil, errors.New("not implemented")
 }
-func (m *agentMockProvider) Status(_ context.Context, _ string) (*sandbox.SandboxStatus, error) {
+func (m *agentMockProvider) Status(ctx context.Context, id string) (*sandbox.SandboxStatus, error) {
+	if m.statusFunc != nil {
+		return m.statusFunc(ctx, id)
+	}
 	return nil, errors.New("not implemented")
 }
 func (m *agentMockProvider) Cleanup(_ context.Context, _ string) error {
@@ -235,6 +239,12 @@ func TestWaitForAgentPhase_StaleAgent(t *testing.T) {
 				UpdatedAt: staleTime,
 			}, nil
 		},
+		statusFunc: func(_ context.Context, _ string) (*sandbox.SandboxStatus, error) {
+			return &sandbox.SandboxStatus{
+				Phase:   sandbox.SandboxPhaseFailed,
+				Message: "container exited",
+			}, nil
+		},
 	}
 
 	activities := NewAgentActivities(provider)
@@ -364,4 +374,27 @@ func TestSubmitSteeringAction_Approve(t *testing.T) {
 	var decoded protocol.SteeringInstruction
 	require.NoError(t, json.Unmarshal(captured, &decoded))
 	assert.Equal(t, protocol.SteeringActionApprove, decoded.Action)
+}
+
+func TestSubmitSteeringAction_InvalidAction(t *testing.T) {
+	provider := &agentMockProvider{
+		submitSteeringFunc: func(_ context.Context, _ string, instruction []byte) error {
+			return nil
+		},
+	}
+
+	activities := NewAgentActivities(provider)
+
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestActivityEnvironment()
+	env.RegisterActivity(activities.SubmitSteeringAction)
+
+	input := SubmitSteeringActionInput{
+		SandboxID: "container-123",
+		Action:    "invalid_action",
+	}
+
+	_, err := env.ExecuteActivity(activities.SubmitSteeringAction, input)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid steering action")
 }

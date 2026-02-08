@@ -71,33 +71,15 @@ func (p *Pipeline) collectResults(ctx context.Context, manifest *protocol.TaskMa
 }
 
 func (p *Pipeline) getModifiedFiles(ctx context.Context, repoPath string) []string {
-	// Prefer git diff --name-only HEAD — handles renames correctly and avoids porcelain parsing.
+	// Use git status --porcelain which reports both tracked changes and untracked files.
 	result, err := p.exec.Run(ctx, CommandOpts{
 		Name: "git",
-		Args: []string{"diff", "--name-only", "HEAD"},
+		Args: []string{"status", "--porcelain"},
 		Dir:  repoPath,
 	})
 	if err != nil || result == nil {
-		// Fallback to git status --porcelain if HEAD doesn't exist (fresh repo)
-		result, err = p.exec.Run(ctx, CommandOpts{
-			Name: "git",
-			Args: []string{"status", "--porcelain"},
-			Dir:  repoPath,
-		})
-		if err != nil || result == nil {
-			p.logger.Warn("git status failed", "path", repoPath, "error", err)
-			return nil
-		}
-		var files []string
-		for _, line := range strings.Split(strings.TrimSpace(result.Stdout), "\n") {
-			if line == "" {
-				continue
-			}
-			if len(line) > 3 {
-				files = append(files, strings.TrimSpace(line[3:]))
-			}
-		}
-		return files
+		p.logger.Warn("git status failed", "path", repoPath, "error", err)
+		return nil
 	}
 
 	var files []string
@@ -105,7 +87,15 @@ func (p *Pipeline) getModifiedFiles(ctx context.Context, repoPath string) []stri
 		if line == "" {
 			continue
 		}
-		files = append(files, strings.TrimSpace(line))
+		// Porcelain format: XY filename (or XY old -> new for renames)
+		if len(line) > 3 {
+			entry := strings.TrimSpace(line[3:])
+			// Handle renames: "old -> new"
+			if idx := strings.Index(entry, " -> "); idx >= 0 {
+				entry = entry[idx+4:]
+			}
+			files = append(files, entry)
+		}
 	}
 	return files
 }

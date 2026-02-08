@@ -84,15 +84,9 @@ func TestCreatePR_GitIgnoreInjection(t *testing.T) {
 	_, err := p.createPR(context.Background(), manifest, repo, "/workspace/svc")
 	require.NoError(t, err)
 
-	// Verify .gitignore was written with sensitive patterns
-	data, err := fs.ReadFile("/workspace/svc/.gitignore")
-	require.NoError(t, err)
-	content := string(data)
-	assert.Contains(t, content, ".env")
-	assert.Contains(t, content, "*.key")
-	assert.Contains(t, content, "*.pem")
-	assert.Contains(t, content, "credentials*")
-	assert.Contains(t, content, ".git-credentials")
+	// Verify .gitignore was removed after PR creation (no pre-existing .gitignore)
+	_, err = fs.ReadFile("/workspace/svc/.gitignore")
+	assert.Error(t, err, "gitignore should be removed when it didn't exist before")
 }
 
 func TestCreatePR_GitIgnorePreservesExisting(t *testing.T) {
@@ -119,15 +113,15 @@ func TestCreatePR_GitIgnorePreservesExisting(t *testing.T) {
 	_, err := p.createPR(context.Background(), manifest, repo, "/workspace/svc")
 	require.NoError(t, err)
 
-	// The gitignore written during staging should contain both original and injected patterns
+	// Verify .gitignore is restored to pre-injection state (no sensitive patterns)
 	data, err := fs.ReadFile("/workspace/svc/.gitignore")
 	require.NoError(t, err)
 	content := string(data)
 	assert.Contains(t, content, "node_modules/")
 	assert.Contains(t, content, "build/")
-	assert.Contains(t, content, "fleetlift-agent: sensitive pattern injection")
-	assert.Contains(t, content, ".env")
-	assert.Contains(t, content, "*.key")
+	assert.NotContains(t, content, "fleetlift-agent: sensitive pattern injection")
+	assert.NotContains(t, content, ".env")
+	assert.NotContains(t, content, "*.key")
 }
 
 func TestCreatePR_GitCommands(t *testing.T) {
