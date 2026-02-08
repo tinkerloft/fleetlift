@@ -6,7 +6,11 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 )
+
+// AgentStaleThreshold is how long without an update before an agent is considered stale.
+const AgentStaleThreshold = 5 * time.Minute
 
 // Activity name constants to prevent typos and improve maintainability (SIMP-003)
 const (
@@ -17,8 +21,7 @@ const (
 	ActivityCleanupSandbox    = "CleanupSandbox"
 
 	// Claude Code activities
-	ActivityRunClaudeCode   = "RunClaudeCode"
-	ActivityGetClaudeOutput = "GetClaudeOutput"
+	ActivityRunClaudeCode = "RunClaudeCode"
 
 	// Deterministic transformation activities
 	ActivityExecuteDeterministic = "ExecuteDeterministic"
@@ -36,6 +39,13 @@ const (
 	// Steering activities
 	ActivityGetDiff           = "GetDiff"
 	ActivityGetVerifierOutput = "GetVerifierOutput"
+
+	// Agent-mode activities (sidecar agent pattern)
+	ActivityProvisionAgentSandbox = "ProvisionAgentSandbox"
+	ActivitySubmitTaskManifest    = "SubmitTaskManifest"
+	ActivityWaitForAgentPhase     = "WaitForAgentPhase"
+	ActivityReadAgentResult       = "ReadAgentResult"
+	ActivitySubmitSteeringAction  = "SubmitSteeringAction"
 )
 
 // Default configuration values (SIMP-004)

@@ -34,9 +34,9 @@ func NewReportActivities(provider sandbox.Provider) *ReportActivities {
 
 // CollectReportInput contains inputs for collecting a report.
 type CollectReportInput struct {
-	ContainerID         string
-	RepoName            string
-	TargetName          string // If set, reads REPORT-{TargetName}.md instead of REPORT.md
+	ContainerID             string
+	RepoName                string
+	TargetName              string // If set, reads REPORT-{TargetName}.md instead of REPORT.md
 	UseTransformationLayout bool   // If true, looks in /workspace/targets/{repoName} instead of /workspace/{repoName}
 }
 
@@ -182,5 +182,3 @@ func extractValidationErrors(err *jsonschema.ValidationError, errors *[]string) 
 		extractValidationErrors(cause, errors)
 	}
 }
-
-

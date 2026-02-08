@@ -6,7 +6,7 @@ A platform for automated code transformations and discovery across repositories,
 
 - **Deployment**: Local (Docker) or production (Kubernetes)
 - **Scope**: Single repository or fleet-wide via grouped execution
-- **Execution**: Deterministic (Docker images) or agentic (AI prompts)
+- **Execution**: Deterministic (commands in sandbox) or agentic (AI prompts)
 - **Mode**: Transform (create PRs) or Report (collect structured data)
 
 ### Vision: Managed Turbolift
@@ -30,10 +30,9 @@ Think of this as **managed [Turbolift](https://github.com/Skyscanner/turbolift)*
 | Workflow logic | Claude Code (agentic execution) |
 | CLI interface | OpenRewrite/Scalafix (deterministic transforms) |
 | GitHub PR integration | Docker/containerd (container runtime) |
-| Verifier prompt generation | gVisor/Kata (optional isolation) |
-| Configuration loading | controller-runtime (K8s controller framework) |
-| Campaign orchestration | kubebuilder (CRD scaffolding) |
-| Sandbox Controller (CRD + reconciler) | |
+| Sidecar agent (`fleetlift-agent`) | gVisor/Kata (optional isolation) |
+| File-based protocol (manifest/status/result) | |
+| Configuration loading | |
 
 **Principle**: Build the orchestration glue, adopt standards for infrastructure.
 
@@ -64,8 +63,10 @@ Tasks support grouped execution for fleet-wide operations:
 
 | Type | Implementation | Verification |
 |------|----------------|--------------|
-| **Deterministic** | Docker image (OpenRewrite, custom script) | Exit code + verifiers |
+| **Deterministic** | Command executed directly in sandbox (e.g. `mvn rewrite:run`). Sandbox image contains the required tools. | Exit code + verifiers |
 | **Agentic** | Claude Code CLI with prompt | Agent iterates until verifiers pass |
+
+Both execution types use the same sidecar agent (`fleetlift-agent serve`). For deterministic, the `execution.image` field specifies the sandbox base image (with the tools pre-installed), and the agent binary is injected via init container at deploy time. See [SIDECAR_AGENT.md](./SIDECAR_AGENT.md) for details.
 
 ### Transformation Repository
 
@@ -96,6 +97,50 @@ A **transformation repository** separates the "recipe" (how to transform/analyze
 ```
 
 Claude Code runs from `/workspace`, so transformation repo skills are automatically discovered.
+
+### Knowledge Items (Continual Learning)
+
+The platform captures knowledge from successful transformations and reuses it to improve future runs. This turns Fleetlift from a "run once" tool into a system that compounds organizational knowledge.
+
+**Knowledge Types:**
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `pattern` | Reusable approach that worked | "When migrating logger X→Y, also update config files" |
+| `correction` | Extracted from steering, where agent went wrong | "Agent missed test helpers wrapping the logger" |
+| `gotcha` | Non-obvious failure mode | "Python 3.9→3.11 breaks walrus operator in certain comprehensions" |
+| `context` | Repo-specific knowledge | "This repo uses a custom build system, run `make` not `go build`" |
+
+**Three-Tier Storage:**
+
+| Tier | Location | Lifecycle | Scope |
+|------|----------|-----------|-------|
+| 1. Execution log | Temporal workflow history | Automatic, ephemeral | Debugging, audit |
+| 2. Local store | `~/.fleetlift/knowledge/` | Auto-captured after approval | Personal, per-machine |
+| 3. Transformation repo | `.fleetlift/knowledge/` in repo | Human-curated, committed | Team-shared, version-controlled |
+
+**Capture trigger**: After a transformation is approved, Claude analyzes the execution transcript (original prompt, steering corrections, final diff, verifier results) and extracts reusable knowledge items. The most valuable signal is **steering corrections** — when a human says "do it this way instead," that correction persists for future runs.
+
+**Prompt enrichment**: Before running Claude Code, relevant knowledge items are loaded from Tier 3 (transformation repo) then Tier 2 (local), filtered by tags, and appended to the prompt as a "lessons from previous runs" section.
+
+**Transparency**: Unlike AWS Transform's opaque "continual learning," knowledge items are YAML files that can be read, edited, shared, audited, and version-controlled.
+
+### Natural Language Task Creation
+
+Users can create Task YAML files through conversation instead of writing YAML by hand:
+
+- **Interactive**: `fleetlift create` — guided multi-step flow with clarifying questions
+- **One-shot**: `fleetlift create --describe "..."` — single command, Claude infers all parameters
+
+The create flow:
+1. Determines mode (transform/report) and execution type (agentic/deterministic) from intent
+2. Discovers repositories via GitHub API (`gh` CLI) — supports org-wide patterns
+3. Generates the transformation prompt from natural language description
+4. Suggests matching transformation repos from a local registry
+5. Injects relevant knowledge items into the generated prompt
+6. Outputs a YAML file for review — inspectable, editable, version-controllable
+
+**Key principle**: The output is always a YAML file, not a direct execution. This keeps the system transparent and reproducible. The YAML schema + canonical examples are bundled in the CLI binary as context for Claude.
 
 ---
 
@@ -151,7 +196,7 @@ Claude Code runs from `/workspace`, so transformation repo skills are automatica
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │                   Transformation Execution                           │   │
 │   │                                                                      │   │
-│   │   Deterministic: Docker image (OpenRewrite, Scalafix, custom)       │   │
+│   │   Deterministic: Command in sandbox (OpenRewrite, Scalafix, custom)  │   │
 │   │   Agentic:       Claude Code CLI + verifiers via Bash               │   │
 │   │                                                                      │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
@@ -159,7 +204,7 @@ Claude Code runs from `/workspace`, so transformation repo skills are automatica
 │       ▼                                                                      │
 │   Integration Layer                                                         │
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
-│   │   GitHub (PR creation)  │  Slack (notifications)  │  Storage (reports)  │
+│   │   GitHub (PRs)  │  Slack  │  Storage (reports)  │  Knowledge Store    │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -294,11 +339,11 @@ execution:
         type: object
         properties: {}
 
-  # Option 2: Deterministic (Docker image)
+  # Option 2: Deterministic (command in sandbox)
   deterministic:
-    image: string             # Docker image ref
-    command: [string]         # Override entrypoint
-    args: [string]            # Arguments
+    image: string             # Sandbox base image (must include the tool + git)
+    command: [string]         # Command to run (e.g. ["mvn"])
+    args: [string]            # Arguments (e.g. ["rewrite:run"])
     env:                      # Environment variables
       KEY: value
     verifiers:                # Optional post-execution verification
@@ -327,6 +372,13 @@ pull_request:
   body: string                # PR body template
   labels: [string]            # Labels to apply
   reviewers: [string]         # Reviewers to request
+
+# Knowledge settings (continual learning)
+knowledge:
+  capture: boolean          # Auto-capture knowledge after approval (default: true)
+  enrich: boolean           # Enrich prompt with past knowledge (default: true)
+  max_items: int            # Max knowledge items injected into prompt (default: 10)
+  tags: [string]            # Additional tags for filtering/matching
 
 # Sandbox settings (production)
 sandbox:
@@ -734,6 +786,58 @@ type AgentLimits struct {
     MaxIterations      int `json:"max_iterations"`
     MaxTokens          int `json:"max_tokens"`
     MaxVerifierRetries int `json:"max_verifier_retries"`
+}
+```
+
+### Knowledge Types
+
+```go
+// KnowledgeItem represents a reusable insight captured from a transformation execution.
+type KnowledgeItem struct {
+    ID          string          `json:"id" yaml:"id"`
+    Type        KnowledgeType   `json:"type" yaml:"type"`
+    Summary     string          `json:"summary" yaml:"summary"`
+    Details     string          `json:"details" yaml:"details"`
+    Source      KnowledgeSource `json:"source" yaml:"source"`
+    Tags        []string        `json:"tags,omitempty" yaml:"tags,omitempty"`
+    Confidence  float64         `json:"confidence" yaml:"confidence"`
+    CreatedFrom *KnowledgeOrigin `json:"created_from,omitempty" yaml:"created_from,omitempty"`
+    CreatedAt   time.Time       `json:"created_at" yaml:"created_at"`
+
+    // Efficacy tracking (updated over time)
+    TimesUsed          int     `json:"times_used,omitempty" yaml:"times_used,omitempty"`
+    SuccessRate        float64 `json:"success_rate,omitempty" yaml:"success_rate,omitempty"`
+    AvgSteeringRounds  float64 `json:"avg_steering_rounds,omitempty" yaml:"avg_steering_rounds,omitempty"`
+}
+
+type KnowledgeType string
+const (
+    KnowledgeTypePattern    KnowledgeType = "pattern"     // Reusable approach that worked
+    KnowledgeTypeCorrection KnowledgeType = "correction"  // Extracted from steering corrections
+    KnowledgeTypeGotcha     KnowledgeType = "gotcha"      // Non-obvious failure mode
+    KnowledgeTypeContext    KnowledgeType = "context"      // Repo-specific knowledge
+)
+
+type KnowledgeSource string
+const (
+    KnowledgeSourceAutoCaptured      KnowledgeSource = "auto_captured"      // Extracted by Claude post-approval
+    KnowledgeSourceSteeringExtracted KnowledgeSource = "steering_extracted" // Derived from steering corrections
+    KnowledgeSourceManual            KnowledgeSource = "manual"             // Added by user via CLI
+)
+
+type KnowledgeOrigin struct {
+    TaskID          string `json:"task_id" yaml:"task_id"`
+    SteeringPrompt  string `json:"steering_prompt,omitempty" yaml:"steering_prompt,omitempty"`
+    Iteration       int    `json:"iteration,omitempty" yaml:"iteration,omitempty"`
+    Repository      string `json:"repository,omitempty" yaml:"repository,omitempty"`
+}
+
+// KnowledgeConfig is the optional knowledge section in a Task
+type KnowledgeConfig struct {
+    Capture  bool     `json:"capture" yaml:"capture"`     // Auto-capture after approval (default: true)
+    Enrich   bool     `json:"enrich" yaml:"enrich"`       // Enrich prompt with past knowledge (default: true)
+    MaxItems int      `json:"max_items,omitempty" yaml:"max_items,omitempty"` // Max items injected (default: 10)
+    Tags     []string `json:"tags,omitempty" yaml:"tags,omitempty"`           // Additional tags for filtering
 }
 ```
 
@@ -1560,7 +1664,7 @@ func TaskWorkflow(ctx workflow.Context, task Task) (*TaskResult, error) {
 | `CloneRepository` | Git clone with branch and depth options |
 | `RunSetup` | Execute setup commands (go mod download, npm install) |
 | `ExecuteAgentic` | Run Claude Code CLI with prompt |
-| `ExecuteDeterministic` | Run Docker image transformation |
+| `ExecuteDeterministic` | Run deterministic command in sandbox |
 | `RunVerifiers` | Execute verifier commands as final gate |
 | `CreatePullRequest` | Create branch, push, open PR via GitHub API |
 | `CleanupSandbox` | Destroy container/Job |
@@ -1688,6 +1792,69 @@ func CampaignWorkflow(ctx workflow.Context, campaign Campaign) (*CampaignResult,
 | Some fail (<threshold) | Continue, report failures at end |
 | Many fail (≥threshold) | Pause and ask human: abort / continue / retry |
 | Critical failure | Halt immediately, notify human |
+
+### Knowledge Capture & Enrichment
+
+Knowledge capture and prompt enrichment are integrated into the Task workflow as optional steps:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│             Knowledge-Enhanced Task Workflow (additions)          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   Before execution:                                             │
+│   ┌──────────────────────────────────────────────────────┐      │
+│   │  EnrichPrompt Activity                                │      │
+│   │  1. Load items from .fleetlift/knowledge/ (Tier 3)   │      │
+│   │  2. Load items from ~/.fleetlift/knowledge/ (Tier 2)  │      │
+│   │  3. Filter by tags, type, confidence                  │      │
+│   │  4. Append "Lessons from previous runs" to prompt     │      │
+│   └──────────────────────────────────────────────────────┘      │
+│         │                                                        │
+│         ▼                                                        │
+│   [ Normal execution: RunClaudeCode → Verifiers → Approval ]    │
+│         │                                                        │
+│         ▼                                                        │
+│   After approval (non-blocking):                                │
+│   ┌──────────────────────────────────────────────────────┐      │
+│   │  CaptureKnowledge Activity                            │      │
+│   │  1. Collect: prompt, steering history, diff, results  │      │
+│   │  2. Ask Claude to extract knowledge items             │      │
+│   │  3. Write items to ~/.fleetlift/knowledge/ (Tier 2)   │      │
+│   │  4. Log: "N items captured. Run knowledge review."    │      │
+│   └──────────────────────────────────────────────────────┘      │
+│         │                                                        │
+│         ▼                                                        │
+│   [ Normal continuation: Create PRs → Cleanup ]                 │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Activities:**
+
+| Activity | Input | Output | Failure behavior |
+|----------|-------|--------|------------------|
+| `EnrichPrompt` | Original prompt, task tags, transformation repo path | Enriched prompt with knowledge section | Non-fatal: returns original prompt on failure |
+| `CaptureKnowledge` | Prompt, steering history, diff stats, verifier results | List of KnowledgeItems written to Tier 2 | Non-fatal: logged as warning, does not block PR creation |
+
+**Knowledge Curation Flow (CLI-only, no Temporal):**
+
+```
+fleetlift knowledge review
+    │
+    ├── Show auto-captured items from Tier 2
+    │   User: keep / discard / edit each item
+    │
+    ▼
+fleetlift knowledge commit --repo ./my-transform-repo
+    │
+    ├── Copy reviewed items to .fleetlift/knowledge/items/
+    │   (in the transformation repo)
+    │
+    ▼
+git add / commit / push
+    (standard git workflow — knowledge is version-controlled)
+```
 
 ---
 
@@ -2119,6 +2286,18 @@ fleetlift/
 │   │   ├── sandboxrequest_controller.go
 │   │   ├── job_builder.go
 │   │   └── exec_handler.go
+│   ├── knowledge/           # Continual learning system
+│   │   ├── store.go         # Three-tier storage (local + repo)
+│   │   ├── capture.go       # Post-approval knowledge extraction
+│   │   ├── enrich.go        # Prompt enrichment with relevant items
+│   │   ├── item.go          # KnowledgeItem model and parsing
+│   │   └── efficacy.go      # Usage tracking and auto-deprecation
+│   ├── create/              # Natural language task creation
+│   │   ├── create.go        # Interactive + one-shot creation flow
+│   │   ├── discover.go      # GitHub repo discovery via gh CLI
+│   │   ├── schema.go        # Embedded schema + examples bundle
+│   │   ├── templates.go     # Built-in and custom task templates
+│   │   └── registry.go      # Transformation repo registry
 │   └── config/              # Configuration loading
 ├── config/
 │   ├── local.yaml
@@ -2155,7 +2334,7 @@ fleetlift/
    - Benefits: least privilege, policy enforcement, Kubernetes-native observability
    - The controller is the only component with permissions to create Jobs, exec into pods, and read secrets
 
-4. **Two transform modes**: Deterministic (Docker images) and Agentic (Claude Code) share the same orchestration but have different execution paths.
+4. **Two transform modes**: Deterministic (commands in sandbox) and Agentic (Claude Code) share the same orchestration but have different execution paths. Both use the same sidecar agent (`fleetlift-agent serve`). For deterministic, the sandbox image contains the required tools and the agent binary is injected via init container.
 
 5. **Agent-agnostic design**: The platform's value is in the orchestration layer. Claude Code is the current agent, but the interface (`exec(prompt) → code changes`) allows for other agents:
 
@@ -2175,3 +2354,11 @@ fleetlift/
 7. **Report mode integrated**: Report mode (discovery, audits) is a core mode alongside transform mode, not an afterthought.
 
 8. **Provider abstraction**: The sandbox provider interface abstracts the difference between local (Docker) and production (Kubernetes) environments. Local development uses Docker directly for simplicity; production uses the controller pattern for security.
+
+9. **Transparent continual learning**: Knowledge items are YAML files stored in transformation repos, not an opaque model. This means knowledge is version-controlled, auditable, editable, and team-shareable. The three-tier storage (execution log → local store → transformation repo) balances automatic capture with human curation. Knowledge is injected as a prompt section, not hidden context, so it's visible and debuggable.
+
+10. **Productionisation: Orphaned sandbox reaper**: Worker crash between `ProvisionSandbox` and `CleanupSandbox` leaks containers/pods. A reaper process (periodic goroutine or sidecar) should label sandboxes with workflow IDs and clean up any whose workflow has reached a terminal state. Low priority for local Docker dev; required for K8s production.
+
+11. **Productionisation: Backpressure and resource awareness**: No mechanism currently limits concurrent tasks across the system (`max_parallel` only applies within a single task's groups). Use Temporal's `MaxConcurrentActivityExecutionSize` worker option to bound concurrent sandbox provisioning. For K8s, combine with `ResourceQuota` per sandbox namespace and cluster autoscaler awareness to prevent overcommit.
+
+12. **YAML as the artifact for NL task creation**: The `fleetlift create` flow always outputs a YAML file, never executes directly from memory. This preserves transparency (the user sees exactly what will run), reproducibility (the YAML can be re-run, committed, or shared), and editability (the user can tweak the generated YAML before running). The schema + examples are embedded in the CLI binary to avoid network dependencies.

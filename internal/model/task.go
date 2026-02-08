@@ -290,7 +290,7 @@ type Task struct {
 	// Execution settings
 	Timeout               string `json:"timeout,omitempty" yaml:"timeout,omitempty"` // e.g., "30m"
 	RequireApproval       bool   `json:"require_approval,omitempty" yaml:"require_approval,omitempty"`
-	MaxParallel           int    `json:"max_parallel,omitempty" yaml:"max_parallel,omitempty"`           // Concurrency limit across groups (default: 5)
+	MaxParallel           int    `json:"max_parallel,omitempty" yaml:"max_parallel,omitempty"`                       // Concurrency limit across groups (default: 5)
 	MaxSteeringIterations int    `json:"max_steering_iterations,omitempty" yaml:"max_steering_iterations,omitempty"` // Max HITL steering iterations (default: 5)
 
 	// Repository groups - defines how repos are organized into sandboxes
@@ -467,8 +467,8 @@ type RepositoryResult struct {
 	Repository     string             `json:"repository"`
 	Status         string             `json:"status"` // "success" | "failed" | "skipped"
 	FilesModified  []string           `json:"files_modified,omitempty"`
-	PullRequest    *PullRequest       `json:"pull_request,omitempty"`    // Transform mode
-	Report         *ReportOutput      `json:"report,omitempty"`          // Report mode
+	PullRequest    *PullRequest       `json:"pull_request,omitempty"`     // Transform mode
+	Report         *ReportOutput      `json:"report,omitempty"`           // Report mode
 	ForEachResults []ForEachExecution `json:"for_each_results,omitempty"` // Report mode with forEach
 	Error          *string            `json:"error,omitempty"`
 }

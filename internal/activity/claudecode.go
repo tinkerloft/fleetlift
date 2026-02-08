@@ -136,26 +136,3 @@ func (a *ClaudeCodeActivities) getModifiedFiles(ctx context.Context, containerID
 
 	return files
 }
-
-// GetClaudeOutput gets the git diff and status for a repository.
-func (a *ClaudeCodeActivities) GetClaudeOutput(ctx context.Context, containerID, repoName string) (map[string]string, error) {
-	// Get diff
-	diffCmd := fmt.Sprintf("cd /workspace/%s && git diff", repoName)
-	diffResult, err := a.Provider.ExecShell(ctx, containerID, diffCmd, AgentUser)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get diff: %w", err)
-	}
-
-	// Get status
-	statusCmd := fmt.Sprintf("cd /workspace/%s && git status --short", repoName)
-	statusResult, err := a.Provider.ExecShell(ctx, containerID, statusCmd, AgentUser)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get status: %w", err)
-	}
-
-	return map[string]string{
-		"repo":   repoName,
-		"diff":   diffResult.Stdout,
-		"status": statusResult.Stdout,
-	}, nil
-}

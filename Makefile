@@ -1,4 +1,4 @@
-.PHONY: build test clean fleetlift-worker fleetlift sandbox-image all temporal-dev temporal-up temporal-down temporal-logs sandbox-build
+.PHONY: build test clean fleetlift-worker fleetlift fleetlift-agent all temporal-dev temporal-up temporal-down temporal-logs sandbox-build
 
 # Build all binaries
 all: build
@@ -7,6 +7,7 @@ all: build
 build:
 	go build -o bin/fleetlift-worker ./cmd/worker
 	go build -o bin/fleetlift ./cmd/cli
+	CGO_ENABLED=0 go build -o bin/fleetlift-agent ./cmd/agent
 
 # Build worker only
 fleetlift-worker:
@@ -15,6 +16,10 @@ fleetlift-worker:
 # Build CLI only
 fleetlift:
 	go build -o bin/fleetlift ./cmd/cli
+
+# Build agent binary (statically compiled for sandbox image)
+fleetlift-agent:
+	CGO_ENABLED=0 go build -o bin/fleetlift-agent ./cmd/agent
 
 # Run tests
 test:
@@ -29,10 +34,6 @@ test-coverage:
 clean:
 	rm -rf bin/
 	rm -f coverage.out coverage.html
-
-# Build the sandbox Docker image
-sandbox-image:
-	docker build -f ../docker/Dockerfile.sandbox -t claude-code-sandbox:latest ../docker
 
 # Run the worker (requires Temporal server)
 run-worker: fleetlift-worker
@@ -67,6 +68,8 @@ temporal-down:
 temporal-logs:
 	docker compose logs -f temporal
 
-# Build sandbox image
-sandbox-build:
+# Build sandbox image (copies agent binary into build context)
+sandbox-build: fleetlift-agent
+	cp bin/fleetlift-agent docker/fleetlift-agent
 	docker build -f docker/Dockerfile.sandbox -t claude-code-sandbox:latest docker/
+	rm -f docker/fleetlift-agent

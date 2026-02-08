@@ -84,6 +84,27 @@ Orchestrates multiple Tasks across many repositories with:
 | **Human approval** | Before PR creation | Not applicable |
 | **Examples** | Migrations, upgrades, fixes | Audits, inventories, assessments |
 
+### Continual Learning (Knowledge Items)
+
+The platform captures knowledge from successful transformations and reuses it to improve future runs. Knowledge flows through three tiers:
+
+| Tier | Storage | Lifecycle |
+|------|---------|-----------|
+| Execution log | Temporal history | Automatic, ephemeral |
+| Local knowledge store | `~/.fleetlift/knowledge/` | Auto-captured after approval |
+| Transformation repo | `.fleetlift/knowledge/` in repo | Human-curated, version-controlled |
+
+Knowledge items are typed (`pattern`, `correction`, `gotcha`, `context`) and tagged for relevance matching. The most valuable source is **steering corrections** — when a human corrects the agent during iterative steering, that correction is captured and injected into future prompts automatically.
+
+### Natural Language Task Creation
+
+Users can create Task YAML files through conversation instead of writing YAML by hand:
+
+- `fleetlift create` — interactive guided flow
+- `fleetlift create --describe "..."` — one-shot generation
+
+The create flow discovers repositories via GitHub API, suggests matching transformation repos from a local registry, and injects relevant knowledge items into the generated prompt. The output is always a YAML file — inspectable, editable, and version-controllable.
+
 ---
 
 ## Use Cases

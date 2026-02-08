@@ -517,11 +517,11 @@ func TestTransformWorkflowTestSuite(t *testing.T) {
 // TestSubstitutePromptTemplate tests the template substitution function.
 func TestSubstitutePromptTemplate(t *testing.T) {
 	tests := []struct {
-		name     string
-		prompt   string
-		target   model.ForEachTarget
-		want     string
-		wantErr  bool
+		name    string
+		prompt  string
+		target  model.ForEachTarget
+		want    string
+		wantErr bool
 	}{
 		{
 			name:   "simple substitution with Name and Context",
@@ -572,7 +572,7 @@ func TestSubstitutePromptTemplate(t *testing.T) {
 Line 2
 Line 3`,
 			},
-			want: "Target: health-api\nContext:\nLine 1\nLine 2\nLine 3",
+			want:    "Target: health-api\nContext:\nLine 1\nLine 2\nLine 3",
 			wantErr: false,
 		},
 		{

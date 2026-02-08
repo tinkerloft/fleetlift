@@ -69,6 +69,7 @@ func main() {
 	slackActivities := activity.NewSlackActivities()
 	reportActivities := activity.NewReportActivities(dockerProvider)
 	steeringActivities := activity.NewSteeringActivities(dockerProvider)
+	agentActivities := activity.NewAgentActivities(dockerProvider)
 
 	// Create worker
 	w := worker.New(c, internalclient.TaskQueue, worker.Options{})
@@ -76,6 +77,7 @@ func main() {
 	// Register workflows
 	w.RegisterWorkflow(workflow.Transform)
 	w.RegisterWorkflow(workflow.TransformGroup)
+	w.RegisterWorkflow(workflow.TransformV2)
 
 	// Register activities with explicit names to match workflow constants
 	w.RegisterActivityWithOptions(sandboxActivities.ProvisionSandbox, temporalactivity.RegisterOptions{Name: activity.ActivityProvisionSandbox})
@@ -83,7 +85,6 @@ func main() {
 	w.RegisterActivityWithOptions(sandboxActivities.CleanupSandbox, temporalactivity.RegisterOptions{Name: activity.ActivityCleanupSandbox})
 	w.RegisterActivityWithOptions(sandboxActivities.RunVerifiers, temporalactivity.RegisterOptions{Name: activity.ActivityRunVerifiers})
 	w.RegisterActivityWithOptions(claudeActivities.RunClaudeCode, temporalactivity.RegisterOptions{Name: activity.ActivityRunClaudeCode})
-	w.RegisterActivityWithOptions(claudeActivities.GetClaudeOutput, temporalactivity.RegisterOptions{Name: activity.ActivityGetClaudeOutput})
 	w.RegisterActivityWithOptions(deterministicActivities.ExecuteDeterministic, temporalactivity.RegisterOptions{Name: activity.ActivityExecuteDeterministic})
 	w.RegisterActivityWithOptions(githubActivities.CreatePullRequest, temporalactivity.RegisterOptions{Name: activity.ActivityCreatePullRequest})
 	w.RegisterActivityWithOptions(slackActivities.NotifySlack, temporalactivity.RegisterOptions{Name: activity.ActivityNotifySlack})
@@ -91,6 +92,11 @@ func main() {
 	w.RegisterActivityWithOptions(reportActivities.ValidateSchema, temporalactivity.RegisterOptions{Name: activity.ActivityValidateSchema})
 	w.RegisterActivityWithOptions(steeringActivities.GetDiff, temporalactivity.RegisterOptions{Name: activity.ActivityGetDiff})
 	w.RegisterActivityWithOptions(steeringActivities.GetVerifierOutput, temporalactivity.RegisterOptions{Name: activity.ActivityGetVerifierOutput})
+	w.RegisterActivityWithOptions(sandboxActivities.ProvisionAgentSandbox, temporalactivity.RegisterOptions{Name: activity.ActivityProvisionAgentSandbox})
+	w.RegisterActivityWithOptions(agentActivities.SubmitTaskManifest, temporalactivity.RegisterOptions{Name: activity.ActivitySubmitTaskManifest})
+	w.RegisterActivityWithOptions(agentActivities.WaitForAgentPhase, temporalactivity.RegisterOptions{Name: activity.ActivityWaitForAgentPhase})
+	w.RegisterActivityWithOptions(agentActivities.ReadAgentResult, temporalactivity.RegisterOptions{Name: activity.ActivityReadAgentResult})
+	w.RegisterActivityWithOptions(agentActivities.SubmitSteeringAction, temporalactivity.RegisterOptions{Name: activity.ActivitySubmitSteeringAction})
 
 	log.Println("Worker started. Press Ctrl+C to stop.")
 

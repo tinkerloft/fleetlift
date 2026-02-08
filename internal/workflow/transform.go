@@ -603,8 +603,8 @@ func Transform(ctx workflow.Context, task model.Task) (*model.TaskResult, error)
 
 			if len(task.ForEach) > 0 {
 				// forEach mode: execute N times, once per target
-			// Note: Each target gets the full task timeout. Total execution time
-			// may be up to len(ForEach) * timeout for sequential execution.
+				// Note: Each target gets the full task timeout. Total execution time
+				// may be up to len(ForEach) * timeout for sequential execution.
 				logger.Info("Running forEach mode", "repo", repo.Name, "targets", len(task.ForEach))
 
 				// Create activity context for Claude Code calls in forEach mode
@@ -1010,8 +1010,8 @@ func executeGroupedStrategy(ctx workflow.Context, task model.Task, startTime tim
 			IsPaused:         false,
 			FailedGroupNames: []string{},
 		}
-		groupResults      = make(map[string]model.GroupResult)
-		allRepoResults    []model.RepositoryResult
+		groupResults          = make(map[string]model.GroupResult)
+		allRepoResults        []model.RepositoryResult
 		cancellationRequested bool
 	)
 

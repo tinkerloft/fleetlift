@@ -26,13 +26,17 @@ RUN apt-get update && apt-get install -y openjdk-21-jdk maven \
 # Install Claude Code CLI
 RUN npm install -g @anthropic-ai/claude-code
 
-# Create non-root user for security
+# Create non-root user for security (C3 fix: restricted sudo commands)
 RUN useradd -m -s /bin/bash agent \
-    && echo "agent ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+    && echo "agent ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/npm, /usr/bin/pip3" >> /etc/sudoers
 
-# Create workspace directory
-RUN mkdir -p /workspace /output \
+# Create workspace and fleetlift protocol directories
+RUN mkdir -p /workspace /output /workspace/.fleetlift \
     && chown -R agent:agent /workspace /output
+
+# Copy the sidecar agent binary (built externally with: make fleetlift-agent)
+COPY --chown=agent:agent fleetlift-agent /usr/local/bin/fleetlift-agent
+RUN chmod +x /usr/local/bin/fleetlift-agent
 
 # Switch to non-root user
 USER agent
@@ -43,5 +47,5 @@ ENV HOME=/home/agent
 ENV ANTHROPIC_API_KEY=""
 ENV GITHUB_TOKEN=""
 
-# Default command - keep container running
-CMD ["tail", "-f", "/dev/null"]
+# Default command - run the sidecar agent
+CMD ["fleetlift-agent", "serve"]

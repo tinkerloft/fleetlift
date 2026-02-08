@@ -139,6 +139,69 @@ func parseCPU(s string) (int64, error) {
 	return int64(cpus * 100000), nil
 }
 
+// ProvisionAgentSandboxInput contains options for agent-mode sandbox provisioning.
+type ProvisionAgentSandboxInput struct {
+	TaskID string `json:"task_id"`
+	// Image optionally overrides the sandbox container image (M2 fix).
+	// TRUST BOUNDARY: This value originates from the task manifest authored by
+	// a trusted operator (not end-users). Production deployments that accept
+	// manifests from less-trusted sources should validate images against an
+	// allowlist in a policy layer above this activity.
+	Image string `json:"image,omitempty"`
+}
+
+// ProvisionAgentSandbox creates a Docker container for the sidecar agent pattern.
+// Unlike ProvisionSandbox, this sets UseAgentMode=true so the Dockerfile CMD runs (C2 fix),
+// and accepts an optional image override (M2 fix).
+func (a *SandboxActivities) ProvisionAgentSandbox(ctx context.Context, input ProvisionAgentSandboxInput) (*model.SandboxInfo, error) {
+	logger := activity.GetLogger(ctx)
+	logger.Info("Provisioning agent sandbox", "taskID", input.TaskID)
+
+	sandboxImage := getEnvOrDefault("SANDBOX_IMAGE", "claude-code-sandbox:latest")
+	if input.Image != "" {
+		sandboxImage = input.Image
+	}
+	memoryLimit := getEnvOrDefault("SANDBOX_MEMORY_LIMIT", DefaultMemoryLimit)
+	cpuLimit := getEnvOrDefault("SANDBOX_CPU_LIMIT", DefaultCPULimit)
+
+	memLimitBytes, err := parseMemory(memoryLimit)
+	if err != nil {
+		logger.Warn("Failed to parse memory limit, using default", "value", memoryLimit, "error", err)
+	}
+	cpuQuota, err := parseCPU(cpuLimit)
+	if err != nil {
+		logger.Warn("Failed to parse CPU limit, using default", "value", cpuLimit, "error", err)
+	}
+
+	opts := sandbox.ProvisionOptions{
+		TaskID:       input.TaskID,
+		Image:        sandboxImage,
+		WorkingDir:   WorkspacePath,
+		UseAgentMode: true,
+		Env: map[string]string{
+			"ANTHROPIC_API_KEY": os.Getenv("ANTHROPIC_API_KEY"),
+			"GITHUB_TOKEN":      os.Getenv("GITHUB_TOKEN"),
+			"TASK_ID":           input.TaskID,
+		},
+		Resources: sandbox.ResourceLimits{
+			MemoryBytes: memLimitBytes,
+			CPUQuota:    cpuQuota,
+		},
+	}
+
+	sb, err := a.Provider.Provision(ctx, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to provision sandbox: %w", err)
+	}
+
+	logger.Info("Agent container created", "containerID", shortContainerID(sb.ID), "taskID", input.TaskID)
+
+	return &model.SandboxInfo{
+		ContainerID:   sb.ID,
+		WorkspacePath: WorkspacePath,
+	}, nil
+}
+
 // ProvisionSandbox creates a Docker container for Claude Code execution.
 func (a *SandboxActivities) ProvisionSandbox(ctx context.Context, taskID string) (*model.SandboxInfo, error) {
 	logger := activity.GetLogger(ctx)
