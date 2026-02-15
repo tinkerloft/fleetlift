@@ -223,10 +223,10 @@ func (p *Provider) writeToLog(ctx context.Context, id string, message string) er
 }
 
 // ExecShell executes a shell command string in a Docker container.
-// This is a convenience method that wraps the command in bash -c.
+// This is a convenience method that wraps the command in sh -c.
 func (p *Provider) ExecShell(ctx context.Context, id string, command string, user string) (*sandbox.ExecResult, error) {
 	return p.Exec(ctx, id, sandbox.ExecCommand{
-		Command: []string{"bash", "-c", command},
+		Command: []string{"sh", "-c", command},
 		User:    user,
 	})
 }

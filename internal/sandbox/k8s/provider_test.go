@@ -112,7 +112,7 @@ func TestBuildJobSpec_Resources(t *testing.T) {
 		Image:  "ubuntu:22.04",
 		Resources: sandbox.ResourceLimits{
 			MemoryBytes: 4 * 1024 * 1024 * 1024, // 4Gi
-			CPUQuota:    200000,                   // 2 CPUs
+			CPUQuota:    200000,                 // 2 CPUs
 		},
 	}
 	job := buildJobSpec(opts, "sandbox-isolated", "agent:v1")

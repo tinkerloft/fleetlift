@@ -61,9 +61,9 @@ func buildJobSpec(opts sandbox.ProvisionOptions, namespace, agentImage string) *
 					RestartPolicy: corev1.RestartPolicyNever,
 					InitContainers: []corev1.Container{
 						{
-							Name:    initContainerName,
-							Image:   agentImage,
-							Command: []string{"cp", "/usr/local/bin/fleetlift-agent", agentBinMountPath + "/fleetlift-agent"},
+							Name:         initContainerName,
+							Image:        agentImage,
+							Command:      []string{"cp", "/usr/local/bin/fleetlift-agent", agentBinMountPath + "/fleetlift-agent"},
 							VolumeMounts: []corev1.VolumeMount{agentBinMount},
 						},
 					},

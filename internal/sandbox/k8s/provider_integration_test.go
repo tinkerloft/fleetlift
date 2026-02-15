@@ -110,9 +110,9 @@ func TestIntegration_ShellMetacharactersInFilePaths(t *testing.T) {
 
 	// Test various shell metacharacters in file paths
 	testCases := []struct {
-		name     string
-		path     string
-		content  []byte
+		name    string
+		path    string
+		content []byte
 	}{
 		{
 			name:    "spaces",
