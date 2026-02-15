@@ -1,4 +1,4 @@
-.PHONY: build test clean fleetlift-worker fleetlift fleetlift-agent all temporal-dev temporal-up temporal-down temporal-logs sandbox-build
+.PHONY: build test clean fleetlift-worker fleetlift fleetlift-agent all temporal-dev temporal-up temporal-down temporal-logs sandbox-build agent-image kind-setup test-integration-k8s
 
 # Build all binaries
 all: build
@@ -45,7 +45,7 @@ fmt:
 
 # Lint code
 lint:
-	golangci-lint run
+	golangci-lint run --timeout=5m
 
 # Download dependencies
 deps:
@@ -73,3 +73,15 @@ sandbox-build: fleetlift-agent
 	cp bin/fleetlift-agent docker/fleetlift-agent
 	docker build -f docker/Dockerfile.sandbox -t claude-code-sandbox:latest docker/
 	rm -f docker/fleetlift-agent
+
+# Build agent init container image (minimal, FROM scratch)
+agent-image:
+	docker build -f docker/Dockerfile.agent -t fleetlift-agent:latest .
+
+# Set up kind cluster with K8s manifests and agent image
+kind-setup:
+	./scripts/kind-setup.sh
+
+# Run K8s integration tests (requires kind cluster)
+test-integration-k8s:
+	go test -tags=integration -v ./internal/sandbox/k8s/...

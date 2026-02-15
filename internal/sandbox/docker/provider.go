@@ -29,6 +29,9 @@ const MaxFileReadSize = 10 << 20 // 10 MB
 // validNetworkName matches safe Docker network names (M7 fix).
 var validNetworkName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]+$`)
 
+// Compile-time check that Provider implements sandbox.AgentProvider.
+var _ sandbox.AgentProvider = (*Provider)(nil)
+
 // Provider implements sandbox.AgentProvider using Docker containers.
 type Provider struct {
 	client *client.Client
@@ -220,10 +223,10 @@ func (p *Provider) writeToLog(ctx context.Context, id string, message string) er
 }
 
 // ExecShell executes a shell command string in a Docker container.
-// This is a convenience method that wraps the command in bash -c.
+// This is a convenience method that wraps the command in sh -c.
 func (p *Provider) ExecShell(ctx context.Context, id string, command string, user string) (*sandbox.ExecResult, error) {
 	return p.Exec(ctx, id, sandbox.ExecCommand{
-		Command: []string{"bash", "-c", command},
+		Command: []string{"sh", "-c", command},
 		User:    user,
 	})
 }

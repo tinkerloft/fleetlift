@@ -2,7 +2,7 @@
 
 Incremental implementation phases for the code transformation and discovery platform.
 
-> **Last Updated**: 2026-02-02 (Phase 9.2 HITL Iterative Steering complete)
+> **Last Updated**: 2026-02-15 (Phase 6b Kubernetes Provider complete)
 >
 > **Note**: Implementation uses Task/Campaign terminology aligned with the design documents.
 >
@@ -585,19 +585,19 @@ fleetlift retry \
 - [x] Update Dockerfile.sandbox with agent binary and `fleetlift-agent serve` entrypoint
 - [x] Unit tests for protocol types, activities, manifest builder, workflow
 
-### 6b. Kubernetes Provider — NOT STARTED
+### 6b. Kubernetes Provider — COMPLETE
 
-- [ ] Implement K8s provider: create Jobs directly (labels: `fleetlift.io/task-id`)
-- [ ] Task ops via `exec cat`/`exec base64 -d` into pod
-- [ ] Worker RBAC: Jobs (CRUD), Pods (get/list/watch), Pods/exec (create), Secrets (get)
-- [ ] Sandbox pod security: `automountServiceAccountToken: false`, restricted seccomp, non-root
-- [ ] Init container agent injection: copy `fleetlift-agent` binary into shared volume for deterministic images
-- [ ] Image selection: agentic → `claude-code-sandbox:latest`, deterministic → user-specified tool image
-- [ ] Provider selection factory (`SANDBOX_PROVIDER` env var)
-- [ ] Configurable sandbox namespace (default: `sandbox-isolated`)
-- [ ] ResourceQuota enforcement per namespace
-- [ ] NetworkPolicy: sandbox egress allow HTTPS to GitHub/AI APIs, deny all ingress
-- [ ] kind cluster setup script + integration tests
+- [x] Implement K8s provider: create Jobs directly (labels: `fleetlift.io/task-id`)
+- [x] Task ops via `exec cat`/stdin pipe into pod (SPDY executor)
+- [x] Worker RBAC: Jobs (CRUD), Pods (get/list/watch), Pods/exec (create), Secrets (get)
+- [x] Sandbox pod security: `automountServiceAccountToken: false`, restricted seccomp, non-root
+- [x] Init container agent injection: copy `fleetlift-agent` binary into shared volume for deterministic images
+- [x] Image selection: agentic → agent serve command, deterministic → idle container
+- [x] Provider selection factory (`SANDBOX_PROVIDER` env var)
+- [x] Configurable sandbox namespace (default: `sandbox-isolated`)
+- [x] ResourceQuota enforcement per namespace
+- [x] NetworkPolicy: sandbox egress allow HTTPS (443), deny all ingress
+- [x] kind cluster setup script + integration tests
 
 ### Deliverable
 
@@ -685,14 +685,14 @@ spec:
 
 **Goal**: Production-grade security and operational resilience.
 
-> **Note**: Core RBAC (worker, controller, sandbox service accounts) is implemented in Phase 6
-> as part of the controller pattern. This phase focuses on additional security hardening.
+> **Note**: Core worker RBAC (Jobs, Pods, Pods/exec, Secrets) is defined in Phase 6b.
+> This phase focuses on additional security hardening.
 
 ### 8.1 Network Policies
 
 - [ ] Sandbox egress policy: allow HTTPS to GitHub, package registries, AI APIs
 - [ ] Deny all ingress to sandbox pods
-- [ ] Worker-to-controller communication via CRs only (no direct pod exec)
+- [ ] Worker-to-sandbox communication restricted to exec-based file protocol only
 - [ ] Document required egress destinations for common ecosystems
 
 ### 8.2 Advanced RBAC
@@ -721,8 +721,8 @@ spec:
 - [ ] Spot instance node group with fallback to on-demand
 - [ ] Pod Disruption Budgets for workers
 - [ ] Graceful shutdown: drain active tasks before termination
-- [ ] **Orphaned sandbox reaper**: Periodic process that labels sandboxes with workflow IDs and cleans up any whose workflow is terminal. Covers worker crashes between provision and cleanup. For Docker: goroutine scanning containers by label. For K8s: controller-side reconciler or CronJob scanning SandboxRequest CRs.
-- [ ] **Backpressure / resource awareness**: Configure Temporal `MaxConcurrentActivityExecutionSize` to bound concurrent sandbox provisioning per worker. Combine with K8s `ResourceQuota` per sandbox namespace to prevent cluster overcommit. Consider admission control in the sandbox controller to reject requests when capacity is saturated.
+- [ ] **Orphaned sandbox reaper**: Periodic process that labels sandboxes with workflow IDs and cleans up any whose workflow is terminal. Covers worker crashes between provision and cleanup. For Docker: goroutine scanning containers by label. For K8s: CronJob scanning Jobs by `fleetlift.io/task-id` label.
+- [ ] **Backpressure / resource awareness**: Configure Temporal `MaxConcurrentActivityExecutionSize` to bound concurrent sandbox provisioning per worker. Combine with K8s `ResourceQuota` per sandbox namespace to prevent cluster overcommit.
 
 ### 8.6 Deployment Artifacts
 
@@ -1239,10 +1239,13 @@ $ fleetlift create \
 | 4b | forEach Discovery | Multi-target iteration within repos | ✅ Complete |
 | 4c | Transformation Repo | Reusable skills, recipe/targets separation | ✅ Complete |
 | 5 | **Grouped Execution** | Failure thresholds, pause/continue, retry | ✅ Complete |
-| 6 | **Sidecar Agent & K8s** | Agent binary + protocol + TransformV2 workflow | 🟡 ~60% (agent complete, K8s provider not started) |
+| 6a | **Sidecar Agent** | Agent binary + file-based protocol + TransformV2 workflow | ✅ Complete |
+| 6b | **Kubernetes Provider** | K8s Jobs, RBAC, NetworkPolicy | ✅ Complete |
 | 7 | **Observability** | Metrics, logging, dashboards | ⬜ Not started |
 | 8 | **Security** | NetworkPolicy, secrets, scaling | ⬜ Not started |
-| 9 | Advanced | HITL steering, scheduling, cost tracking | 🟡 ~40% (basic HITL + iterative steering) |
+| 9.1 | **HITL (Basic)** | Approve/reject signals, Slack notifications | ✅ Complete |
+| 9.2 | **HITL (Steering)** | Iterative steering with diff/logs/steer commands | ✅ Complete |
+| 9.3-9.6 | **Advanced Features** | Scheduled tasks, cost tracking, web UI, report storage | ⬜ Not started |
 | 10 | **Continual Learning** | Knowledge capture, enrichment, curation | ⬜ Not started |
 | 11 | **NL Task Creation** | Conversational task creation, repo discovery, templates | ⬜ Not started |
 
@@ -1265,8 +1268,9 @@ Each phase builds on the previous and delivers working functionality.
 2. **Phase 11** - Natural language task creation (conversational YAML generation, repo discovery, templates)
 
 > **Status Note**: Core platform capabilities are complete. All product features (agentic/deterministic
-> transforms, report mode, grouped execution, failure handling, retry) are implemented. Next phase
-> focuses on production infrastructure (Kubernetes) and operational features (observability, security).
+> transforms, report mode, grouped execution, failure handling, retry, HITL iterative steering, sidecar
+> agent with file-based protocol) are implemented. Next phase focuses on production infrastructure
+> (Kubernetes provider) and operational features (observability, security).
 
 ### Key Changes from Previous Plan
 
@@ -1276,5 +1280,5 @@ Each phase builds on the previous and delivers working functionality.
 | Phase 8: Agent Sandbox | Removed | Plain K8s Jobs are sufficient; Agent Sandbox adds complexity without clear benefit |
 | Phase 9.6: Report Mode | Phase 4: Report Mode | Promoted to core phase—discovery is first-class, not an afterthought |
 | Campaign as separate concept | Phase 5: Grouped Execution | Simpler model: failure handling at Task level with groups instead of separate Campaign type |
-| Direct K8s API from worker | Phase 6: Controller pattern | Least-privilege: worker creates CRs, controller has elevated permissions |
+| CRD/Controller pattern | Phase 6: Direct Job management | Simpler architecture: worker creates Jobs directly, no CRD or controller needed |
 | Deterministic via `docker run` in sandbox | Direct command execution + init container injection | No Docker-in-Docker; agent binary injected at deploy time; one mode of operation for agent |

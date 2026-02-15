@@ -47,14 +47,18 @@ A Task specifies:
 - How to verify success (build, test, lint commands)
 - PR metadata (title, branch prefix, labels) for transform mode
 
-### Campaign
+### Grouped Execution
 
-Orchestrates multiple Tasks across many repositories with:
+Orchestrates Tasks across many repositories with:
 
-- **Batch execution**: Submit Tasks in parallel with configurable concurrency
-- **Failure thresholds**: Pause if too many Tasks fail (e.g., >10%)
-- **Human escalation**: Ask a human to decide—abort, continue, or retry
-- **Result aggregation**: Collect outputs across all Tasks
+- **Repository groups**: Organize repos into named groups that share a sandbox
+- **Parallel execution**: Process groups concurrently with configurable `max_parallel`
+- **Failure thresholds**: Pause or abort if too many groups fail (e.g., >20%)
+- **Human escalation**: Ask a human to decide—continue, skip remaining, or cancel
+- **Granular retry**: Retry only the groups that failed
+
+> **Note**: The original design described a separate "Campaign" concept. The implementation uses
+> a simpler model: grouped execution at the Task level with failure thresholds.
 
 ### Execution Modes
 
@@ -84,9 +88,11 @@ Orchestrates multiple Tasks across many repositories with:
 | **Human approval** | Before PR creation | Not applicable |
 | **Examples** | Migrations, upgrades, fixes | Audits, inventories, assessments |
 
-### Continual Learning (Knowledge Items)
+### Continual Learning (Knowledge Items) — *Planned (Phase 10)*
 
-The platform captures knowledge from successful transformations and reuses it to improve future runs. Knowledge flows through three tiers:
+> **Not yet implemented.** This describes the planned design for future development.
+
+The platform will capture knowledge from successful transformations and reuse it to improve future runs. Knowledge will flow through three tiers:
 
 | Tier | Storage | Lifecycle |
 |------|---------|-----------|
@@ -94,16 +100,18 @@ The platform captures knowledge from successful transformations and reuses it to
 | Local knowledge store | `~/.fleetlift/knowledge/` | Auto-captured after approval |
 | Transformation repo | `.fleetlift/knowledge/` in repo | Human-curated, version-controlled |
 
-Knowledge items are typed (`pattern`, `correction`, `gotcha`, `context`) and tagged for relevance matching. The most valuable source is **steering corrections** — when a human corrects the agent during iterative steering, that correction is captured and injected into future prompts automatically.
+Knowledge items will be typed (`pattern`, `correction`, `gotcha`, `context`) and tagged for relevance matching. The most valuable source is **steering corrections** — when a human corrects the agent during iterative steering, that correction can be captured and injected into future prompts automatically.
 
-### Natural Language Task Creation
+### Natural Language Task Creation — *Planned (Phase 11)*
 
-Users can create Task YAML files through conversation instead of writing YAML by hand:
+> **Not yet implemented.** This describes the planned design for future development.
+
+Users will be able to create Task YAML files through conversation instead of writing YAML by hand:
 
 - `fleetlift create` — interactive guided flow
 - `fleetlift create --describe "..."` — one-shot generation
 
-The create flow discovers repositories via GitHub API, suggests matching transformation repos from a local registry, and injects relevant knowledge items into the generated prompt. The output is always a YAML file — inspectable, editable, and version-controllable.
+The create flow will discover repositories via GitHub API, suggest matching transformation repos from a local registry, and inject relevant knowledge items into the generated prompt. The output is always a YAML file — inspectable, editable, and version-controllable.
 
 ---
 
@@ -143,50 +151,57 @@ The create flow discovers repositories via GitHub API, suggests matching transfo
 ### Single Task Flow
 
 ```
-CLI → Temporal → Sandbox (Docker/K8s) → Execute → PR or Report
+CLI → Temporal → Sandbox (Docker) → Agent Pipeline → PR or Report
          ↑                                    ↓
-         └──────── Human Approval ←──────────┘
+         └──── Human Steering/Approval ←─────┘
 ```
 
 1. **Submit**: User submits a Task via CLI or YAML file
-2. **Provision**: Platform creates an isolated sandbox (Docker container or K8s Job)
-3. **Clone**: Repository is cloned into the sandbox
-4. **Execute**: Transformation runs (deterministic image or agentic prompt)
-5. **Verify**: Verifier commands run to validate changes
-6. **Approve**: Human reviews changes (for transform mode with approval required)
-7. **Create PR**: On approval, platform creates the pull request
-8. **Cleanup**: Sandbox is destroyed
+2. **Provision**: Platform creates an isolated sandbox (Docker container)
+3. **Agent Pipeline**: The sidecar agent runs autonomously inside the sandbox:
+   - Clone repositories
+   - Execute transformation (Claude Code or deterministic command)
+   - Run verifiers
+   - Collect results (diffs, reports)
+4. **Steering Loop** (if approval required):
+   - Human reviews diffs (`fleetlift diff`) and verifier output (`fleetlift logs`)
+   - Human can steer with follow-up prompts (`fleetlift steer`)
+   - Agent re-executes with feedback, loop repeats
+5. **Approve**: Human approves changes (or agent auto-proceeds if no approval needed)
+6. **Create PR**: Agent creates the pull request inside the sandbox
+7. **Cleanup**: Sandbox is destroyed
 
-### Campaign Flow
+### Grouped Execution Flow
 
 ```
-Campaign → Submit Tasks in batches → Monitor progress
-              ↓                           ↓
-         Parallel execution      Pause on failure threshold
-              ↓                           ↓
-         Collect results         Human decides: continue/abort/retry
+Task (with groups) → Execute groups in parallel → Monitor progress
+                          ↓                           ↓
+                     Per-group sandboxes      Pause on failure threshold
+                          ↓                           ↓
+                     Collect results          Human: continue/skip/retry
 ```
 
-1. **Define**: Specify repository selection and Task template
-2. **Submit**: Campaign submits Tasks in configurable batch sizes
-3. **Monitor**: Track progress across all Tasks
+1. **Define**: Organize repositories into groups within a single Task
+2. **Execute**: Groups run in parallel (up to `max_parallel`)
+3. **Monitor**: Track progress per-group
 4. **Threshold**: If failures exceed threshold, pause and ask human
-5. **Aggregate**: Collect results (PRs or reports) from all Tasks
+5. **Aggregate**: Collect results (PRs or reports) from all groups
 
 ---
 
 ## Deployment Modes
 
-### Local (Docker)
+### Local (Docker) — *Available Now*
 
 Everything runs on your laptop:
-- Temporal server via docker-compose
+- Temporal dev server via CLI (`make temporal-dev`)
 - Sandboxes as Docker containers
-- Great for development and testing single repos
+- Sidecar agent runs inside each container
+- Great for development and testing
 
 ```bash
 # Start Temporal
-docker-compose up -d
+make temporal-dev
 
 # Run a transformation
 fleetlift run \
@@ -196,14 +211,19 @@ fleetlift run \
   --verifier "test:go test ./..."
 ```
 
-### Production (Kubernetes)
+### Production (Kubernetes) — *Planned (Phase 6b)*
 
-Scales to hundreds of repositories:
+> **Not yet implemented.** Kubernetes provider is planned but not started.
+
+Will scale to hundreds of repositories:
 - Temporal server (self-hosted or Temporal Cloud)
-- Sandboxes as Kubernetes Jobs
+- Sandboxes as Kubernetes Jobs (no CRD/controller needed)
+- Worker creates Jobs directly with `fleetlift.io/task-id` labels
+- Agent binary injected via init container
 - Optional: gVisor for enhanced isolation
 
 ```yaml
+# Planned configuration
 sandbox:
   provider: kubernetes
   namespace: sandbox-isolated

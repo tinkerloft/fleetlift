@@ -377,36 +377,36 @@ The design above is web-ready:
 
 ## 9. Implementation Order
 
-### Phase A: Foundation (Days 1-2)
-- [ ] Add data models to `internal/model/task.go`
-- [ ] Add activity constants to `constants.go`
-- [ ] Create `internal/activity/steering.go`
-- [ ] Register activities in worker
-- [ ] Run `make lint` and `go test ./...`
+### Phase A: Foundation (Days 1-2) — COMPLETE
+- [x] Add data models to `internal/model/task.go`
+- [x] Add activity constants to `constants.go`
+- [x] Create `internal/activity/steering.go`
+- [x] Register activities in worker
+- [x] Run `make lint` and `go test ./...`
 
-### Phase B: Workflow Signals & Queries (Days 3-4)
-- [ ] Add signal/query constants
-- [ ] Add workflow state variables
-- [ ] Add steer signal channel and handler
-- [ ] Add query handlers (diff, logs, steering state)
-- [ ] Unit tests for signal handling
+### Phase B: Workflow Signals & Queries (Days 3-4) — COMPLETE
+- [x] Add signal/query constants
+- [x] Add workflow state variables
+- [x] Add steer signal channel and handler
+- [x] Add query handlers (diff, logs, steering state)
+- [x] Unit tests for signal handling
 
-### Phase C: Steering Loop (Days 5-7)
-- [ ] Implement `buildSteeringPrompt()` helper
-- [ ] Implement `cacheDiffAndVerifiers()` helper
-- [ ] Replace approval section with steering loop
-- [ ] Test iteration limits, timeout behavior
-- [ ] Integration tests
+### Phase C: Steering Loop (Days 5-7) — COMPLETE
+- [x] Implement `buildSteeringPrompt()` helper
+- [x] Implement `cacheDiffAndVerifiers()` helper
+- [x] Replace approval section with steering loop
+- [x] Test iteration limits, timeout behavior
+- [x] Integration tests
 
-### Phase D: CLI & Client (Days 8-9)
-- [ ] Add client methods to `starter.go`
-- [ ] Add `diff`, `logs`, `steer` CLI commands
-- [ ] Test CLI against running workflow
+### Phase D: CLI & Client (Days 8-9) — COMPLETE
+- [x] Add client methods to `starter.go`
+- [x] Add `diff`, `logs`, `steer` CLI commands
+- [x] Test CLI against running workflow
 
-### Phase E: Polish & Docs (Day 10)
-- [ ] End-to-end manual testing
-- [ ] Update `CLI_REFERENCE.md`
-- [ ] Update `IMPLEMENTATION_PLAN.md`
+### Phase E: Polish & Docs (Day 10) — COMPLETE
+- [x] End-to-end manual testing
+- [x] Update `CLI_REFERENCE.md`
+- [x] Update `IMPLEMENTATION_PLAN.md`
 
 ---
 

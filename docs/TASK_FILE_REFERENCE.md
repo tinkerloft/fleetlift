@@ -417,6 +417,33 @@ Both are equivalent. Use `groups` when you need custom organization.
 - Memory: M × group size (distributed)
 - Limited by: max_parallel setting
 
+## Failure Thresholds (Grouped Execution)
+
+```yaml
+failure:
+  threshold_percent: 20  # Pause/abort if >20% of groups fail
+  action: pause          # "pause" (wait for human) or "abort" (stop immediately)
+```
+
+**Actions:**
+- `pause` — Workflow pauses and waits for human decision (continue, skip remaining, or cancel). 24-hour timeout.
+- `abort` — Workflow stops launching new groups immediately. In-flight groups complete.
+
+**Threshold calculation:**
+- Checked after each group completes
+- `failure_percent = (failed_groups / completed_groups) * 100`
+- Triggered when `failure_percent > threshold_percent`
+
+See [Grouped Execution](GROUPED_EXECUTION.md) for detailed documentation.
+
+## Steering Configuration
+
+```yaml
+max_steering_iterations: 5  # Max times a human can steer the agent (default: 5)
+```
+
+Controls how many rounds of iterative steering are allowed during the approval phase. Each `fleetlift steer` command counts as one iteration. When the limit is reached, the user must approve or reject.
+
 ## Optional Metadata
 
 ```yaml

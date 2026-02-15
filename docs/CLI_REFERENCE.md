@@ -1,6 +1,6 @@
 # CLI Reference
 
-Complete command-line reference for the Claude Code Orchestrator.
+Complete command-line reference for Fleetlift.
 
 ## Workflow ID Memory
 
@@ -141,6 +141,34 @@ The last workflow ID is stored in `~/.fleetlift/last-workflow`. You can always o
 # Or specify explicitly
 ./bin/fleetlift cancel --workflow-id transform-<task-id>
 ```
+
+## Grouped Execution Commands
+
+### Continue Paused Workflow
+
+When a workflow pauses due to failure threshold:
+
+```bash
+# Continue processing remaining groups
+./bin/fleetlift continue
+
+# Skip remaining groups and finish with current results
+./bin/fleetlift continue --skip-remaining
+
+# Or specify workflow
+./bin/fleetlift continue --workflow-id transform-<task-id>
+```
+
+### Retry Failed Groups
+
+After a workflow completes, retry only the groups that failed:
+
+```bash
+# Retry failed groups from a completed workflow
+./bin/fleetlift retry --file task.yaml --workflow-id transform-<task-id> --failed-only
+```
+
+This starts a new workflow containing only the failed groups from the original run, tracking lineage via `original_workflow_id`.
 
 ## HITL Steering Commands
 

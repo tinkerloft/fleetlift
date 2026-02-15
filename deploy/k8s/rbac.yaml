@@ -1,0 +1,53 @@
+---
+# ServiceAccount for the fleetlift worker (runs outside sandbox namespace).
+# Bind this to the Role below to grant sandbox management permissions.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fleetlift-worker
+  namespace: sandbox-isolated
+---
+# ServiceAccount for sandbox pods (minimal — no token mounted).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sandbox-runner
+  namespace: sandbox-isolated
+---
+# Namespace-scoped Role for sandbox management.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fleetlift-sandbox-manager
+  namespace: sandbox-isolated
+rules:
+  # Jobs: create, get, list, watch, delete
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  # Pods: get, list, watch (for finding job pods)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  # Pods/exec: create (for file protocol)
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  # Secrets: get (for pulling images if needed)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fleetlift-sandbox-manager
+  namespace: sandbox-isolated
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: fleetlift-sandbox-manager
+subjects:
+  - kind: ServiceAccount
+    name: fleetlift-worker
+    namespace: sandbox-isolated

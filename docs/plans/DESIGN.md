@@ -1,10 +1,23 @@
 # Code Transformation Platform - Technical Design
 
+> **Implementation Status (2026-02-08)**: This design document describes both implemented and planned
+> features. Key differences from the implementation:
+>
+> - **Campaign → Grouped Execution**: The separate "Campaign" concept was replaced by grouped
+>   execution at the Task level. There is no `CampaignWorkflow` — the `Transform` workflow handles
+>   groups, failure thresholds, pause/continue/retry directly.
+> - **CRD/Controller → Direct Job Management**: The Kubernetes Sandbox Controller and CRD pattern
+>   described here was replaced by direct Job creation from the worker. See [SIDECAR_AGENT.md](./SIDECAR_AGENT.md).
+> - **Knowledge System (Phase 10)** and **NL Task Creation (Phase 11)**: Not yet implemented.
+> - **Kubernetes Provider (Phase 6b)**: Not yet implemented. Only Docker provider exists.
+>
+> See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for current status.
+
 ## Overview
 
 A platform for automated code transformations and discovery across repositories, supporting:
 
-- **Deployment**: Local (Docker) or production (Kubernetes)
+- **Deployment**: Local (Docker); production Kubernetes planned
 - **Scope**: Single repository or fleet-wide via grouped execution
 - **Execution**: Deterministic (commands in sandbox) or agentic (AI prompts)
 - **Mode**: Transform (create PRs) or Report (collect structured data)
@@ -25,7 +38,7 @@ Think of this as **managed [Turbolift](https://github.com/Skyscanner/turbolift)*
 
 | Build (Custom) | Adopt (Standard) |
 |----------------|------------------|
-| Task and Campaign schemas | Temporal (workflow orchestration) |
+| Task schema and grouped execution | Temporal (workflow orchestration) |
 | Task data model | Kubernetes Jobs (sandbox execution) |
 | Workflow logic | Claude Code (agentic execution) |
 | CLI interface | OpenRewrite/Scalafix (deterministic transforms) |
@@ -166,7 +179,7 @@ The create flow:
 │   │   - Durable task execution                                          │   │
 │   │   - Retry policies                                                   │   │
 │   │   - Human-in-the-loop signals (approve/reject/steer)                │   │
-│   │   - Campaign batch orchestration                                    │   │
+│   │   - Grouped execution with failure thresholds                       │   │
 │   │                                                                      │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │       │                                                                      │
@@ -175,20 +188,20 @@ The create flow:
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │                      Sandbox Provider                                │   │
 │   │                                                                      │   │
-│   │   Local:      Docker containers (direct)                            │   │
-│   │   Production: Kubernetes (via Sandbox Controller)                   │   │
+│   │   Local:      Docker containers (implemented)                       │   │
+│   │   Production: Kubernetes Jobs (planned, Phase 6b)                  │   │
 │   │                                                                      │   │
 │   │   ┌─────────────────────────────────────────────────────────────┐   │   │
-│   │   │  Production Flow:                                            │   │   │
+│   │   │  Production Flow (planned):                                  │   │   │
 │   │   │                                                              │   │   │
-│   │   │  Worker ──creates──▶ SandboxRequest CR                      │   │   │
+│   │   │  Worker ──creates──▶ K8s Job directly                       │   │   │
 │   │   │                            │                                 │   │   │
 │   │   │                            ▼                                 │   │   │
-│   │   │                    Sandbox Controller                        │   │   │
+│   │   │                    Sandbox Pod (agent)                       │   │   │
 │   │   │                            │                                 │   │   │
 │   │   │              ┌─────────────┼─────────────┐                   │   │   │
 │   │   │              ▼             ▼             ▼                   │   │   │
-│   │   │         Create Job    Exec into Pod   Cleanup               │   │   │
+│   │   │         Agent pipeline  File I/O      Cleanup               │   │   │
 │   │   └─────────────────────────────────────────────────────────────┘   │   │
 │   └─────────────────────────────────────────────────────────────────────┘   │
 │       │                                                                      │
@@ -989,376 +1002,7 @@ Provisions containers with:
 
 ### Kubernetes Sandbox Provider (Production)
 
-For production workloads, the Kubernetes provider uses a **controller pattern** for security and operational best practices. The worker creates a `SandboxRequest` custom resource, and a dedicated controller reconciles it into a Job.
-
-#### Why a Controller?
-
-| Direct API Access | Controller Pattern |
-|-------------------|-------------------|
-| Worker has broad K8s permissions | Worker only creates CRs |
-| Harder to audit at K8s level | Kubernetes-native visibility |
-| No policy enforcement point | Controller enforces invariants |
-| Simpler architecture | Better security posture |
-
-**Principle of Least Privilege**: The worker (which executes user-defined prompts) should have minimal Kubernetes API access. The controller, which runs trusted code, holds the elevated permissions.
-
-#### SandboxRequest CRD
-
-```yaml
-apiVersion: apiextensions.k8s.io/v1
-kind: CustomResourceDefinition
-metadata:
-  name: sandboxrequests.fleetlift.io
-spec:
-  group: fleetlift.io
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
-          type: object
-          required: ["spec"]
-          properties:
-            spec:
-              type: object
-              required: ["taskId", "image"]
-              properties:
-                taskId:
-                  type: string
-                image:
-                  type: string
-                workingDir:
-                  type: string
-                  default: "/workspace"
-                env:
-                  type: object
-                  additionalProperties:
-                    type: string
-                resources:
-                  type: object
-                  properties:
-                    limits:
-                      type: object
-                      properties:
-                        memory:
-                          type: string
-                        cpu:
-                          type: string
-                runtimeClassName:
-                  type: string
-                nodeSelector:
-                  type: object
-                  additionalProperties:
-                    type: string
-                credentials:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      secretRef:
-                        type: string
-                      key:
-                        type: string
-                ttlAfterComplete:
-                  type: integer
-                  default: 3600
-                execRequests:
-                  type: array
-                  description: "Queue of exec requests from worker"
-                  items:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                      command:
-                        type: array
-                        items:
-                          type: string
-                      workingDir:
-                        type: string
-            status:
-              type: object
-              properties:
-                phase:
-                  type: string
-                  enum: ["Pending", "Provisioning", "Running", "Succeeded", "Failed"]
-                podName:
-                  type: string
-                jobName:
-                  type: string
-                startTime:
-                  type: string
-                  format: date-time
-                completionTime:
-                  type: string
-                  format: date-time
-                execResults:
-                  type: array
-                  description: "Results of exec requests"
-                  items:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                      exitCode:
-                        type: integer
-                      stdout:
-                        type: string
-                      stderr:
-                        type: string
-                      error:
-                        type: string
-                message:
-                  type: string
-      subresources:
-        status: {}
-      additionalPrinterColumns:
-        - name: Phase
-          type: string
-          jsonPath: .status.phase
-        - name: Pod
-          type: string
-          jsonPath: .status.podName
-        - name: Age
-          type: date
-          jsonPath: .metadata.creationTimestamp
-  scope: Namespaced
-  names:
-    plural: sandboxrequests
-    singular: sandboxrequest
-    kind: SandboxRequest
-    shortNames:
-      - sbr
-```
-
-#### Example SandboxRequest
-
-```yaml
-apiVersion: fleetlift.io/v1alpha1
-kind: SandboxRequest
-metadata:
-  name: task-abc123
-  namespace: sandbox-isolated
-spec:
-  taskId: "abc123"
-  image: "ghcr.io/org/claude-sandbox:latest"
-  workingDir: "/workspace"
-  resources:
-    limits:
-      memory: "4Gi"
-      cpu: "2"
-  credentials:
-    - secretRef: github-credentials
-      key: token
-    - secretRef: claude-credentials
-      key: api-key
-  runtimeClassName: gvisor  # Optional
-  nodeSelector:
-    workload-type: sandbox
-  ttlAfterComplete: 3600
-status:
-  phase: Running
-  podName: task-abc123-xyz
-  jobName: task-abc123
-  startTime: "2024-01-15T10:00:00Z"
-```
-
-#### Sandbox Controller
-
-The controller watches `SandboxRequest` resources and reconciles them:
-
-```go
-// Controller reconciliation loop
-func (r *SandboxRequestReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-    var sbr fleetliftv1alpha1.SandboxRequest
-    if err := r.Get(ctx, req.NamespacedName, &sbr); err != nil {
-        return ctrl.Result{}, client.IgnoreNotFound(err)
-    }
-
-    switch sbr.Status.Phase {
-    case "", "Pending":
-        return r.handlePending(ctx, &sbr)
-    case "Provisioning":
-        return r.handleProvisioning(ctx, &sbr)
-    case "Running":
-        return r.handleRunning(ctx, &sbr)
-    case "Succeeded", "Failed":
-        return r.handleCompleted(ctx, &sbr)
-    }
-    return ctrl.Result{}, nil
-}
-
-func (r *SandboxRequestReconciler) handlePending(ctx context.Context, sbr *fleetliftv1alpha1.SandboxRequest) (ctrl.Result, error) {
-    // 1. Validate request against policies
-    if err := r.validateRequest(sbr); err != nil {
-        return r.failRequest(ctx, sbr, err)
-    }
-
-    // 2. Create Job
-    job := r.buildJob(sbr)
-    if err := r.Create(ctx, job); err != nil {
-        return ctrl.Result{}, err
-    }
-
-    // 3. Update status
-    sbr.Status.Phase = "Provisioning"
-    sbr.Status.JobName = job.Name
-    return ctrl.Result{RequeueAfter: 5 * time.Second}, r.Status().Update(ctx, sbr)
-}
-
-func (r *SandboxRequestReconciler) handleRunning(ctx context.Context, sbr *fleetliftv1alpha1.SandboxRequest) (ctrl.Result, error) {
-    // Process any pending exec requests
-    for _, execReq := range sbr.Spec.ExecRequests {
-        if r.hasResult(sbr, execReq.ID) {
-            continue // Already processed
-        }
-
-        result, err := r.execInPod(ctx, sbr.Status.PodName, execReq)
-        if err != nil {
-            result = &ExecResult{ID: execReq.ID, Error: err.Error()}
-        }
-
-        sbr.Status.ExecResults = append(sbr.Status.ExecResults, *result)
-    }
-
-    return ctrl.Result{RequeueAfter: 2 * time.Second}, r.Status().Update(ctx, sbr)
-}
-```
-
-#### Worker Provider Implementation
-
-The worker's Kubernetes provider creates CRs instead of Jobs directly:
-
-```go
-type k8sProvider struct {
-    client    client.Client
-    namespace string
-}
-
-func (p *k8sProvider) Provision(ctx context.Context, opts ProvisionOptions) (*Sandbox, error) {
-    sbr := &fleetliftv1alpha1.SandboxRequest{
-        ObjectMeta: metav1.ObjectMeta{
-            Name:      fmt.Sprintf("task-%s", opts.TaskID),
-            Namespace: p.namespace,
-        },
-        Spec: fleetliftv1alpha1.SandboxRequestSpec{
-            TaskID:           opts.TaskID,
-            Image:            opts.Image,
-            WorkingDir:       opts.WorkingDir,
-            Env:              opts.Env,
-            Resources:        convertResources(opts.Resources),
-            RuntimeClassName: opts.RuntimeClass,
-            NodeSelector:     opts.NodeSelector,
-            Credentials:      opts.Credentials,
-        },
-    }
-
-    if err := p.client.Create(ctx, sbr); err != nil {
-        return nil, fmt.Errorf("failed to create SandboxRequest: %w", err)
-    }
-
-    // Wait for Running phase
-    if err := p.waitForPhase(ctx, sbr.Name, "Running", opts.Timeout); err != nil {
-        return nil, err
-    }
-
-    return &Sandbox{
-        ID:         sbr.Name,
-        Provider:   "kubernetes",
-        WorkingDir: opts.WorkingDir,
-        Status:     SandboxPhaseRunning,
-    }, nil
-}
-
-func (p *k8sProvider) Exec(ctx context.Context, id string, cmd ExecCommand) (*ExecResult, error) {
-    // 1. Add exec request to CR
-    execID := uuid.New().String()
-    patch := client.MergeFrom(&fleetliftv1alpha1.SandboxRequest{})
-
-    sbr := &fleetliftv1alpha1.SandboxRequest{}
-    if err := p.client.Get(ctx, client.ObjectKey{Name: id, Namespace: p.namespace}, sbr); err != nil {
-        return nil, err
-    }
-
-    sbr.Spec.ExecRequests = append(sbr.Spec.ExecRequests, fleetliftv1alpha1.ExecRequest{
-        ID:         execID,
-        Command:    cmd.Command,
-        WorkingDir: cmd.WorkingDir,
-    })
-
-    if err := p.client.Patch(ctx, sbr, patch); err != nil {
-        return nil, err
-    }
-
-    // 2. Poll for result
-    return p.waitForExecResult(ctx, id, execID, cmd.Timeout)
-}
-
-func (p *k8sProvider) Cleanup(ctx context.Context, id string) error {
-    sbr := &fleetliftv1alpha1.SandboxRequest{
-        ObjectMeta: metav1.ObjectMeta{
-            Name:      id,
-            Namespace: p.namespace,
-        },
-    }
-    return client.IgnoreNotFound(p.client.Delete(ctx, sbr))
-}
-```
-
-#### Job Specification (Created by Controller)
-
-The controller creates Jobs based on the SandboxRequest:
-
-```yaml
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: task-{{.TaskID}}
-  namespace: {{.Namespace}}
-  labels:
-    app.kubernetes.io/name: fleetlift-sandbox
-    app.kubernetes.io/component: sandbox
-    fleetlift.io/task-id: {{.TaskID}}
-  ownerReferences:
-    - apiVersion: fleetlift.io/v1alpha1
-      kind: SandboxRequest
-      name: {{.SandboxRequestName}}
-      uid: {{.SandboxRequestUID}}
-      controller: true
-spec:
-  ttlSecondsAfterFinished: 3600
-  backoffLimit: 0  # No retries - Temporal handles retry logic
-  template:
-    spec:
-      runtimeClassName: {{.RuntimeClass}}  # Optional: gvisor
-      serviceAccountName: sandbox-runner
-      nodeSelector:
-        {{range $k, $v := .NodeSelector}}
-        {{$k}}: {{$v}}
-        {{end}}
-      containers:
-      - name: sandbox
-        image: {{.Image}}
-        command: ["sleep", "infinity"]  # Keep alive for exec
-        workingDir: {{.WorkingDir}}
-        resources:
-          limits:
-            memory: {{.Resources.Memory}}
-            cpu: {{.Resources.CPU}}
-        env:
-        - name: ANTHROPIC_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: claude-credentials
-              key: api-key
-        - name: GITHUB_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: github-credentials
-              key: token
-      restartPolicy: Never
-```
+For production workloads, the Kubernetes provider creates Jobs directly — no CRD or separate controller needed. The sidecar agent runs inside the pod and communicates with the worker via a file-based protocol (see [SIDECAR_AGENT.md](./SIDECAR_AGENT.md) for full details).
 
 #### Provider Selection
 
@@ -1366,28 +1010,21 @@ spec:
 func NewProvider() (Provider, error) {
     switch os.Getenv("SANDBOX_PROVIDER") {
     case "kubernetes":
-        // Uses controller pattern - worker only creates CRs
         return kubernetes.NewProvider()
     default:
-        // Direct Docker API access for local development
         return docker.NewProvider()
     }
 }
 ```
 
-### Security (Production)
+#### Worker RBAC
 
-#### RBAC - Split Permissions Model
-
-The controller pattern enables least-privilege access:
+The worker creates and manages Jobs directly:
 
 | Component | Permissions | Rationale |
 |-----------|-------------|-----------|
-| **Worker** | Create/get/delete SandboxRequest CRs | Minimal access; cannot directly create Jobs or exec |
-| **Controller** | Create/delete Jobs, exec into pods, read secrets | Elevated access in trusted, auditable code |
-| **Sandbox Pod** | None | No K8s API access (empty RBAC) |
-
-**Worker ServiceAccount RBAC:**
+| **Worker** | Jobs (CRUD), Pods (get/list/watch), Pods/exec (create), Secrets (get) | Direct Job management; exec for file-based protocol |
+| **Sandbox Pod** | None | `automountServiceAccountToken: false`, zero K8s API access |
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -1396,90 +1033,19 @@ metadata:
   name: fleetlift-worker
   namespace: sandbox-isolated
 rules:
-  # Create and manage SandboxRequest CRs only
-  - apiGroups: ["fleetlift.io"]
-    resources: ["sandboxrequests"]
-    verbs: ["create", "get", "list", "watch", "patch", "delete"]
-  - apiGroups: ["fleetlift.io"]
-    resources: ["sandboxrequests/status"]
-    verbs: ["get"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: fleetlift-worker
-  namespace: sandbox-isolated
-subjects:
-  - kind: ServiceAccount
-    name: fleetlift-worker
-    namespace: fleetlift-system
-roleRef:
-  kind: Role
-  name: fleetlift-worker
-  apiGroup: rbac.authorization.k8s.io
-```
-
-**Controller ServiceAccount RBAC:**
-
-```yaml
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: fleetlift-controller
-  namespace: sandbox-isolated
-rules:
-  # Manage SandboxRequest CRs
-  - apiGroups: ["fleetlift.io"]
-    resources: ["sandboxrequests"]
-    verbs: ["get", "list", "watch", "update", "patch"]
-  - apiGroups: ["fleetlift.io"]
-    resources: ["sandboxrequests/status"]
-    verbs: ["get", "update", "patch"]
-
-  # Create and manage Jobs
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["create", "get", "list", "watch", "delete"]
-
-  # Find and monitor pods
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
-
-  # Execute commands in sandbox pods
   - apiGroups: [""]
     resources: ["pods/exec"]
     verbs: ["create"]
-
-  # Read pod logs for diagnostics
-  - apiGroups: [""]
-    resources: ["pods/log"]
-    verbs: ["get"]
-
-  # Read credentials secrets
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get"]
     resourceNames: ["github-credentials", "claude-credentials"]
-
-  # Create events for observability
-  - apiGroups: [""]
-    resources: ["events"]
-    verbs: ["create", "patch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: fleetlift-controller
-  namespace: sandbox-isolated
-subjects:
-  - kind: ServiceAccount
-    name: fleetlift-controller
-    namespace: fleetlift-system
-roleRef:
-  kind: Role
-  name: fleetlift-controller
-  apiGroup: rbac.authorization.k8s.io
 ```
 
 **Sandbox ServiceAccount (Empty RBAC):**
@@ -1491,33 +1057,6 @@ metadata:
   name: sandbox-runner
   namespace: sandbox-isolated
 # No RoleBinding - sandbox pods have zero K8s API access
-```
-
-#### Policy Enforcement
-
-The controller can enforce policies that the worker cannot bypass:
-
-```go
-func (r *SandboxRequestReconciler) validateRequest(sbr *fleetliftv1alpha1.SandboxRequest) error {
-    // Enforce gVisor for all sandboxes
-    if r.config.RequireGVisor && sbr.Spec.RuntimeClassName != "gvisor" {
-        return fmt.Errorf("gVisor runtime is required")
-    }
-
-    // Enforce resource limits
-    if memory := sbr.Spec.Resources.Limits.Memory; memory != "" {
-        if qty, _ := resource.ParseQuantity(memory); qty.Cmp(r.config.MaxMemory) > 0 {
-            return fmt.Errorf("memory limit %s exceeds maximum %s", memory, r.config.MaxMemory)
-        }
-    }
-
-    // Enforce allowed images
-    if !r.isAllowedImage(sbr.Spec.Image) {
-        return fmt.Errorf("image %s is not in allowed list", sbr.Spec.Image)
-    }
-
-    return nil
-}
 ```
 
 #### Network Policy
@@ -1682,9 +1221,14 @@ var steerPrompt string
 workflow.GetSignalChannel(ctx, "steer").Receive(ctx, &steerPrompt)
 ```
 
-### Campaign Workflow
+### Grouped Execution *(originally "Campaign Workflow")*
 
-The Campaign workflow orchestrates multiple Tasks:
+> **Implementation Note**: The separate Campaign workflow described below was replaced by
+> grouped execution within the `Transform` workflow. Groups are defined in the Task YAML,
+> and the workflow handles parallel execution, failure thresholds, pause/continue, and retry
+> directly. See [GROUPED_EXECUTION.md](../GROUPED_EXECUTION.md) for the implemented design.
+
+The original design envisioned a Campaign workflow orchestrating multiple Tasks:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -1793,9 +1337,11 @@ func CampaignWorkflow(ctx workflow.Context, campaign Campaign) (*CampaignResult,
 | Many fail (≥threshold) | Pause and ask human: abort / continue / retry |
 | Critical failure | Halt immediately, notify human |
 
-### Knowledge Capture & Enrichment
+### Knowledge Capture & Enrichment — *Planned (Phase 10)*
 
-Knowledge capture and prompt enrichment are integrated into the Task workflow as optional steps:
+> **Not yet implemented.** This describes the planned design.
+
+Knowledge capture and prompt enrichment will be integrated into the Task workflow as optional steps:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -2256,64 +1802,41 @@ fleetlift/
 ├── cmd/
 │   ├── worker/              # Temporal worker
 │   │   └── main.go
-│   ├── controller/          # Kubernetes sandbox controller
+│   ├── agent/               # Sidecar agent binary
 │   │   └── main.go
 │   └── cli/                 # CLI tool
 │       └── main.go
-├── api/
-│   └── v1alpha1/            # CRD API types
-│       ├── sandboxrequest_types.go
-│       ├── groupversion_info.go
-│       └── zz_generated.deepcopy.go
 ├── internal/
 │   ├── model/               # Data models
-│   │   ├── task.go          # Task, Campaign types
+│   │   ├── task.go          # Task types
 │   │   └── result.go        # Result types
 │   ├── workflow/            # Temporal workflows
 │   │   ├── task.go          # Task workflow
-│   │   ├── campaign.go      # Campaign workflow
+│   │   ├── transform_v2.go  # TransformV2 (sidecar agent)
 │   │   └── signals.go       # Signal handlers
 │   ├── activity/            # Temporal activities
 │   │   ├── sandbox.go       # Provision, Cleanup
 │   │   ├── transform.go     # Execute transformations
 │   │   ├── git.go           # Clone, branch, push
 │   │   └── github.go        # PR creation
+│   ├── agent/               # Sidecar agent implementation
+│   │   └── protocol/        # File-based protocol types
 │   ├── sandbox/             # Sandbox abstraction
 │   │   ├── provider.go      # Interface
-│   │   ├── docker/          # Docker implementation (direct)
-│   │   └── kubernetes/      # K8s implementation (via CRs)
-│   ├── controller/          # Sandbox controller logic
-│   │   ├── sandboxrequest_controller.go
-│   │   ├── job_builder.go
-│   │   └── exec_handler.go
-│   ├── knowledge/           # Continual learning system
-│   │   ├── store.go         # Three-tier storage (local + repo)
-│   │   ├── capture.go       # Post-approval knowledge extraction
-│   │   ├── enrich.go        # Prompt enrichment with relevant items
-│   │   ├── item.go          # KnowledgeItem model and parsing
-│   │   └── efficacy.go      # Usage tracking and auto-deprecation
-│   ├── create/              # Natural language task creation
-│   │   ├── create.go        # Interactive + one-shot creation flow
-│   │   ├── discover.go      # GitHub repo discovery via gh CLI
-│   │   ├── schema.go        # Embedded schema + examples bundle
-│   │   ├── templates.go     # Built-in and custom task templates
-│   │   └── registry.go      # Transformation repo registry
+│   │   ├── docker/          # Docker implementation
+│   │   └── kubernetes/      # K8s implementation (direct Jobs)
+│   ├── knowledge/           # Continual learning system (Phase 10)
+│   ├── create/              # Natural language task creation (Phase 11)
 │   └── config/              # Configuration loading
 ├── config/
 │   ├── local.yaml
 │   ├── production.yaml
-│   ├── crd/                 # CRD manifests
-│   │   └── fleetlift.io_sandboxrequests.yaml
-│   ├── rbac/                # RBAC manifests
-│   │   ├── worker_role.yaml
-│   │   ├── controller_role.yaml
-│   │   └── sandbox_serviceaccount.yaml
-│   └── controller/          # Controller deployment
-│       └── manager.yaml
+│   └── rbac/                # RBAC manifests
+│       ├── worker_role.yaml
+│       └── sandbox_serviceaccount.yaml
 ├── docker/
 │   ├── Dockerfile.sandbox
-│   ├── Dockerfile.worker
-│   └── Dockerfile.controller
+│   └── Dockerfile.worker
 └── docs/
     ├── OVERVIEW.md          # User-facing documentation
     ├── DESIGN.md            # This document
@@ -2328,11 +1851,7 @@ fleetlift/
 
 2. **Temporal for durability**: Temporal handles retries, timeouts, and human-in-the-loop signals. All state is durable and recoverable.
 
-3. **Controller for Kubernetes sandboxes**: Instead of giving the worker direct K8s API access, we use a controller pattern:
-   - Worker creates `SandboxRequest` custom resources (minimal permissions)
-   - Dedicated controller reconciles CRs into Jobs (elevated permissions in trusted code)
-   - Benefits: least privilege, policy enforcement, Kubernetes-native observability
-   - The controller is the only component with permissions to create Jobs, exec into pods, and read secrets
+3. **Direct Job management for Kubernetes sandboxes**: The worker creates K8s Jobs directly — no CRD or separate controller needed. The sidecar agent inside the pod communicates with the worker via a file-based protocol over `kubectl exec`. This keeps the architecture simple while the file-based protocol avoids etcd size limits that would constrain CR-based approaches.
 
 4. **Two transform modes**: Deterministic (commands in sandbox) and Agentic (Claude Code) share the same orchestration but have different execution paths. Both use the same sidecar agent (`fleetlift-agent serve`). For deterministic, the sandbox image contains the required tools and the agent binary is injected via init container.
 
@@ -2353,7 +1872,7 @@ fleetlift/
 
 7. **Report mode integrated**: Report mode (discovery, audits) is a core mode alongside transform mode, not an afterthought.
 
-8. **Provider abstraction**: The sandbox provider interface abstracts the difference between local (Docker) and production (Kubernetes) environments. Local development uses Docker directly for simplicity; production uses the controller pattern for security.
+8. **Provider abstraction**: The sandbox provider interface abstracts the difference between local (Docker) and production (Kubernetes) environments. Both use the same sidecar agent and file-based protocol; only the provisioning differs (Docker containers vs K8s Jobs).
 
 9. **Transparent continual learning**: Knowledge items are YAML files stored in transformation repos, not an opaque model. This means knowledge is version-controlled, auditable, editable, and team-shareable. The three-tier storage (execution log → local store → transformation repo) balances automatic capture with human curation. Knowledge is injected as a prompt section, not hidden context, so it's visible and debuggable.
 

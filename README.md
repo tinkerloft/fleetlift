@@ -59,6 +59,7 @@ This is a working prototype with the core functionality implemented.
 | **Multi-Repository** | ✅ | Flexible grouping: combined, parallel, or custom organization |
 | **PR Creation** | ✅ | Automatic branch, push, and PR creation |
 | **Human Approval** | ✅ | Review changes before PR creation |
+| **Iterative Steering** | ✅ | Guide the agent with follow-up prompts (`diff`, `logs`, `steer`) |
 | **Report Mode** | ✅ | Analyze repos and collect structured data |
 | **forEach Discovery** | ✅ | Iterate over multiple targets within a repo |
 | **Transformation Repos** | ✅ | Reusable skills and tools across projects |
@@ -66,15 +67,17 @@ This is a working prototype with the core functionality implemented.
 | **Grouped Execution** | ✅ | Parallel execution with failure thresholds |
 | **Pause/Continue** | ✅ | Human intervention when failures exceed threshold |
 | **Retry Failed Groups** | ✅ | Retry only the groups that failed |
+| **Sidecar Agent** | ✅ | Autonomous agent binary with file-based protocol (TransformV2) |
 
 ### 🔜 What's Coming
 
 | Feature | Phase | Description |
 |---------|:-----:|-------------|
-| **Kubernetes Sandbox** | 6 | Production-grade isolated execution |
+| **Kubernetes Sandbox** | 6b | Production-grade isolated execution via K8s Jobs |
 | **Observability** | 7 | Metrics, dashboards, and alerting |
 | **Security Hardening** | 8 | RBAC, network policies, secret management |
-| **Iterative Steering** | 9 | Guide the agent with follow-up prompts |
+| **Scheduled Tasks** | 9.3 | Recurring transformations via Temporal schedules |
+| **Continual Learning** | 10 | Knowledge capture from steering corrections |
 
 See [IMPLEMENTATION_PLAN.md](docs/plans/IMPLEMENTATION_PLAN.md) for the full roadmap.
 
@@ -432,6 +435,15 @@ pull_request:
 ./bin/fleetlift approve --workflow-id <id>
 ./bin/fleetlift reject --workflow-id <id>
 
+# Iterative steering (review and refine before approval)
+./bin/fleetlift diff --workflow-id <id>           # View changes
+./bin/fleetlift logs --workflow-id <id>           # View verifier output
+./bin/fleetlift steer --workflow-id <id> --prompt "Also handle edge case X"
+
+# Grouped execution control
+./bin/fleetlift continue --workflow-id <id>       # Resume paused workflow
+./bin/fleetlift retry --file task.yaml --failed-only  # Retry failed groups
+
 # View results
 ./bin/fleetlift result --workflow-id <id>         # Transform mode result
 ./bin/fleetlift reports <workflow-id>             # Report mode output
@@ -463,12 +475,17 @@ make run-worker       # Terminal 2: Start worker
 ```
 ├── cmd/
 │   ├── cli/          # CLI entry point
-│   └── worker/       # Temporal worker
+│   ├── worker/       # Temporal worker
+│   └── agent/        # Sidecar agent binary (runs inside sandboxes)
 ├── internal/
-│   ├── activity/     # Temporal activities (clone, transform, PR creation)
-│   ├── workflow/     # Temporal workflows (orchestration logic)
+│   ├── activity/     # Temporal activities (clone, transform, PR creation, agent ops)
+│   ├── workflow/     # Temporal workflows (Transform, TransformV2)
 │   ├── model/        # Data models (Task, Result, etc.)
-│   └── sandbox/      # Docker sandbox provider
+│   ├── agent/        # Sidecar agent pipeline (clone, transform, verify, collect, PR)
+│   │   └── protocol/ # File-based protocol types (manifest, status, result, steering)
+│   ├── sandbox/      # Sandbox provider interfaces
+│   │   └── docker/   # Docker provider implementation
+│   └── client/       # Temporal client wrapper
 ├── examples/         # Example task files
 └── docs/
     └── plans/        # Design docs and implementation plan
@@ -481,8 +498,10 @@ make run-worker       # Terminal 2: Start worker
 | [Implementation Plan](docs/plans/IMPLEMENTATION_PLAN.md) | Detailed phase breakdown and status |
 | [Design Document](docs/plans/DESIGN.md) | Technical architecture and data model |
 | [Overview](docs/plans/OVERVIEW.md) | Use cases and conceptual overview |
+| [Sidecar Agent](docs/plans/SIDECAR_AGENT.md) | Agent architecture and file-based protocol |
 | [CLI Reference](docs/CLI_REFERENCE.md) | Full command documentation |
 | [Task File Reference](docs/TASK_FILE_REFERENCE.md) | YAML schema details |
+| [Grouped Execution](docs/GROUPED_EXECUTION.md) | Failure thresholds, pause/continue, retry |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues and solutions |
 
 ## Questions or Feedback?

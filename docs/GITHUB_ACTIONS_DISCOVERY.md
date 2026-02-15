@@ -295,32 +295,40 @@ jobs:
 
 When you outgrow GitHub Actions:
 
-1. **Same prompt** → becomes `spec.transform.agent.prompt`
-2. **targets.txt** → becomes `spec.forEach[]` or `spec.repositories[]`
-3. **Output schema** → becomes `spec.transform.agent.outputSchema`
-4. **Artifacts** → becomes CRD status or S3 storage
-5. **Matrix jobs** → becomes parallel Temporal activities
+1. **Same prompt** → becomes `execution.agentic.prompt`
+2. **targets.txt** → becomes `for_each[]` or `repositories[]`
+3. **Output schema** → becomes `execution.agentic.output.schema`
+4. **Artifacts** → becomes workflow results (queryable via CLI)
+5. **Matrix jobs** → becomes parallel groups via Temporal activities
 
 ```yaml
 # GitHub Actions version
 targets_file: targets.txt
 prompt_file: prompts/research.md
 
-# Platform version
-apiVersion: codetransform.io/v1alpha1
-kind: CodeTransform
-spec:
-  mode: report
-  forEach:
-    - name: users-api
-      context: "/api/v1/users/legacy"
-    # ... generated from targets.txt
-  transform:
-    agent:
-      prompt: |
-        # ... contents of prompts/research.md
-      outputSchema:
+# Fleetlift version (task.yaml)
+version: 1
+id: endpoint-audit
+title: "Audit API endpoints"
+mode: report
+
+repositories:
+  - url: https://github.com/org/api-server.git
+
+for_each:
+  - name: users-api
+    context: "/api/v1/users/legacy"
+  # ... generated from targets.txt
+
+execution:
+  agentic:
+    prompt: |
+      # ... contents of prompts/research.md
+    output:
+      schema:
         # ... same schema
+
+timeout: 30m
 ```
 
-The migration path is straightforward—the platform adds durability, HITL, and multi-repo coordination on top of the same core concept.
+The migration path is straightforward—the platform adds durability, HITL steering, and multi-repo coordination on top of the same core concept.

@@ -1,6 +1,6 @@
 # Example Workflows
 
-This directory contains detailed examples demonstrating different features and use cases of the Claude Code Orchestrator.
+This directory contains detailed examples demonstrating different features and use cases of Fleetlift.
 
 ## Examples
 
