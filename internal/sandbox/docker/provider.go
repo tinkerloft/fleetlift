@@ -29,6 +29,9 @@ const MaxFileReadSize = 10 << 20 // 10 MB
 // validNetworkName matches safe Docker network names (M7 fix).
 var validNetworkName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]+$`)
 
+// Compile-time check that Provider implements sandbox.AgentProvider.
+var _ sandbox.AgentProvider = (*Provider)(nil)
+
 // Provider implements sandbox.AgentProvider using Docker containers.
 type Provider struct {
 	client *client.Client

@@ -12,7 +12,9 @@ import (
 
 	"github.com/tinkerloft/fleetlift/internal/activity"
 	internalclient "github.com/tinkerloft/fleetlift/internal/client"
-	"github.com/tinkerloft/fleetlift/internal/sandbox/docker"
+	"github.com/tinkerloft/fleetlift/internal/sandbox"
+	_ "github.com/tinkerloft/fleetlift/internal/sandbox/docker" // register docker provider
+	_ "github.com/tinkerloft/fleetlift/internal/sandbox/k8s"    // register k8s provider
 	"github.com/tinkerloft/fleetlift/internal/workflow"
 )
 
@@ -55,21 +57,28 @@ func main() {
 	log.Printf("Connected to Temporal at %s", temporalAddr)
 	log.Printf("Task queue: %s", internalclient.TaskQueue)
 
-	// Create Docker provider
-	dockerProvider, err := docker.NewProvider()
-	if err != nil {
-		log.Fatalf("Failed to create Docker provider: %v", err)
+	// Create sandbox provider
+	providerName := os.Getenv("SANDBOX_PROVIDER")
+	cfg := sandbox.ProviderConfig{
+		Namespace:      getEnvOrDefault("SANDBOX_NAMESPACE", "sandbox-isolated"),
+		AgentImage:     getEnvOrDefault("AGENT_IMAGE", "fleetlift-agent:latest"),
+		KubeconfigPath: os.Getenv("KUBECONFIG"),
 	}
+	provider, err := sandbox.NewProvider(providerName, cfg)
+	if err != nil {
+		log.Fatalf("Failed to create sandbox provider: %v", err)
+	}
+	log.Printf("Sandbox provider: %s", provider.Name())
 
 	// Create activities
-	sandboxActivities := activity.NewSandboxActivities(dockerProvider)
-	claudeActivities := activity.NewClaudeCodeActivities(dockerProvider)
-	deterministicActivities := activity.NewDeterministicActivities(dockerProvider)
-	githubActivities := activity.NewGitHubActivities(dockerProvider)
+	sandboxActivities := activity.NewSandboxActivities(provider)
+	claudeActivities := activity.NewClaudeCodeActivities(provider)
+	deterministicActivities := activity.NewDeterministicActivities(provider)
+	githubActivities := activity.NewGitHubActivities(provider)
 	slackActivities := activity.NewSlackActivities()
-	reportActivities := activity.NewReportActivities(dockerProvider)
-	steeringActivities := activity.NewSteeringActivities(dockerProvider)
-	agentActivities := activity.NewAgentActivities(dockerProvider)
+	reportActivities := activity.NewReportActivities(provider)
+	steeringActivities := activity.NewSteeringActivities(provider)
+	agentActivities := activity.NewAgentActivities(provider)
 
 	// Create worker
 	w := worker.New(c, internalclient.TaskQueue, worker.Options{})
@@ -106,4 +115,11 @@ func main() {
 	}
 
 	log.Println("Worker stopped")
+}
+
+func getEnvOrDefault(key, defaultVal string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultVal
 }
