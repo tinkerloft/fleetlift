@@ -129,17 +129,17 @@ func TestExecShell(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Pull and start container - use ubuntu which has bash
-	err = provider.PullImageIfNeeded(ctx, "ubuntu:22.04")
+	// Pull and start container - use alpine which has sh
+	err = provider.PullImageIfNeeded(ctx, "alpine:latest")
 	if err != nil {
-		t.Skip("Cannot pull ubuntu image, skipping test")
+		t.Skip("Cannot pull alpine image, skipping test")
 	}
 
 	// Create container directly
 	client := provider.GetClient()
 	resp, err := client.ContainerCreate(ctx,
 		&container.Config{
-			Image: "ubuntu:22.04",
+			Image: "alpine:latest",
 			Cmd:   []string{"sleep", "30"},
 		},
 		&container.HostConfig{},
