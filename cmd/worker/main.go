@@ -113,6 +113,7 @@ func main() {
 	reportActivities := activity.NewReportActivities(provider)
 	steeringActivities := activity.NewSteeringActivities(provider)
 	agentActivities := activity.NewAgentActivities(provider)
+	knowledgeActivities := activity.NewKnowledgeActivities()
 
 	// Create worker
 	w := worker.New(c, internalclient.TaskQueue, worker.Options{
@@ -142,6 +143,8 @@ func main() {
 	w.RegisterActivityWithOptions(agentActivities.WaitForAgentPhase, temporalactivity.RegisterOptions{Name: activity.ActivityWaitForAgentPhase})
 	w.RegisterActivityWithOptions(agentActivities.ReadAgentResult, temporalactivity.RegisterOptions{Name: activity.ActivityReadAgentResult})
 	w.RegisterActivityWithOptions(agentActivities.SubmitSteeringAction, temporalactivity.RegisterOptions{Name: activity.ActivitySubmitSteeringAction})
+	w.RegisterActivityWithOptions(knowledgeActivities.CaptureKnowledge, temporalactivity.RegisterOptions{Name: activity.ActivityCaptureKnowledge})
+	w.RegisterActivityWithOptions(knowledgeActivities.EnrichPrompt, temporalactivity.RegisterOptions{Name: activity.ActivityEnrichPrompt})
 
 	log.Println("Worker started. Press Ctrl+C to stop.")
 

@@ -46,6 +46,10 @@ const (
 	ActivityWaitForAgentPhase     = "WaitForAgentPhase"
 	ActivityReadAgentResult       = "ReadAgentResult"
 	ActivitySubmitSteeringAction  = "SubmitSteeringAction"
+
+	// Knowledge capture and prompt enrichment activities
+	ActivityCaptureKnowledge = "CaptureKnowledge"
+	ActivityEnrichPrompt     = "EnrichPrompt"
 )
 
 // Default configuration values (SIMP-004)
