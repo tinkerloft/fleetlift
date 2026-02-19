@@ -55,8 +55,10 @@ temp/
 *.tmp
 
 # Build artifacts
-dist/
-build/
+/dist/
+/build/
+web/dist/*
+!web/dist/.gitkeep
 *.tar.gz
 *.zip
 

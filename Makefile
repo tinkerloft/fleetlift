@@ -1,13 +1,22 @@
-.PHONY: build test clean fleetlift-worker fleetlift fleetlift-agent all temporal-dev temporal-up temporal-down temporal-logs sandbox-build agent-image kind-setup test-integration-k8s
+.PHONY: build test clean fleetlift-worker fleetlift fleetlift-agent all temporal-dev temporal-up temporal-down temporal-logs sandbox-build agent-image kind-setup test-integration-k8s build-web dev-web
 
 # Build all binaries
 all: build
 
+# Build frontend
+build-web:
+	cd web && npm install && npm run build
+
+# Run Vite dev server (proxies /api to :8080)
+dev-web:
+	cd web && npm run dev
+
 # Build binaries
-build:
+build: build-web
 	go build -o bin/fleetlift-worker ./cmd/worker
 	go build -o bin/fleetlift ./cmd/cli
 	CGO_ENABLED=0 go build -o bin/fleetlift-agent ./cmd/agent
+	go build -o bin/fleetlift-server ./cmd/server
 
 # Build worker only
 fleetlift-worker:

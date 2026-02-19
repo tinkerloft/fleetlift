@@ -3,12 +3,14 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
 
 	flclient "github.com/tinkerloft/fleetlift/internal/client"
 	"github.com/tinkerloft/fleetlift/internal/server"
+	flweb "github.com/tinkerloft/fleetlift/web"
 )
 
 func main() {
@@ -19,12 +21,17 @@ func main() {
 	}
 	defer c.Close()
 
+	webFS, err := fs.Sub(flweb.DistFS, "dist")
+	if err != nil {
+		log.Fatalf("failed to prepare static files: %v", err)
+	}
+
 	addr := os.Getenv("FLEETLIFT_SERVER_ADDR")
 	if addr == "" {
 		addr = ":8080"
 	}
 
-	s := server.New(c, nil) // staticFS wired in Task 15
+	s := server.New(c, webFS)
 	log.Printf("Fleetlift server listening on %s", addr)
 	if err := http.ListenAndServe(addr, s); err != nil {
 		log.Fatalf("server error: %v", err)
