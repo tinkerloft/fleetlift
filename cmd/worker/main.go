@@ -4,6 +4,7 @@ package main
 import (
 	"flag"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 
@@ -16,6 +17,7 @@ import (
 
 	"github.com/tinkerloft/fleetlift/internal/activity"
 	internalclient "github.com/tinkerloft/fleetlift/internal/client"
+	"github.com/tinkerloft/fleetlift/internal/logging"
 	"github.com/tinkerloft/fleetlift/internal/metrics"
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
 	_ "github.com/tinkerloft/fleetlift/internal/sandbox/docker" // register docker provider
@@ -24,6 +26,11 @@ import (
 )
 
 func main() {
+	// Structured JSON logging
+	sl := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(sl)
+	temporalLogger := logging.NewSlogAdapter(sl)
+
 	// Parse command-line flags
 	debugNoCleanup := flag.Bool("debug-no-cleanup", false, "Skip container cleanup on failure (for debugging)")
 	flag.Parse()
@@ -73,6 +80,7 @@ func main() {
 	// Connect to Temporal
 	c, err := client.Dial(client.Options{
 		HostPort: temporalAddr,
+		Logger:   temporalLogger,
 	})
 	if err != nil {
 		log.Fatalf("Failed to connect to Temporal: %v", err)
