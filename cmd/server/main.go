@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	flclient "github.com/tinkerloft/fleetlift/internal/client"
 	"github.com/tinkerloft/fleetlift/internal/server"
 	flweb "github.com/tinkerloft/fleetlift/web"
@@ -33,8 +34,8 @@ func main() {
 	}
 
 	reg := prometheus.NewRegistry()
-	reg.MustRegister(prometheus.NewGoCollector())
-	reg.MustRegister(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
+	reg.MustRegister(collectors.NewGoCollector())
+	reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 
 	s := server.New(c, webFS, reg)
 	log.Printf("Fleetlift server listening on %s", addr)

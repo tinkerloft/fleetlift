@@ -1,0 +1,78 @@
+{
+  "title": "Fleetlift Worker",
+  "uid": "fleetlift-worker",
+  "schemaVersion": 38,
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Activity Rate (req/s)",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "sum(rate(fleetlift_activity_total[1m])) by (activity_name)",
+          "legendFormat": "{{activity_name}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Activity Success Rate",
+      "type": "stat",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "sum(rate(fleetlift_activity_total{result=\"success\"}[5m])) / sum(rate(fleetlift_activity_total[5m]))",
+          "legendFormat": "Success Rate"
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "orientation": "auto"},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "thresholds": {"steps": [
+        {"value": null, "color": "red"},
+        {"value": 0.9, "color": "yellow"},
+        {"value": 0.99, "color": "green"}
+      ]}}}
+    },
+    {
+      "id": 3,
+      "title": "Activity Duration p95 (seconds)",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(fleetlift_activity_duration_seconds_bucket[5m])) by (le, activity_name))",
+          "legendFormat": "p95 {{activity_name}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Sandbox Provision Duration p95 (seconds)",
+      "type": "stat",
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(fleetlift_sandbox_provision_seconds_bucket[10m]))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 5,
+      "title": "PRs Created (total)",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 16, "w": 8, "h": 6},
+      "targets": [{"expr": "fleetlift_prs_created_total", "legendFormat": "PRs Created"}],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "id": 6,
+      "title": "Go Goroutines",
+      "type": "timeseries",
+      "gridPos": {"x": 8, "y": 16, "w": 16, "h": 6},
+      "targets": [{"expr": "go_goroutines", "legendFormat": "goroutines"}]
+    }
+  ]
+}

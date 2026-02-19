@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	temporalactivity "go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
@@ -53,8 +54,8 @@ func main() {
 
 	// Set up Prometheus metrics
 	reg := prometheus.NewRegistry()
-	reg.MustRegister(prometheus.NewGoCollector())
-	reg.MustRegister(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
+	reg.MustRegister(collectors.NewGoCollector())
+	reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	m := metrics.New()
 	if err := metrics.RegisterWith(reg, m); err != nil {
 		log.Fatalf("Failed to register metrics: %v", err)

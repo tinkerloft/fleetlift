@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/stretchr/testify/assert"
 	flclient "github.com/tinkerloft/fleetlift/internal/client"
 	"github.com/tinkerloft/fleetlift/internal/model"
@@ -149,7 +150,7 @@ func TestSSEEndpoint(t *testing.T) {
 
 func TestMetricsEndpoint(t *testing.T) {
 	reg := prometheus.NewRegistry()
-	reg.MustRegister(prometheus.NewGoCollector())
+	reg.MustRegister(collectors.NewGoCollector())
 	s := server.New(&mockClient{}, nil, reg)
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()

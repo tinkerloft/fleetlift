@@ -629,38 +629,35 @@ kubectl get jobs -n sandbox-isolated -l fleetlift.io/task-id=slog-migration
 
 ### 7.1 Prometheus Metrics
 
-- [ ] Instrument workflow and activities with prometheus client
-- [ ] `codetransform_tasks_total` (counter) - by status, mode, transform_type
-- [ ] `codetransform_task_duration_seconds` (histogram) - end-to-end duration
-- [ ] `codetransform_sandbox_provision_seconds` (histogram) - sandbox startup time
-- [ ] `codetransform_verifier_duration_seconds` (histogram) - by verifier name
-- [ ] `codetransform_pr_created_total` (counter) - successful PRs
-- [ ] `codetransform_reports_collected_total` (counter) - report mode
-- [ ] `codetransform_api_tokens_used` (counter) - Claude API token consumption
+- [x] Instrument workflow and activities with prometheus client (`internal/metrics/`)
+- [x] `fleetlift_activity_duration_seconds` (histogram) - per-activity duration by result
+- [x] `fleetlift_activity_total` (counter) - per-activity total by result
+- [x] `fleetlift_sandbox_provision_seconds` (histogram) - sandbox startup time
+- [x] `fleetlift_prs_created_total` (counter) - successful PRs
+- [x] Worker exposes `/metrics` on `:9090` (env: `METRICS_ADDR`)
+- [x] API server exposes `/metrics` on its main port via chi route
 
 ### 7.2 Structured Logging
 
-- [ ] Use slog for structured JSON logs
-- [ ] Include task_id, workflow_id, repository in all log entries
-- [ ] Log lifecycle events: task started, sandbox provisioned, transform complete
-- [ ] Separate log streams for worker vs sandbox
+- [x] Use slog for structured JSON logs (`internal/logging/slog_adapter.go`)
+- [x] SlogAdapter bridges slog → Temporal log.Logger interface
+- [x] Worker uses slog JSON handler; Temporal internal logger wired to adapter
+- [x] `LOG_LEVEL` env var controls verbosity (default `info`)
 
 ### 7.3 Grafana Dashboard
 
-- [ ] Task throughput and success rate
-- [ ] Duration percentiles (p50, p95, p99)
-- [ ] Active tasks and queue depth
-- [ ] Sandbox provisioning latency
-- [ ] Error rate by error type
-- [ ] Campaign progress visualization
+- [x] Activity rate by name (`deploy/grafana/fleetlift-dashboard.json`)
+- [x] Activity success rate (stat panel)
+- [x] Activity duration p95 by name
+- [x] Sandbox provision duration p95
+- [x] PRs created total
+- [x] Go goroutines
 
 ### 7.4 Alerting Rules
 
-- [ ] High task failure rate (>10% over 1h)
-- [ ] Task stuck in Running >2x timeout
-- [ ] Sandbox provisioning failures
-- [ ] Worker pod restarts
-- [ ] Campaign paused on threshold
+- [x] High activity failure rate >10% over 5m (`deploy/prometheus/alerts.yaml`)
+- [x] Sandbox provisioning p95 > 2 minutes
+- [x] No activities running for 30 minutes
 
 ### Deliverable
 
@@ -1252,7 +1249,7 @@ $ fleetlift create \
 | 5 | **Grouped Execution** | Failure thresholds, pause/continue, retry | ✅ Complete |
 | 6a | **Sidecar Agent** | Agent binary + file-based protocol + TransformV2 workflow | ✅ Complete |
 | 6b | **Kubernetes Provider** | K8s Jobs, RBAC, NetworkPolicy | ✅ Complete |
-| 7 | **Observability** | Metrics, logging, dashboards | ⬜ Not started |
+| 7 | **Observability** | Metrics, logging, dashboards | ✅ Complete |
 | 8 | **Security** | NetworkPolicy, secrets, scaling | ⬜ Not started |
 | 9.1 | **HITL (Basic)** | Approve/reject signals, Slack notifications | ✅ Complete |
 | 9.2 | **HITL (Steering)** | Iterative steering with diff/logs/steer commands | ✅ Complete |

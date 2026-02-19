@@ -1,0 +1,34 @@
+groups:
+  - name: fleetlift
+    interval: 60s
+    rules:
+      - alert: HighActivityFailureRate
+        expr: |
+          sum(rate(fleetlift_activity_total{result="failure"}[5m])) /
+          sum(rate(fleetlift_activity_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High Fleetlift activity failure rate"
+          description: "More than 10% of activities are failing over the last 5 minutes."
+
+      - alert: SandboxProvisioningSlow
+        expr: |
+          histogram_quantile(0.95, rate(fleetlift_sandbox_provision_seconds_bucket[10m])) > 120
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow sandbox provisioning"
+          description: "p95 sandbox provision time exceeds 2 minutes."
+
+      - alert: NoActivitiesRunning
+        expr: |
+          sum(rate(fleetlift_activity_total[10m])) == 0
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: "No Fleetlift activity in 30 minutes"
+          description: "No activities have executed in the past 30 minutes — worker may be idle or down."
