@@ -2,7 +2,7 @@
 
 Incremental implementation phases for the code transformation and discovery platform.
 
-> **Last Updated**: 2026-02-19 (Phase 9.5 Web UI in progress — Phase A + B complete, Phase C remaining)
+> **Last Updated**: 2026-02-19 (Phase 9.5 Web UI complete)
 >
 > **Note**: Implementation uses Task/Campaign terminology aligned with the design documents.
 >
@@ -797,7 +797,7 @@ helm install codetransform ./charts/codetransform \
 - [ ] Per-team/namespace cost rollup
 - [ ] Budget alerts and quotas
 
-### 9.5 Web UI — IN PROGRESS (Phase C: embed wiring remaining)
+### 9.5 Web UI — COMPLETE
 
 - [x] Go API server (`cmd/server`) — chi router, REST+SSE endpoints wrapping Temporal client
 - [x] `TemporalClient` interface + mock for unit testing
@@ -813,7 +813,7 @@ helm install codetransform ./charts/codetransform \
 - [x] DiffViewer component (react-diff-viewer-continued, collapsible per file)
 - [x] SteeringPanel component (approve/reject/steer mutations, iteration history)
 - [x] VerifierLogs + GroupProgress components
-- [ ] Go embed wiring (`web/embed.go`, Makefile `build-web` target)
+- [x] Go embed wiring (`web/embed.go`, Makefile `build-web` target)
 
 ### 9.6 Report Storage Options
 
@@ -1258,7 +1258,7 @@ $ fleetlift create \
 | 9.2 | **HITL (Steering)** | Iterative steering with diff/logs/steer commands | ✅ Complete |
 | 9.3 | **Scheduled tasks** | Temporal cron-style recurring tasks | ⬜ Not started |
 | 9.4 | **Cost tracking** | API token + compute attribution | ⬜ Not started |
-| 9.5 | **Web UI** | Inbox, diff review, approval/steering dashboard | 🔄 In progress |
+| 9.5 | **Web UI** | Inbox, diff review, approval/steering dashboard | ✅ Complete |
 | 9.6 | **Report storage** | S3/GCS backend for large-scale discovery | ⬜ Not started |
 | 10 | **Continual Learning** | Knowledge capture, enrichment, curation | ⬜ Not started |
 | 11 | **NL Task Creation** | Conversational task creation, repo discovery, templates | ⬜ Not started |
