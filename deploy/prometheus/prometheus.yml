@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: fleetlift-worker
+    static_configs:
+      - targets: ['host.docker.internal:9090']
+
+  - job_name: fleetlift-server
+    static_configs:
+      - targets: ['host.docker.internal:8080']
