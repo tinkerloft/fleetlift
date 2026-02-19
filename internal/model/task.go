@@ -308,6 +308,9 @@ type Task struct {
 
 	// Credentials configuration (production K8s)
 	Credentials *CredentialsConfig `json:"credentials,omitempty" yaml:"credentials,omitempty"`
+
+	// Knowledge capture and enrichment configuration (optional).
+	Knowledge *KnowledgeConfig `json:"knowledge,omitempty" yaml:"knowledge,omitempty"`
 }
 
 // GetMode returns the task mode, defaulting to transform.
@@ -626,4 +629,30 @@ func (t Task) ShouldPauseOnFailure(completed, failed int) bool {
 	}
 	failurePercent := (float64(failed) / float64(completed)) * 100
 	return failurePercent > float64(threshold)
+}
+
+// KnowledgeCaptureEnabled returns true if knowledge capture is enabled (default: true).
+func (t Task) KnowledgeCaptureEnabled() bool {
+	return t.Knowledge == nil || !t.Knowledge.CaptureDisabled
+}
+
+// KnowledgeEnrichEnabled returns true if prompt enrichment is enabled (default: true).
+func (t Task) KnowledgeEnrichEnabled() bool {
+	return t.Knowledge == nil || !t.Knowledge.EnrichDisabled
+}
+
+// KnowledgeMaxItems returns the max items for prompt injection (default: 10).
+func (t Task) KnowledgeMaxItems() int {
+	if t.Knowledge == nil || t.Knowledge.MaxItems <= 0 {
+		return 10
+	}
+	return t.Knowledge.MaxItems
+}
+
+// KnowledgeTags returns any extra tags configured for knowledge filtering.
+func (t Task) KnowledgeTags() []string {
+	if t.Knowledge == nil {
+		return nil
+	}
+	return t.Knowledge.Tags
 }

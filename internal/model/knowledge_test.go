@@ -30,3 +30,26 @@ func TestKnowledgeConfig_Defaults(t *testing.T) {
 	assert.False(t, cfg.EnrichDisabled)
 	assert.Equal(t, 0, cfg.MaxItems) // 0 means use default (10)
 }
+
+func TestTask_KnowledgeHelpers_Defaults(t *testing.T) {
+	task := model.Task{}
+	assert.True(t, task.KnowledgeCaptureEnabled())
+	assert.True(t, task.KnowledgeEnrichEnabled())
+	assert.Equal(t, 10, task.KnowledgeMaxItems())
+	assert.Nil(t, task.KnowledgeTags())
+}
+
+func TestTask_KnowledgeHelpers_Disabled(t *testing.T) {
+	task := model.Task{
+		Knowledge: &model.KnowledgeConfig{
+			CaptureDisabled: true,
+			EnrichDisabled:  true,
+			MaxItems:        5,
+			Tags:            []string{"go"},
+		},
+	}
+	assert.False(t, task.KnowledgeCaptureEnabled())
+	assert.False(t, task.KnowledgeEnrichEnabled())
+	assert.Equal(t, 5, task.KnowledgeMaxItems())
+	assert.Equal(t, []string{"go"}, task.KnowledgeTags())
+}
