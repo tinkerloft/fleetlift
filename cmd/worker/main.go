@@ -4,14 +4,19 @@ package main
 import (
 	"flag"
 	"log"
+	"net/http"
 	"os"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	temporalactivity "go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
+	sdkinterceptor "go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/worker"
 
 	"github.com/tinkerloft/fleetlift/internal/activity"
 	internalclient "github.com/tinkerloft/fleetlift/internal/client"
+	"github.com/tinkerloft/fleetlift/internal/metrics"
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
 	_ "github.com/tinkerloft/fleetlift/internal/sandbox/docker" // register docker provider
 	_ "github.com/tinkerloft/fleetlift/internal/sandbox/k8s"    // register k8s provider
@@ -38,6 +43,26 @@ func main() {
 	if err := activity.CheckConfig(configMode); err != nil {
 		log.Fatalf("Configuration error: %v", err)
 	}
+
+	// Set up Prometheus metrics
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(prometheus.NewGoCollector())
+	reg.MustRegister(prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
+	m := metrics.New()
+	if err := metrics.RegisterWith(reg, m); err != nil {
+		log.Fatalf("Failed to register metrics: %v", err)
+	}
+
+	// Expose /metrics on a dedicated port
+	metricsAddr := getEnvOrDefault("METRICS_ADDR", ":9090")
+	go func() {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+		log.Printf("Metrics server listening on %s/metrics", metricsAddr)
+		if err := http.ListenAndServe(metricsAddr, mux); err != nil {
+			log.Printf("Metrics server error: %v", err)
+		}
+	}()
 
 	// Get Temporal address
 	temporalAddr := os.Getenv("TEMPORAL_ADDRESS")
@@ -81,7 +106,9 @@ func main() {
 	agentActivities := activity.NewAgentActivities(provider)
 
 	// Create worker
-	w := worker.New(c, internalclient.TaskQueue, worker.Options{})
+	w := worker.New(c, internalclient.TaskQueue, worker.Options{
+		Interceptors: []sdkinterceptor.WorkerInterceptor{metrics.NewInterceptor(m)},
+	})
 
 	// Register workflows
 	w.RegisterWorkflow(workflow.Transform)
