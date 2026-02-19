@@ -9,6 +9,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Server is the HTTP API server.
@@ -16,11 +18,13 @@ type Server struct {
 	router   chi.Router
 	client   TemporalClient
 	staticFS fs.FS // pre-subbed FS rooted at index.html; nil in tests
+	gatherer prometheus.Gatherer
 }
 
 // New creates a new Server. staticFS may be nil (disables static serving).
-func New(client TemporalClient, staticFS fs.FS) *Server {
-	s := &Server{client: client, staticFS: staticFS}
+// gatherer may be nil (uses prometheus.DefaultGatherer).
+func New(client TemporalClient, staticFS fs.FS, gatherer prometheus.Gatherer) *Server {
+	s := &Server{client: client, staticFS: staticFS, gatherer: gatherer}
 	s.router = s.buildRouter()
 	return s
 }
@@ -58,6 +62,13 @@ func (s *Server) buildRouter() chi.Router {
 		r.Post("/steer", s.handleSteer)
 		r.Post("/continue", s.handleContinue)
 	})
+
+	// Metrics endpoint
+	g := s.gatherer
+	if g == nil {
+		g = prometheus.DefaultGatherer
+	}
+	r.Get("/metrics", promhttp.HandlerFor(g, promhttp.HandlerOpts{}).ServeHTTP)
 
 	// Static SPA (registered last so API routes take priority)
 	if s.staticFS != nil {

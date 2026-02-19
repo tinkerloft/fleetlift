@@ -66,3 +66,7 @@ web/dist/*
 
 # Docker build artifacts
 docker/fleetlift-agent
+
+# Built binaries (root-level)
+/server
+/worker

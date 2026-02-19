@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/stretchr/testify/assert"
 	flclient "github.com/tinkerloft/fleetlift/internal/client"
 	"github.com/tinkerloft/fleetlift/internal/model"
@@ -56,7 +58,7 @@ func (m *mockClient) ContinueWorkflow(_ context.Context, _ string, _ bool) error
 func (m *mockClient) Close()                                                      {}
 
 func TestHealthEndpoint(t *testing.T) {
-	s := server.New(nil, nil)
+	s := server.New(nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
@@ -71,7 +73,7 @@ func TestListTasks(t *testing.T) {
 		},
 		status: model.TaskStatusRunning,
 	}
-	s := server.New(mc, nil)
+	s := server.New(mc, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
@@ -90,7 +92,7 @@ func TestGetInbox_AwaitingApproval(t *testing.T) {
 		},
 		status: model.TaskStatusAwaitingApproval,
 	}
-	s := server.New(mc, nil)
+	s := server.New(mc, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks/inbox", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
@@ -105,7 +107,7 @@ func TestGetInbox_AwaitingApproval(t *testing.T) {
 }
 
 func TestApproveWorkflow(t *testing.T) {
-	s := server.New(&mockClient{}, nil)
+	s := server.New(&mockClient{}, nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/transform-abc-123/approve", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
@@ -113,7 +115,7 @@ func TestApproveWorkflow(t *testing.T) {
 }
 
 func TestSteerWorkflow(t *testing.T) {
-	s := server.New(&mockClient{}, nil)
+	s := server.New(&mockClient{}, nil, nil)
 	body := strings.NewReader(`{"prompt":"use slog instead"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/transform-abc-123/steer", body)
 	req.Header.Set("Content-Type", "application/json")
@@ -123,7 +125,7 @@ func TestSteerWorkflow(t *testing.T) {
 }
 
 func TestSteerWorkflow_MissingPrompt(t *testing.T) {
-	s := server.New(&mockClient{}, nil)
+	s := server.New(&mockClient{}, nil, nil)
 	body := strings.NewReader(`{}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/transform-abc-123/steer", body)
 	req.Header.Set("Content-Type", "application/json")
@@ -134,7 +136,7 @@ func TestSteerWorkflow_MissingPrompt(t *testing.T) {
 
 func TestSSEEndpoint(t *testing.T) {
 	mc := &mockClient{status: model.TaskStatusRunning}
-	s := server.New(mc, nil)
+	s := server.New(mc, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
@@ -144,4 +146,15 @@ func TestSSEEndpoint(t *testing.T) {
 
 	assert.Equal(t, "text/event-stream", w.Header().Get("Content-Type"))
 	assert.Contains(t, w.Body.String(), "event: status")
+}
+
+func TestMetricsEndpoint(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(collectors.NewGoCollector())
+	s := server.New(&mockClient{}, nil, reg)
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Header().Get("Content-Type"), "text/plain")
 }

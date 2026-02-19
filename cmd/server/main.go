@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	flclient "github.com/tinkerloft/fleetlift/internal/client"
 	"github.com/tinkerloft/fleetlift/internal/server"
 	flweb "github.com/tinkerloft/fleetlift/web"
@@ -31,7 +33,11 @@ func main() {
 		addr = ":8080"
 	}
 
-	s := server.New(c, webFS)
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(collectors.NewGoCollector())
+	reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+
+	s := server.New(c, webFS, reg)
 	log.Printf("Fleetlift server listening on %s", addr)
 	if err := http.ListenAndServe(addr, s); err != nil {
 		log.Fatalf("server error: %v", err)

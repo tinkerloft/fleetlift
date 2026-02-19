@@ -4,14 +4,22 @@ package main
 import (
 	"flag"
 	"log"
+	"log/slog"
+	"net/http"
 	"os"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	temporalactivity "go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
+	sdkinterceptor "go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/worker"
 
 	"github.com/tinkerloft/fleetlift/internal/activity"
 	internalclient "github.com/tinkerloft/fleetlift/internal/client"
+	"github.com/tinkerloft/fleetlift/internal/logging"
+	"github.com/tinkerloft/fleetlift/internal/metrics"
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
 	_ "github.com/tinkerloft/fleetlift/internal/sandbox/docker" // register docker provider
 	_ "github.com/tinkerloft/fleetlift/internal/sandbox/k8s"    // register k8s provider
@@ -19,6 +27,11 @@ import (
 )
 
 func main() {
+	// Structured JSON logging
+	sl := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(sl)
+	temporalLogger := logging.NewSlogAdapter(sl)
+
 	// Parse command-line flags
 	debugNoCleanup := flag.Bool("debug-no-cleanup", false, "Skip container cleanup on failure (for debugging)")
 	flag.Parse()
@@ -39,6 +52,26 @@ func main() {
 		log.Fatalf("Configuration error: %v", err)
 	}
 
+	// Set up Prometheus metrics
+	reg := prometheus.NewRegistry()
+	reg.MustRegister(collectors.NewGoCollector())
+	reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+	m := metrics.New()
+	if err := metrics.RegisterWith(reg, m); err != nil {
+		log.Fatalf("Failed to register metrics: %v", err)
+	}
+
+	// Expose /metrics on a dedicated port
+	metricsAddr := getEnvOrDefault("METRICS_ADDR", ":9090")
+	go func() {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+		log.Printf("Metrics server listening on %s/metrics", metricsAddr)
+		if err := http.ListenAndServe(metricsAddr, mux); err != nil {
+			log.Printf("Metrics server error: %v", err)
+		}
+	}()
+
 	// Get Temporal address
 	temporalAddr := os.Getenv("TEMPORAL_ADDRESS")
 	if temporalAddr == "" {
@@ -48,6 +81,7 @@ func main() {
 	// Connect to Temporal
 	c, err := client.Dial(client.Options{
 		HostPort: temporalAddr,
+		Logger:   temporalLogger,
 	})
 	if err != nil {
 		log.Fatalf("Failed to connect to Temporal: %v", err)
@@ -81,7 +115,9 @@ func main() {
 	agentActivities := activity.NewAgentActivities(provider)
 
 	// Create worker
-	w := worker.New(c, internalclient.TaskQueue, worker.Options{})
+	w := worker.New(c, internalclient.TaskQueue, worker.Options{
+		Interceptors: []sdkinterceptor.WorkerInterceptor{metrics.NewInterceptor(m)},
+	})
 
 	// Register workflows
 	w.RegisterWorkflow(workflow.Transform)
