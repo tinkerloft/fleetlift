@@ -2,7 +2,7 @@
 
 Incremental implementation phases for the code transformation and discovery platform.
 
-> **Last Updated**: 2026-02-15 (Phase 6b Kubernetes Provider complete)
+> **Last Updated**: 2026-02-19 (Phase 9.5 Web UI in progress — Phase A + B complete, Phase C remaining)
 >
 > **Note**: Implementation uses Task/Campaign terminology aligned with the design documents.
 >
@@ -797,12 +797,23 @@ helm install codetransform ./charts/codetransform \
 - [ ] Per-team/namespace cost rollup
 - [ ] Budget alerts and quotas
 
-### 9.5 Web UI (Optional)
+### 9.5 Web UI — IN PROGRESS (Phase C: embed wiring remaining)
 
-- [ ] Task submission form
-- [ ] Status dashboard
-- [ ] Result viewing
-- [ ] Diff viewer (integrates with 9.2)
+- [x] Go API server (`cmd/server`) — chi router, REST+SSE endpoints wrapping Temporal client
+- [x] `TemporalClient` interface + mock for unit testing
+- [x] Task list + inbox handlers (GET /tasks, /tasks/inbox, /tasks/{id}, diff, logs, steering, progress)
+- [x] Signal handlers (approve, reject, cancel, steer, continue)
+- [x] SSE live status updates (`GET /tasks/{id}/events`)
+- [x] React + TypeScript SPA (`web/`) — Vite, shadcn/ui, Tailwind, react-query
+- [x] TypeScript API types mirroring Go model JSON tags
+- [x] App shell with routing (Inbox / Task List / Task Detail)
+- [x] Inbox page with 5s polling and badge per inbox type
+- [x] Task List page with status filter and 10s polling
+- [x] Task Detail page with tabs and SSE live status
+- [x] DiffViewer component (react-diff-viewer-continued, collapsible per file)
+- [x] SteeringPanel component (approve/reject/steer mutations, iteration history)
+- [x] VerifierLogs + GroupProgress components
+- [ ] Go embed wiring (`web/embed.go`, Makefile `build-web` target)
 
 ### 9.6 Report Storage Options
 
@@ -1245,7 +1256,10 @@ $ fleetlift create \
 | 8 | **Security** | NetworkPolicy, secrets, scaling | ⬜ Not started |
 | 9.1 | **HITL (Basic)** | Approve/reject signals, Slack notifications | ✅ Complete |
 | 9.2 | **HITL (Steering)** | Iterative steering with diff/logs/steer commands | ✅ Complete |
-| 9.3-9.6 | **Advanced Features** | Scheduled tasks, cost tracking, web UI, report storage | ⬜ Not started |
+| 9.3 | **Scheduled tasks** | Temporal cron-style recurring tasks | ⬜ Not started |
+| 9.4 | **Cost tracking** | API token + compute attribution | ⬜ Not started |
+| 9.5 | **Web UI** | Inbox, diff review, approval/steering dashboard | 🔄 In progress |
+| 9.6 | **Report storage** | S3/GCS backend for large-scale discovery | ⬜ Not started |
 | 10 | **Continual Learning** | Knowledge capture, enrichment, curation | ⬜ Not started |
 | 11 | **NL Task Creation** | Conversational task creation, repo discovery, templates | ⬜ Not started |
 
