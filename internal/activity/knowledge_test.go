@@ -1,7 +1,6 @@
 package activity_test
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -9,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/sdk/testsuite"
+
 	"github.com/tinkerloft/fleetlift/internal/activity"
 	"github.com/tinkerloft/fleetlift/internal/knowledge"
 	"github.com/tinkerloft/fleetlift/internal/model"
@@ -118,8 +119,14 @@ func TestEnrichPrompt_NoItems(t *testing.T) {
 		OriginalPrompt: "Migrate logger",
 		MaxItems:       10,
 	}
-	result, err := ka.EnrichPrompt(context.Background(), input)
+
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestActivityEnvironment()
+	env.RegisterActivity(ka.EnrichPrompt)
+	val, err := env.ExecuteActivity(ka.EnrichPrompt, input)
 	require.NoError(t, err)
+	var result string
+	require.NoError(t, val.Get(&result))
 	assert.Equal(t, "Migrate logger", result, "original prompt returned unchanged when no items")
 }
 
@@ -139,8 +146,14 @@ func TestEnrichPrompt_WithItems(t *testing.T) {
 		FilterTags:     []string{"go"},
 		MaxItems:       10,
 	}
-	result, err := ka.EnrichPrompt(context.Background(), input)
+
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestActivityEnvironment()
+	env.RegisterActivity(ka.EnrichPrompt)
+	val, err := env.ExecuteActivity(ka.EnrichPrompt, input)
 	require.NoError(t, err)
+	var result string
+	require.NoError(t, val.Get(&result))
 	assert.Contains(t, result, "Migrate logger")
 	assert.Contains(t, result, "Lessons from previous runs")
 	assert.Contains(t, result, "[correction] Run go mod tidy")
@@ -169,8 +182,14 @@ func TestEnrichPrompt_Tier2CapacityReducedByTier3(t *testing.T) {
 		OriginalPrompt: "Do something",
 		MaxItems:       3,
 	}
-	result, err := ka.EnrichPrompt(context.Background(), input)
+
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestActivityEnvironment()
+	env.RegisterActivity(ka.EnrichPrompt)
+	val, err := env.ExecuteActivity(ka.EnrichPrompt, input)
 	require.NoError(t, err)
+	var result string
+	require.NoError(t, val.Get(&result))
 	// Count bullet points in output
 	count := strings.Count(result, "- [pattern]")
 	assert.Equal(t, 3, count, "must cap at MaxItems=3 even with 5 available")

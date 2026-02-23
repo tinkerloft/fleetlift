@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	"github.com/google/uuid"
+	"go.temporal.io/sdk/activity"
 
 	"github.com/tinkerloft/fleetlift/internal/knowledge"
 	"github.com/tinkerloft/fleetlift/internal/model"
@@ -56,6 +56,7 @@ type rawKnowledgeItem struct {
 // transformation and writes them to the local store. It is non-blocking on failure:
 // errors are logged as warnings and nil, nil is returned so the workflow is not disrupted.
 func (ka *KnowledgeActivities) CaptureKnowledge(ctx context.Context, input CaptureKnowledgeInput) ([]model.KnowledgeItem, error) {
+	logger := activity.GetLogger(ctx)
 	prompt := BuildCapturePrompt(input)
 
 	client := anthropic.NewClient()
@@ -72,7 +73,7 @@ func (ka *KnowledgeActivities) CaptureKnowledge(ctx context.Context, input Captu
 		},
 	})
 	if err != nil {
-		slog.WarnContext(ctx, "knowledge capture: Claude API call failed", "task_id", input.TaskID, "err", err)
+		logger.Warn("knowledge capture: Claude API call failed", "task_id", input.TaskID, "err", err)
 		return nil, nil
 	}
 
@@ -85,17 +86,17 @@ func (ka *KnowledgeActivities) CaptureKnowledge(ctx context.Context, input Captu
 
 	items, err := ParseKnowledgeItems(rawText, input.TaskID, input.SteeringHistory)
 	if err != nil {
-		slog.WarnContext(ctx, "knowledge capture: failed to parse items", "task_id", input.TaskID, "err", err)
+		logger.Warn("knowledge capture: failed to parse items", "task_id", input.TaskID, "err", err)
 		return nil, nil
 	}
 
 	for _, item := range items {
 		if writeErr := ka.Store.Write(input.TaskID, item); writeErr != nil {
-			slog.WarnContext(ctx, "knowledge capture: failed to write item", "task_id", input.TaskID, "item_id", item.ID, "err", writeErr)
+			logger.Warn("knowledge capture: failed to write item", "task_id", input.TaskID, "item_id", item.ID, "err", writeErr)
 		}
 	}
 
-	slog.InfoContext(ctx, "knowledge capture: captured items", "task_id", input.TaskID, "count", len(items))
+	logger.Info("knowledge capture: captured items", "task_id", input.TaskID, "count", len(items))
 	return items, nil
 }
 
@@ -103,6 +104,7 @@ func (ka *KnowledgeActivities) CaptureKnowledge(ctx context.Context, input Captu
 // prepends a knowledge section to the original prompt, and returns the enriched prompt.
 // Returns the original prompt unchanged if no items are found.
 func (ka *KnowledgeActivities) EnrichPrompt(ctx context.Context, input EnrichPromptInput) (string, error) {
+	logger := activity.GetLogger(ctx)
 	maxItems := input.MaxItems
 	if maxItems <= 0 {
 		maxItems = 10
@@ -114,7 +116,7 @@ func (ka *KnowledgeActivities) EnrichPrompt(ctx context.Context, input EnrichPro
 	if input.TransformationRepoPath != "" {
 		repoItems, err := knowledge.LoadFromRepo(input.TransformationRepoPath)
 		if err != nil {
-			slog.WarnContext(ctx, "enrich prompt: failed to load repo knowledge", "repo", input.TransformationRepoPath, "err", err)
+			logger.Warn("enrich prompt: failed to load repo knowledge", "repo", input.TransformationRepoPath, "err", err)
 		} else {
 			items = append(items, repoItems...)
 		}
@@ -124,7 +126,7 @@ func (ka *KnowledgeActivities) EnrichPrompt(ctx context.Context, input EnrichPro
 	if remaining := maxItems - len(items); remaining > 0 {
 		storeItems, err := ka.Store.FilterByTags(input.FilterTags, remaining)
 		if err != nil {
-			slog.WarnContext(ctx, "enrich prompt: failed to load store knowledge", "err", err)
+			logger.Warn("enrich prompt: failed to load store knowledge", "err", err)
 		} else {
 			items = append(items, storeItems...)
 		}
