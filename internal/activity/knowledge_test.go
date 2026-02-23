@@ -1,12 +1,16 @@
 package activity_test
 
 import (
+	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tinkerloft/fleetlift/internal/activity"
+	"github.com/tinkerloft/fleetlift/internal/knowledge"
 	"github.com/tinkerloft/fleetlift/internal/model"
 )
 
@@ -104,4 +108,70 @@ func TestParseKnowledgeItems_NestedTags(t *testing.T) {
 	require.Len(t, items, 2, "both items must be parsed when tags contain nested arrays")
 	assert.Equal(t, model.KnowledgeTypeCorrection, items[0].Type)
 	assert.Equal(t, model.KnowledgeTypeGotcha, items[1].Type)
+}
+
+func TestEnrichPrompt_NoItems(t *testing.T) {
+	dir := t.TempDir()
+	store := knowledge.NewStore(dir)
+	ka := &activity.KnowledgeActivities{Store: store}
+	input := activity.EnrichPromptInput{
+		OriginalPrompt: "Migrate logger",
+		MaxItems:       10,
+	}
+	result, err := ka.EnrichPrompt(context.Background(), input)
+	require.NoError(t, err)
+	assert.Equal(t, "Migrate logger", result, "original prompt returned unchanged when no items")
+}
+
+func TestEnrichPrompt_WithItems(t *testing.T) {
+	dir := t.TempDir()
+	store := knowledge.NewStore(dir)
+	require.NoError(t, store.Write("task-1", model.KnowledgeItem{
+		ID: "k1", Type: model.KnowledgeTypeCorrection,
+		Summary: "Run go mod tidy", Tags: []string{"go"},
+		Source: model.KnowledgeSourceManual, Confidence: 0.9,
+		CreatedAt: time.Now(),
+	}))
+
+	ka := &activity.KnowledgeActivities{Store: store}
+	input := activity.EnrichPromptInput{
+		OriginalPrompt: "Migrate logger",
+		FilterTags:     []string{"go"},
+		MaxItems:       10,
+	}
+	result, err := ka.EnrichPrompt(context.Background(), input)
+	require.NoError(t, err)
+	assert.Contains(t, result, "Migrate logger")
+	assert.Contains(t, result, "Lessons from previous runs")
+	assert.Contains(t, result, "[correction] Run go mod tidy")
+}
+
+func TestEnrichPrompt_Tier2CapacityReducedByTier3(t *testing.T) {
+	// When Tier 3 fills half the budget, Tier 2 should only fill the remainder.
+	dir := t.TempDir()
+	store := knowledge.NewStore(dir)
+
+	// Write 5 items to local store (Tier 2)
+	for i := 0; i < 5; i++ {
+		require.NoError(t, store.Write("t1", model.KnowledgeItem{
+			ID:         fmt.Sprintf("local-%d", i),
+			Type:       model.KnowledgeTypePattern,
+			Summary:    fmt.Sprintf("Local item %d", i),
+			Source:     model.KnowledgeSourceManual,
+			Confidence: float64(i) / 10.0,
+			CreatedAt:  time.Now(),
+		}))
+	}
+
+	ka := &activity.KnowledgeActivities{Store: store}
+	// maxItems=3, no Tier 1 — should return only 3 items from Tier 2
+	input := activity.EnrichPromptInput{
+		OriginalPrompt: "Do something",
+		MaxItems:       3,
+	}
+	result, err := ka.EnrichPrompt(context.Background(), input)
+	require.NoError(t, err)
+	// Count bullet points in output
+	count := strings.Count(result, "- [pattern]")
+	assert.Equal(t, 3, count, "must cap at MaxItems=3 even with 5 available")
 }

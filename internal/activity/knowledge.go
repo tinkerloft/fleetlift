@@ -120,12 +120,14 @@ func (ka *KnowledgeActivities) EnrichPrompt(ctx context.Context, input EnrichPro
 		}
 	}
 
-	// Tier 2: local store (filtered by tags)
-	storeItems, err := ka.Store.FilterByTags(input.FilterTags, maxItems)
-	if err != nil {
-		slog.WarnContext(ctx, "enrich prompt: failed to load store knowledge", "err", err)
-	} else {
-		items = append(items, storeItems...)
+	// Tier 2: local store (filtered by tags), only filling remaining capacity.
+	if remaining := maxItems - len(items); remaining > 0 {
+		storeItems, err := ka.Store.FilterByTags(input.FilterTags, remaining)
+		if err != nil {
+			slog.WarnContext(ctx, "enrich prompt: failed to load store knowledge", "err", err)
+		} else {
+			items = append(items, storeItems...)
+		}
 	}
 
 	// Cap total
