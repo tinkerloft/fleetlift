@@ -576,14 +576,14 @@ func Transform(ctx workflow.Context, task model.Task) (*model.TaskResult, error)
 			}
 
 			// 5b. Capture knowledge from this transformation (non-blocking, runs after approval).
-			if task.KnowledgeCaptureEnabled() && len(steeringState.History) > 0 {
+			// The activity decides whether there is enough signal to warrant an API call.
+			if task.KnowledgeCaptureEnabled() {
 				diffSummary := buildDiffSummary(cachedDiffs)
 				captureInput := activity.CaptureKnowledgeInput{
 					TaskID:          task.ID,
 					OriginalPrompt:  buildPrompt(task),
 					SteeringHistory: steeringState.History,
 					DiffSummary:     diffSummary,
-					VerifiersPassed: true,
 				}
 				for _, repo := range effectiveRepos {
 					captureInput.RepoNames = append(captureInput.RepoNames, repo.Name)
@@ -592,7 +592,8 @@ func Transform(ctx workflow.Context, task model.Task) (*model.TaskResult, error)
 					StartToCloseTimeout: 2 * time.Minute,
 					RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 				})
-				// Fire-and-forget style: ignore result, activity logs warnings internally.
+				// Non-blocking on failure: activity logs warnings internally and returns nil on error.
+				// Blocks on execution time (up to 2 min) to ensure capture completes before workflow ends.
 				_ = workflow.ExecuteActivity(captureCtx, activity.ActivityCaptureKnowledge, captureInput).Get(captureCtx, nil)
 			}
 		}

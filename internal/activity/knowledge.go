@@ -57,6 +57,13 @@ type rawKnowledgeItem struct {
 // errors are logged as warnings and nil, nil is returned so the workflow is not disrupted.
 func (ka *KnowledgeActivities) CaptureKnowledge(ctx context.Context, input CaptureKnowledgeInput) ([]model.KnowledgeItem, error) {
 	logger := activity.GetLogger(ctx)
+
+	// Skip if there is nothing meaningful to capture — saves a Claude API call.
+	if len(input.SteeringHistory) == 0 && input.DiffSummary == "" {
+		logger.Info("knowledge capture: skipping — no steering history and no diff", "task_id", input.TaskID)
+		return nil, nil
+	}
+
 	prompt := BuildCapturePrompt(input)
 
 	client := anthropic.NewClient()
