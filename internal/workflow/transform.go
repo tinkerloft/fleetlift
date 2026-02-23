@@ -340,6 +340,30 @@ func Transform(ctx workflow.Context, task model.Task) (*model.TaskResult, error)
 		if !isForEachMode {
 			prompt := buildPrompt(task)
 
+			// Enrich prompt with knowledge from previous runs (non-blocking).
+			if task.KnowledgeEnrichEnabled() {
+				var transformRepoPath string
+				if task.UsesTransformationRepo() {
+					transformRepoPath = "/workspace"
+				}
+				enrichInput := activity.EnrichPromptInput{
+					OriginalPrompt:         prompt,
+					FilterTags:             task.KnowledgeTags(),
+					MaxItems:               task.KnowledgeMaxItems(),
+					TransformationRepoPath: transformRepoPath,
+				}
+				enrichCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+					StartToCloseTimeout: 30 * time.Second,
+					RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+				})
+				var enrichedPrompt string
+				if err := workflow.ExecuteActivity(enrichCtx, activity.ActivityEnrichPrompt, enrichInput).Get(enrichCtx, &enrichedPrompt); err != nil {
+					logger.Warn("Prompt enrichment failed, using original prompt", "error", err)
+				} else {
+					prompt = enrichedPrompt
+				}
+			}
+
 			claudeOptions := workflow.ActivityOptions{
 				StartToCloseTimeout: time.Duration(timeoutMinutes+5) * time.Minute,
 				HeartbeatTimeout:    5 * time.Minute,
@@ -549,6 +573,27 @@ func Transform(ctx workflow.Context, task model.Task) (*model.TaskResult, error)
 						}
 					}
 				}
+			}
+
+			// 5b. Capture knowledge from this transformation (non-blocking, runs after approval).
+			if task.KnowledgeCaptureEnabled() && len(steeringState.History) > 0 {
+				diffSummary := buildDiffSummary(cachedDiffs)
+				captureInput := activity.CaptureKnowledgeInput{
+					TaskID:          task.ID,
+					OriginalPrompt:  buildPrompt(task),
+					SteeringHistory: steeringState.History,
+					DiffSummary:     diffSummary,
+					VerifiersPassed: true,
+				}
+				for _, repo := range effectiveRepos {
+					captureInput.RepoNames = append(captureInput.RepoNames, repo.Name)
+				}
+				captureCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+					StartToCloseTimeout: 2 * time.Minute,
+					RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+				})
+				// Fire-and-forget style: ignore result, activity logs warnings internally.
+				_ = workflow.ExecuteActivity(captureCtx, activity.ActivityCaptureKnowledge, captureInput).Get(captureCtx, nil)
 			}
 		}
 	}

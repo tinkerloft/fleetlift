@@ -836,7 +836,7 @@ helm install codetransform ./charts/codetransform \
 
 ### 10.1 Knowledge Item Data Model
 
-- [ ] Define `KnowledgeItem` struct:
+- [x] Define `KnowledgeItem` struct:
   ```go
   type KnowledgeItem struct {
       ID          string          `json:"id" yaml:"id"`
@@ -850,13 +850,13 @@ helm install codetransform ./charts/codetransform \
       CreatedAt   time.Time       `json:"created_at" yaml:"created_at"`
   }
   ```
-- [ ] `KnowledgeType` enum: `pattern`, `correction`, `gotcha`, `context`
+- [x] `KnowledgeType` enum: `pattern`, `correction`, `gotcha`, `context`
   - `pattern` — a reusable approach that worked (e.g., "when migrating logger X→Y, also update config files")
   - `correction` — extracted from steering, where the agent went wrong and was corrected
   - `gotcha` — a non-obvious failure mode (e.g., "Python 3.9→3.11 breaks walrus operator in certain comprehensions")
   - `context` — repo-specific knowledge (e.g., "this repo uses a custom build system, run `make` not `go build`")
-- [ ] `KnowledgeSource` enum: `auto_captured`, `steering_extracted`, `manual`
-- [ ] `KnowledgeOrigin` struct: `TaskID`, `SteeringPrompt`, `Iteration`, `Repository`
+- [x] `KnowledgeSource` enum: `auto_captured`, `steering_extracted`, `manual`
+- [x] `KnowledgeOrigin` struct: `TaskID`, `SteeringPrompt`, `Iteration`, `Repository`
 
 ### 10.2 Three-Tier Knowledge Storage
 
@@ -868,17 +868,17 @@ Knowledge lives at three levels with increasing curation:
 - No new storage needed; queryable via existing Temporal APIs
 
 **Tier 2: Local Knowledge Store (automatic, persistent)**
-- [ ] Store auto-captured items at `~/.fleetlift/knowledge/{task-id}/`
-- [ ] YAML files, one per knowledge item
-- [ ] Populated automatically after each approved transformation
-- [ ] Used to enrich future prompts when no transformation repo is set
-- [ ] Indexed by tags for fast lookup
+- [x] Store auto-captured items at `~/.fleetlift/knowledge/{task-id}/`
+- [x] YAML files, one per knowledge item
+- [x] Populated automatically after each approved transformation
+- [x] Used to enrich future prompts when no transformation repo is set
+- [x] Indexed by tags for fast lookup
 
 **Tier 3: Transformation Repository (curated, shared)**
-- [ ] Convention: `.fleetlift/knowledge/` directory in transformation repos
-- [ ] Human-curated subset of Tier 2 items, committed to version control
-- [ ] Team-shareable, auditable, version-controlled
-- [ ] Takes precedence over Tier 2 when a transformation repo is used
+- [x] Convention: `.fleetlift/knowledge/` directory in transformation repos
+- [ ] Human-curated subset of Tier 2 items, committed to version control (requires `knowledge commit` — Phase 10b)
+- [x] Team-shareable, auditable, version-controlled
+- [x] Takes precedence over Tier 2 when a transformation repo is used
 
 Directory layout in transformation repo:
 ```
@@ -897,10 +897,10 @@ transformation-repo/
 
 ### 10.3 Knowledge Capture Activity
 
-- [ ] New activity: `ActivityCaptureKnowledge`
-- [ ] Triggered after approval (new workflow step between approval and PR creation)
-- [ ] Input: original prompt, all steering prompts + iterations, final diff, verifier results
-- [ ] Uses Claude to analyze the execution and extract reusable knowledge items:
+- [x] New activity: `ActivityCaptureKnowledge`
+- [x] Triggered after approval (new workflow step between approval and PR creation)
+- [x] Input: original prompt, all steering prompts + iterations, final diff, verifier results
+- [x] Uses Claude to analyze the execution and extract reusable knowledge items:
   ```
   Prompt: "Analyze this transformation execution. Extract reusable knowledge items
   that would help future runs of similar transformations.
@@ -913,20 +913,20 @@ transformation-repo/
   For each knowledge item, provide: type, summary (1 line), details, tags, confidence (0-1).
   Focus especially on steering corrections — these indicate where the agent went wrong."
   ```
-- [ ] Parse Claude's response into `KnowledgeItem` structs
-- [ ] Write to Tier 2 (local store) automatically
-- [ ] Log to CLI: "2 knowledge items captured. Run `fleetlift knowledge review` to curate."
-- [ ] This activity is non-blocking — failure should not prevent PR creation
+- [x] Parse Claude's response into `KnowledgeItem` structs
+- [x] Write to Tier 2 (local store) automatically
+- [ ] Log to CLI: "2 knowledge items captured. Run `fleetlift knowledge review` to curate." (Phase 10b)
+- [x] This activity is non-blocking — failure should not prevent PR creation
 
 ### 10.4 Prompt Enrichment Activity
 
-- [ ] New activity: `ActivityEnrichPrompt`
-- [ ] Runs before `ActivityRunClaudeCode` in the workflow
-- [ ] Input: original prompt, task tags/metadata, transformation repo path (if any)
-- [ ] Load knowledge items from Tier 3 (transformation repo) first, then Tier 2 (local)
-- [ ] Filter for relevance: match on tags, transformation type, repo characteristics
-- [ ] Cap injected knowledge (configurable, default: 10 items, ~2000 tokens max)
-- [ ] Append to prompt as a structured section:
+- [x] New activity: `ActivityEnrichPrompt`
+- [x] Runs before `ActivityRunClaudeCode` in the workflow
+- [x] Input: original prompt, task tags/metadata, transformation repo path (if any)
+- [x] Load knowledge items from Tier 3 (transformation repo) first, then Tier 2 (local)
+- [x] Filter for relevance: match on tags, transformation type, repo characteristics
+- [x] Cap injected knowledge (configurable, default: 10 items, ~2000 tokens max)
+- [x] Append to prompt as a structured section:
   ```
   {original prompt}
 
@@ -938,28 +938,28 @@ transformation-repo/
   - [gotcha] Repos using go-kit have a different logger interface; check for go-kit/log imports first
   - [pattern] Always run `go mod tidy` after updating logger imports
   ```
-- [ ] Return enriched prompt for use by `ActivityRunClaudeCode`
+- [x] Return enriched prompt for use by `ActivityRunClaudeCode`
 
 ### 10.5 Knowledge CLI Commands
 
-- [ ] `fleetlift knowledge list [--task-id ID] [--type TYPE] [--tag TAG]` — list knowledge items
-- [ ] `fleetlift knowledge show <item-id>` — show full item details
-- [ ] `fleetlift knowledge review [--task-id ID]` — interactive review of auto-captured items (mark as keep/discard/edit)
-- [ ] `fleetlift knowledge commit [--repo PATH]` — copy reviewed items into transformation repo's `.fleetlift/knowledge/`
-- [ ] `fleetlift knowledge add --summary "..." --type correction --tags "go,logging"` — manually add a knowledge item
-- [ ] `fleetlift knowledge delete <item-id>` — remove an item
+- [x] `fleetlift knowledge list [--task-id ID] [--type TYPE] [--tag TAG]` — list knowledge items
+- [x] `fleetlift knowledge show <item-id>` — show full item details
+- [ ] `fleetlift knowledge review [--task-id ID]` — interactive review of auto-captured items (Phase 10b)
+- [ ] `fleetlift knowledge commit [--repo PATH]` — copy reviewed items into transformation repo's `.fleetlift/knowledge/` (Phase 10b)
+- [x] `fleetlift knowledge add --summary "..." --type correction --tags "go,logging"` — manually add a knowledge item
+- [x] `fleetlift knowledge delete <item-id>` — remove an item
 
 ### 10.6 Workflow Integration
 
-- [ ] Update `Transform` workflow to insert knowledge capture after approval
-- [ ] Update `Transform` workflow to insert prompt enrichment before agent execution
-- [ ] Both steps are skippable via task config: `knowledge.capture: false`, `knowledge.enrich: false`
-- [ ] Steering iterations also benefit: knowledge is injected on first run, steering corrections from this run are captured at the end
-- [ ] Grouped execution: knowledge capture runs per-group; all groups contribute to the same knowledge pool
+- [x] Update `Transform` workflow to insert knowledge capture after approval
+- [x] Update `Transform` workflow to insert prompt enrichment before agent execution
+- [x] Both steps are skippable via task config: `knowledge.capture: false`, `knowledge.enrich: false`
+- [x] Steering iterations also benefit: knowledge is injected on first run, steering corrections from this run are captured at the end
+- [ ] Grouped execution: knowledge capture runs per-group; all groups contribute to the same knowledge pool (single-group path done; grouped path not yet wired)
 
 ### 10.7 Task YAML Extensions
 
-- [ ] Add optional `knowledge` section to Task:
+- [x] Add optional `knowledge` section to Task:
   ```yaml
   knowledge:
     capture: true          # Auto-capture after approval (default: true)

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"strings"
 	"time"
 
@@ -52,9 +51,6 @@ type rawKnowledgeItem struct {
 	Tags       []string `json:"tags"`
 	Confidence float64  `json:"confidence"`
 }
-
-// jsonArrayRE matches a JSON array (possibly fenced in markdown code blocks).
-var jsonArrayRE = regexp.MustCompile(`(?s)\[.*?\]`)
 
 // CaptureKnowledge calls Claude to extract reusable knowledge items from a completed
 // transformation and writes them to the local store. It is non-blocking on failure:
@@ -255,10 +251,7 @@ func extractJSONArray(s string) string {
 		return s
 	}
 
-	// Try to find a JSON array anywhere in the text
-	if loc := jsonArrayRE.FindString(s); loc != "" {
-		return loc
-	}
-
+	// No array prefix found after fence-stripping; return as-is.
+	// json.Unmarshal will produce an explicit error rather than silently truncating.
 	return s
 }

@@ -93,3 +93,15 @@ func TestParseKnowledgeItems_ExtractsFromSurroundingText(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, items, 1)
 }
+
+func TestParseKnowledgeItems_NestedTags(t *testing.T) {
+	// Simulates Claude returning JSON with nested tag arrays (most common case).
+	// The old regex [.*?] would stop at the closing bracket of ["go"] and return
+	// invalid JSON, causing ParseKnowledgeItems to silently discard all items.
+	raw := `[{"type":"correction","summary":"Run go mod tidy","details":"Prevents stale entries.","tags":["go","imports"],"confidence":0.95},{"type":"gotcha","summary":"Check wrapper fns","details":"Wrappers miss migration.","tags":["go","logging"],"confidence":0.8}]`
+	items, err := activity.ParseKnowledgeItems(raw, "t1", nil)
+	require.NoError(t, err)
+	require.Len(t, items, 2, "both items must be parsed when tags contain nested arrays")
+	assert.Equal(t, model.KnowledgeTypeCorrection, items[0].Type)
+	assert.Equal(t, model.KnowledgeTypeGotcha, items[1].Type)
+}
