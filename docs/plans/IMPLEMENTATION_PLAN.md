@@ -953,7 +953,7 @@ transformation-repo/
 
 - [x] Update `Transform` workflow to insert knowledge capture after approval
 - [x] Update `Transform` workflow to insert prompt enrichment before agent execution
-- [x] Both steps are skippable via task config: `knowledge.capture: false`, `knowledge.enrich: false`
+- [x] Both steps are skippable via task config: `knowledge.capture_disabled: true`, `knowledge.enrich_disabled: true`
 - [x] Steering iterations also benefit: knowledge is injected on first run, steering corrections from this run are captured at the end
 - [ ] Grouped execution: knowledge capture runs per-group; all groups contribute to the same knowledge pool (single-group path done; grouped path not yet wired)
 
@@ -962,10 +962,10 @@ transformation-repo/
 - [x] Add optional `knowledge` section to Task:
   ```yaml
   knowledge:
-    capture: true          # Auto-capture after approval (default: true)
-    enrich: true           # Enrich prompt with past knowledge (default: true)
-    max_items: 10          # Max knowledge items injected into prompt
-    tags: [go, logging]    # Additional tags for filtering/matching
+    capture_disabled: true   # Set true to disable auto-capture (default: false = capture enabled)
+    enrich_disabled: true    # Set true to disable enrichment (default: false = enrich enabled)
+    max_items: 10            # Max knowledge items injected into prompt (default: 10)
+    tags: [go, logging]      # Additional tags for filtering/matching
   ```
 
 ### 10.8 Knowledge Efficacy Tracking
@@ -1199,8 +1199,8 @@ require_approval: true
 timeout: 30m
 
 knowledge:
-  capture: true
-  enrich: true
+  capture_disabled: false
+  enrich_disabled: false
   tags: [python, aws, boto]
 
 pull_request:

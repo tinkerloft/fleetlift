@@ -621,3 +621,30 @@ execution:
 	assert.Len(t, effectiveRepos, 1)
 	assert.Equal(t, "my-repo", effectiveRepos[0].Name)
 }
+
+func TestKnowledgeConfig_YAMLRoundTrip(t *testing.T) {
+	raw := `
+version: 1
+id: yaml-test
+title: YAML test
+repositories:
+  - url: https://github.com/org/repo.git
+execution:
+  agentic:
+    prompt: "do something"
+knowledge:
+  capture_disabled: true
+  max_items: 5
+  tags: [go, logging]
+`
+	task, err := LoadTask([]byte(raw))
+	require.NoError(t, err)
+	require.NotNil(t, task.Knowledge)
+	assert.True(t, task.Knowledge.CaptureDisabled)
+	assert.False(t, task.Knowledge.EnrichDisabled)
+	assert.Equal(t, 5, task.Knowledge.MaxItems)
+	assert.Equal(t, []string{"go", "logging"}, task.Knowledge.Tags)
+
+	assert.False(t, task.KnowledgeCaptureEnabled(), "capture is disabled in config")
+	assert.True(t, task.KnowledgeEnrichEnabled(), "enrich is not disabled")
+}

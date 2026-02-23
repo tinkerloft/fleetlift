@@ -170,7 +170,7 @@ func BuildCapturePrompt(input CaptureKnowledgeInput) string {
 	if len(input.SteeringHistory) > 0 {
 		sb.WriteString("\n## Steering Corrections\n")
 		for _, s := range input.SteeringHistory {
-			sb.WriteString(fmt.Sprintf("- Iteration %d: %q → %q\n", s.IterationNumber, s.Prompt, s.Output))
+			sb.WriteString(fmt.Sprintf("- Iteration %d: %q → %q\n", s.IterationNumber, s.Prompt, truncate(s.Output, 500)))
 		}
 	}
 
@@ -237,6 +237,14 @@ func ParseKnowledgeItems(rawJSON, taskID string, steeringHistory []model.Steerin
 	}
 
 	return items, nil
+}
+
+// truncate shortens s to at most max bytes, appending "..." if truncated.
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
 }
 
 // extractJSONArray strips markdown code fences and extracts the first JSON array.

@@ -77,8 +77,9 @@ type taskV1 struct {
 	Groups          []groupV1      `yaml:"groups,omitempty"`
 	Failure         *failureV1     `yaml:"failure,omitempty"`
 	PullRequest     *pullRequestV1 `yaml:"pull_request,omitempty"`
-	Sandbox         *sandboxV1     `yaml:"sandbox,omitempty"`
-	Credentials     *credentialsV1 `yaml:"credentials,omitempty"`
+	Sandbox         *sandboxV1         `yaml:"sandbox,omitempty"`
+	Credentials     *credentialsV1     `yaml:"credentials,omitempty"`
+	Knowledge       *model.KnowledgeConfig `yaml:"knowledge,omitempty"`
 }
 
 type groupV1 struct {
@@ -440,6 +441,11 @@ func loadTaskV1(data []byte) (*model.Task, error) {
 				},
 			}
 		}
+	}
+
+	// Copy knowledge config if present
+	if tv1.Knowledge != nil {
+		task.Knowledge = tv1.Knowledge
 	}
 
 	// Convert credentials config

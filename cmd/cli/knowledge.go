@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -80,7 +79,7 @@ func runKnowledgeList(cmd *cobra.Command, _ []string) error {
 	items = filterKnowledgeItems(items, typeFilter, tagFilter)
 
 	if len(items) == 0 {
-		fmt.Fprintln(os.Stderr, "No knowledge items found.")
+		fmt.Println("No knowledge items found.")
 		return nil
 	}
 
