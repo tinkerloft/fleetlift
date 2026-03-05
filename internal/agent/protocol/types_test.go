@@ -99,8 +99,8 @@ func TestAgentStatusJSON(t *testing.T) {
 		Step:    "running_claude_code",
 		Message: "Running Claude Code on svc...",
 		Progress: &StatusProgress{
-			CompletedRepos: 1,
-			TotalRepos:     3,
+			Current: 1,
+			Total:   3,
 		},
 		Iteration: 0,
 		UpdatedAt: now,
@@ -115,8 +115,8 @@ func TestAgentStatusJSON(t *testing.T) {
 	assert.Equal(t, PhaseExecuting, decoded.Phase)
 	assert.Equal(t, "running_claude_code", decoded.Step)
 	assert.NotNil(t, decoded.Progress)
-	assert.Equal(t, 1, decoded.Progress.CompletedRepos)
-	assert.Equal(t, 3, decoded.Progress.TotalRepos)
+	assert.Equal(t, 1, decoded.Progress.Current)
+	assert.Equal(t, 3, decoded.Progress.Total)
 }
 
 func TestAgentResultJSON(t *testing.T) {

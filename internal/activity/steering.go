@@ -10,8 +10,9 @@ import (
 
 	"go.temporal.io/sdk/activity"
 
+	agentboxsandbox "github.com/tinkerloft/agentbox/sandbox"
+
 	"github.com/tinkerloft/fleetlift/internal/model"
-	"github.com/tinkerloft/fleetlift/internal/sandbox"
 )
 
 // Package-level compiled regex patterns for performance.
@@ -22,11 +23,11 @@ var (
 
 // SteeringActivities contains activities for HITL steering operations.
 type SteeringActivities struct {
-	Provider sandbox.Provider
+	Provider agentboxsandbox.Provider
 }
 
 // NewSteeringActivities creates a new SteeringActivities instance.
-func NewSteeringActivities(provider sandbox.Provider) *SteeringActivities {
+func NewSteeringActivities(provider agentboxsandbox.Provider) *SteeringActivities {
 	return &SteeringActivities{Provider: provider}
 }
 

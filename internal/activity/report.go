@@ -15,8 +15,9 @@ import (
 	"go.temporal.io/sdk/activity"
 	"gopkg.in/yaml.v3"
 
+	agentboxsandbox "github.com/tinkerloft/agentbox/sandbox"
+
 	"github.com/tinkerloft/fleetlift/internal/model"
-	"github.com/tinkerloft/fleetlift/internal/sandbox"
 )
 
 // targetNamePattern validates target names to prevent path traversal.
@@ -24,11 +25,11 @@ var targetNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
 // ReportActivities contains activities for report mode operations.
 type ReportActivities struct {
-	Provider sandbox.Provider
+	Provider agentboxsandbox.Provider
 }
 
 // NewReportActivities creates a new ReportActivities instance.
-func NewReportActivities(provider sandbox.Provider) *ReportActivities {
+func NewReportActivities(provider agentboxsandbox.Provider) *ReportActivities {
 	return &ReportActivities{Provider: provider}
 }
 

@@ -9,8 +9,9 @@ import (
 
 	"go.temporal.io/sdk/activity"
 
+	agentboxsandbox "github.com/tinkerloft/agentbox/sandbox"
+
 	"github.com/tinkerloft/fleetlift/internal/model"
-	"github.com/tinkerloft/fleetlift/internal/sandbox"
 )
 
 // isValidEnvKey validates environment variable key format.
@@ -39,11 +40,11 @@ func isValidEnvKey(key string) bool {
 
 // DeterministicActivities contains activities for running deterministic transformations.
 type DeterministicActivities struct {
-	Provider sandbox.Provider
+	Provider agentboxsandbox.Provider
 }
 
 // NewDeterministicActivities creates a new DeterministicActivities instance.
-func NewDeterministicActivities(provider sandbox.Provider) *DeterministicActivities {
+func NewDeterministicActivities(provider agentboxsandbox.Provider) *DeterministicActivities {
 	return &DeterministicActivities{Provider: provider}
 }
 

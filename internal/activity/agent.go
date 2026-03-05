@@ -9,17 +9,18 @@ import (
 
 	"go.temporal.io/sdk/activity"
 
+	agentboxsandbox "github.com/tinkerloft/agentbox/sandbox"
+
 	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
-	"github.com/tinkerloft/fleetlift/internal/sandbox"
 )
 
 // AgentActivities contains activities for the sidecar agent workflow pattern.
 type AgentActivities struct {
-	provider sandbox.AgentProvider
+	provider agentboxsandbox.AgentProvider
 }
 
 // NewAgentActivities creates a new AgentActivities.
-func NewAgentActivities(provider sandbox.AgentProvider) *AgentActivities {
+func NewAgentActivities(provider agentboxsandbox.AgentProvider) *AgentActivities {
 	return &AgentActivities{provider: provider}
 }
 
@@ -61,20 +62,25 @@ func (a *AgentActivities) WaitForAgentPhase(ctx context.Context, input WaitForAg
 	for {
 		activity.RecordHeartbeat(ctx, fmt.Sprintf("polling agent status for phases: %s", strings.Join(input.TargetPhases, "|")))
 
-		status, err := a.provider.PollStatus(ctx, input.SandboxID)
+		statusBytes, err := a.provider.PollStatus(ctx, input.SandboxID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to poll status: %w", err)
 		}
 
+		var status protocol.AgentStatus
+		if err := json.Unmarshal(statusBytes, &status); err != nil {
+			return nil, fmt.Errorf("failed to parse agent status: %w", err)
+		}
+
 		if targetSet[status.Phase] {
-			return status, nil
+			return &status, nil
 		}
 
 		// Staleness detection: if agent hasn't updated in a while, it may have crashed
 		// Double-check by verifying container status to avoid false positives from clock skew
 		if !status.UpdatedAt.IsZero() && time.Since(status.UpdatedAt) > AgentStaleThreshold {
 			containerStatus, err := a.provider.Status(ctx, input.SandboxID)
-			if err == nil && containerStatus.Phase != sandbox.SandboxPhaseRunning {
+			if err == nil && containerStatus.Phase != agentboxsandbox.SandboxPhaseRunning {
 				return nil, fmt.Errorf("agent stale: last update %s, phase %s, container %s",
 					status.UpdatedAt.Format(time.RFC3339), status.Phase, containerStatus.Phase)
 			}

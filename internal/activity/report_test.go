@@ -10,26 +10,26 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
-	"github.com/tinkerloft/fleetlift/internal/model"
-	"github.com/tinkerloft/fleetlift/internal/sandbox"
+	agentboxsandbox "github.com/tinkerloft/agentbox/sandbox"
 	"go.temporal.io/sdk/testsuite"
+
+	"github.com/tinkerloft/fleetlift/internal/model"
 )
 
-// mockProvider implements sandbox.Provider for testing.
+// mockProvider implements agentboxsandbox.Provider for testing.
 type mockProvider struct {
 	copyFromFunc func(ctx context.Context, id, path string) (io.ReadCloser, error)
 }
 
-func (m *mockProvider) Provision(_ context.Context, _ sandbox.ProvisionOptions) (*sandbox.Sandbox, error) {
+func (m *mockProvider) Provision(_ context.Context, _ agentboxsandbox.ProvisionOptions) (*agentboxsandbox.Sandbox, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m *mockProvider) Exec(_ context.Context, _ string, _ sandbox.ExecCommand) (*sandbox.ExecResult, error) {
+func (m *mockProvider) Exec(_ context.Context, _ string, _ agentboxsandbox.ExecCommand) (*agentboxsandbox.ExecResult, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (m *mockProvider) ExecShell(_ context.Context, _, _, _ string) (*sandbox.ExecResult, error) {
+func (m *mockProvider) ExecShell(_ context.Context, _, _, _ string) (*agentboxsandbox.ExecResult, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -44,7 +44,7 @@ func (m *mockProvider) CopyFrom(ctx context.Context, id, srcPath string) (io.Rea
 	return nil, errors.New("not implemented")
 }
 
-func (m *mockProvider) Status(_ context.Context, _ string) (*sandbox.SandboxStatus, error) {
+func (m *mockProvider) Status(_ context.Context, _ string) (*agentboxsandbox.SandboxStatus, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -60,7 +60,7 @@ func (m *mockProvider) SubmitManifest(_ context.Context, _ string, _ []byte) err
 	return errors.New("not implemented")
 }
 
-func (m *mockProvider) PollStatus(_ context.Context, _ string) (*protocol.AgentStatus, error) {
+func (m *mockProvider) PollStatus(_ context.Context, _ string) ([]byte, error) {
 	return nil, errors.New("not implemented")
 }
 

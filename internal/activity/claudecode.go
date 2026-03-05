@@ -9,8 +9,9 @@ import (
 
 	"go.temporal.io/sdk/activity"
 
+	agentboxsandbox "github.com/tinkerloft/agentbox/sandbox"
+
 	"github.com/tinkerloft/fleetlift/internal/model"
-	"github.com/tinkerloft/fleetlift/internal/sandbox"
 )
 
 const (
@@ -20,11 +21,11 @@ const (
 
 // ClaudeCodeActivities contains activities for executing Claude Code.
 type ClaudeCodeActivities struct {
-	Provider sandbox.Provider
+	Provider agentboxsandbox.Provider
 }
 
 // NewClaudeCodeActivities creates a new ClaudeCodeActivities instance.
-func NewClaudeCodeActivities(provider sandbox.Provider) *ClaudeCodeActivities {
+func NewClaudeCodeActivities(provider agentboxsandbox.Provider) *ClaudeCodeActivities {
 	return &ClaudeCodeActivities{Provider: provider}
 }
 

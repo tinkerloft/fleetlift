@@ -12,8 +12,10 @@ import (
 
 	"go.temporal.io/sdk/activity"
 
+	agentboxsandbox "github.com/tinkerloft/agentbox/sandbox"
+
+	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
 	"github.com/tinkerloft/fleetlift/internal/model"
-	"github.com/tinkerloft/fleetlift/internal/sandbox"
 )
 
 // gitRefPattern validates git ref names (branches, tags, repo names)
@@ -59,11 +61,11 @@ func shortContainerID(id string) string {
 
 // SandboxActivities contains activities for managing sandbox containers.
 type SandboxActivities struct {
-	Provider sandbox.Provider
+	Provider agentboxsandbox.Provider
 }
 
 // NewSandboxActivities creates a new SandboxActivities instance.
-func NewSandboxActivities(provider sandbox.Provider) *SandboxActivities {
+func NewSandboxActivities(provider agentboxsandbox.Provider) *SandboxActivities {
 	return &SandboxActivities{Provider: provider}
 }
 
@@ -173,17 +175,18 @@ func (a *SandboxActivities) ProvisionAgentSandbox(ctx context.Context, input Pro
 		logger.Warn("Failed to parse CPU limit, using default", "value", cpuLimit, "error", err)
 	}
 
-	opts := sandbox.ProvisionOptions{
-		TaskID:       input.TaskID,
-		Image:        sandboxImage,
-		WorkingDir:   WorkspacePath,
-		UseAgentMode: true,
+	opts := agentboxsandbox.ProvisionOptions{
+		TaskID:     input.TaskID,
+		Image:      sandboxImage,
+		Cmd:        []string{"/agent-bin/agent", "serve"},
+		BasePath:   protocol.BasePath,
+		WorkingDir: WorkspacePath,
 		Env: map[string]string{
 			"ANTHROPIC_API_KEY": os.Getenv("ANTHROPIC_API_KEY"),
 			"GITHUB_TOKEN":      os.Getenv("GITHUB_TOKEN"),
 			"TASK_ID":           input.TaskID,
 		},
-		Resources: sandbox.ResourceLimits{
+		Resources: agentboxsandbox.ResourceLimits{
 			MemoryBytes: memLimitBytes,
 			CPUQuota:    cpuQuota,
 		},
@@ -222,7 +225,7 @@ func (a *SandboxActivities) ProvisionSandbox(ctx context.Context, taskID string)
 		logger.Warn("Failed to parse CPU limit, using default", "value", cpuLimit, "error", err)
 	}
 
-	opts := sandbox.ProvisionOptions{
+	opts := agentboxsandbox.ProvisionOptions{
 		TaskID:     taskID,
 		Image:      sandboxImage,
 		WorkingDir: WorkspacePath,
@@ -231,7 +234,7 @@ func (a *SandboxActivities) ProvisionSandbox(ctx context.Context, taskID string)
 			"GITHUB_TOKEN":      os.Getenv("GITHUB_TOKEN"),
 			"TASK_ID":           taskID,
 		},
-		Resources: sandbox.ResourceLimits{
+		Resources: agentboxsandbox.ResourceLimits{
 			MemoryBytes: memLimitBytes,
 			CPUQuota:    cpuQuota,
 		},

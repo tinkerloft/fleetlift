@@ -16,13 +16,14 @@ import (
 	sdkinterceptor "go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/worker"
 
+	agentboxsandbox "github.com/tinkerloft/agentbox/sandbox"
+	_ "github.com/tinkerloft/agentbox/sandbox/docker" // register docker provider
+	_ "github.com/tinkerloft/agentbox/sandbox/k8s"    // register k8s provider
+
 	"github.com/tinkerloft/fleetlift/internal/activity"
 	internalclient "github.com/tinkerloft/fleetlift/internal/client"
 	"github.com/tinkerloft/fleetlift/internal/logging"
 	"github.com/tinkerloft/fleetlift/internal/metrics"
-	"github.com/tinkerloft/fleetlift/internal/sandbox"
-	_ "github.com/tinkerloft/fleetlift/internal/sandbox/docker" // register docker provider
-	_ "github.com/tinkerloft/fleetlift/internal/sandbox/k8s"    // register k8s provider
 	"github.com/tinkerloft/fleetlift/internal/workflow"
 )
 
@@ -93,12 +94,12 @@ func main() {
 
 	// Create sandbox provider
 	providerName := os.Getenv("SANDBOX_PROVIDER")
-	cfg := sandbox.ProviderConfig{
+	cfg := agentboxsandbox.ProviderConfig{
 		Namespace:      getEnvOrDefault("SANDBOX_NAMESPACE", "sandbox-isolated"),
 		AgentImage:     getEnvOrDefault("AGENT_IMAGE", "fleetlift-agent:latest"),
 		KubeconfigPath: os.Getenv("KUBECONFIG"),
 	}
-	provider, err := sandbox.NewProvider(providerName, cfg)
+	provider, err := agentboxsandbox.NewProvider(providerName, cfg)
 	if err != nil {
 		log.Fatalf("Failed to create sandbox provider: %v", err)
 	}

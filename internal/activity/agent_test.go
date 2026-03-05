@@ -13,26 +13,27 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/testsuite"
 
+	agentboxsandbox "github.com/tinkerloft/agentbox/sandbox"
+
 	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
-	"github.com/tinkerloft/fleetlift/internal/sandbox"
 )
 
-// agentMockProvider implements sandbox.AgentProvider for agent activity tests.
+// agentMockProvider implements agentboxsandbox.AgentProvider for agent activity tests.
 type agentMockProvider struct {
 	submitManifestFunc func(ctx context.Context, id string, manifest []byte) error
-	pollStatusFunc     func(ctx context.Context, id string) (*protocol.AgentStatus, error)
+	pollStatusFunc     func(ctx context.Context, id string) ([]byte, error)
 	readResultFunc     func(ctx context.Context, id string) ([]byte, error)
 	submitSteeringFunc func(ctx context.Context, id string, instruction []byte) error
-	statusFunc         func(ctx context.Context, id string) (*sandbox.SandboxStatus, error)
+	statusFunc         func(ctx context.Context, id string) (*agentboxsandbox.SandboxStatus, error)
 }
 
-func (m *agentMockProvider) Provision(_ context.Context, _ sandbox.ProvisionOptions) (*sandbox.Sandbox, error) {
+func (m *agentMockProvider) Provision(_ context.Context, _ agentboxsandbox.ProvisionOptions) (*agentboxsandbox.Sandbox, error) {
 	return nil, errors.New("not implemented")
 }
-func (m *agentMockProvider) Exec(_ context.Context, _ string, _ sandbox.ExecCommand) (*sandbox.ExecResult, error) {
+func (m *agentMockProvider) Exec(_ context.Context, _ string, _ agentboxsandbox.ExecCommand) (*agentboxsandbox.ExecResult, error) {
 	return nil, errors.New("not implemented")
 }
-func (m *agentMockProvider) ExecShell(_ context.Context, _, _, _ string) (*sandbox.ExecResult, error) {
+func (m *agentMockProvider) ExecShell(_ context.Context, _, _, _ string) (*agentboxsandbox.ExecResult, error) {
 	return nil, errors.New("not implemented")
 }
 func (m *agentMockProvider) CopyTo(_ context.Context, _ string, _ io.Reader, _ string) error {
@@ -41,7 +42,7 @@ func (m *agentMockProvider) CopyTo(_ context.Context, _ string, _ io.Reader, _ s
 func (m *agentMockProvider) CopyFrom(_ context.Context, _, _ string) (io.ReadCloser, error) {
 	return nil, errors.New("not implemented")
 }
-func (m *agentMockProvider) Status(ctx context.Context, id string) (*sandbox.SandboxStatus, error) {
+func (m *agentMockProvider) Status(ctx context.Context, id string) (*agentboxsandbox.SandboxStatus, error) {
 	if m.statusFunc != nil {
 		return m.statusFunc(ctx, id)
 	}
@@ -59,11 +60,12 @@ func (m *agentMockProvider) SubmitManifest(ctx context.Context, id string, manif
 	return nil
 }
 
-func (m *agentMockProvider) PollStatus(ctx context.Context, id string) (*protocol.AgentStatus, error) {
+func (m *agentMockProvider) PollStatus(ctx context.Context, id string) ([]byte, error) {
 	if m.pollStatusFunc != nil {
 		return m.pollStatusFunc(ctx, id)
 	}
-	return &protocol.AgentStatus{Phase: protocol.PhaseComplete}, nil
+	statusBytes, _ := json.Marshal(protocol.AgentStatus{Phase: protocol.PhaseComplete})
+	return statusBytes, nil
 }
 
 func (m *agentMockProvider) ReadResult(ctx context.Context, id string) ([]byte, error) {
@@ -141,12 +143,13 @@ func TestSubmitTaskManifest_Error(t *testing.T) {
 
 func TestWaitForAgentPhase_ImmediateMatch(t *testing.T) {
 	provider := &agentMockProvider{
-		pollStatusFunc: func(_ context.Context, _ string) (*protocol.AgentStatus, error) {
-			return &protocol.AgentStatus{
+		pollStatusFunc: func(_ context.Context, _ string) ([]byte, error) {
+			b, _ := json.Marshal(protocol.AgentStatus{
 				Phase:     protocol.PhaseComplete,
 				Message:   "done",
 				UpdatedAt: time.Now().UTC(),
-			}, nil
+			})
+			return b, nil
 		},
 	}
 
@@ -173,12 +176,16 @@ func TestWaitForAgentPhase_PollingUntilReady(t *testing.T) {
 	var callCount atomic.Int32
 
 	provider := &agentMockProvider{
-		pollStatusFunc: func(_ context.Context, _ string) (*protocol.AgentStatus, error) {
+		pollStatusFunc: func(_ context.Context, _ string) ([]byte, error) {
 			count := callCount.Add(1)
+			var phase protocol.Phase
 			if count < 3 {
-				return &protocol.AgentStatus{Phase: protocol.PhaseExecuting}, nil
+				phase = protocol.PhaseExecuting
+			} else {
+				phase = protocol.PhaseAwaitingInput
 			}
-			return &protocol.AgentStatus{Phase: protocol.PhaseAwaitingInput}, nil
+			b, _ := json.Marshal(protocol.AgentStatus{Phase: phase})
+			return b, nil
 		},
 	}
 
@@ -204,8 +211,9 @@ func TestWaitForAgentPhase_PollingUntilReady(t *testing.T) {
 
 func TestWaitForAgentPhase_FailedIsAlwaysTerminal(t *testing.T) {
 	provider := &agentMockProvider{
-		pollStatusFunc: func(_ context.Context, _ string) (*protocol.AgentStatus, error) {
-			return &protocol.AgentStatus{Phase: protocol.PhaseFailed, Message: "crash"}, nil
+		pollStatusFunc: func(_ context.Context, _ string) ([]byte, error) {
+			b, _ := json.Marshal(protocol.AgentStatus{Phase: protocol.PhaseFailed, Message: "crash"})
+			return b, nil
 		},
 	}
 
@@ -233,15 +241,16 @@ func TestWaitForAgentPhase_StaleAgent(t *testing.T) {
 	staleTime := time.Now().UTC().Add(-10 * time.Minute) // 10 min ago — well past threshold
 
 	provider := &agentMockProvider{
-		pollStatusFunc: func(_ context.Context, _ string) (*protocol.AgentStatus, error) {
-			return &protocol.AgentStatus{
+		pollStatusFunc: func(_ context.Context, _ string) ([]byte, error) {
+			b, _ := json.Marshal(protocol.AgentStatus{
 				Phase:     protocol.PhaseExecuting,
 				UpdatedAt: staleTime,
-			}, nil
+			})
+			return b, nil
 		},
-		statusFunc: func(_ context.Context, _ string) (*sandbox.SandboxStatus, error) {
-			return &sandbox.SandboxStatus{
-				Phase:   sandbox.SandboxPhaseFailed,
+		statusFunc: func(_ context.Context, _ string) (*agentboxsandbox.SandboxStatus, error) {
+			return &agentboxsandbox.SandboxStatus{
+				Phase:   agentboxsandbox.SandboxPhaseFailed,
 				Message: "container exited",
 			}, nil
 		},

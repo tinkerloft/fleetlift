@@ -8,9 +8,10 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
+
+	agentpkg "github.com/tinkerloft/agentbox/agent"
 
 	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
 )
@@ -21,11 +22,18 @@ type Pipeline struct {
 	fs       FileSystem
 	exec     CommandExecutor
 	logger   *slog.Logger
+	proto    *agentpkg.Protocol
 }
 
 // NewPipeline creates a new agent pipeline with explicit dependencies.
 func NewPipeline(basePath string, fs FileSystem, exec CommandExecutor, logger *slog.Logger) *Pipeline {
-	return &Pipeline{basePath: basePath, fs: fs, exec: exec, logger: logger}
+	return &Pipeline{
+		basePath: basePath,
+		fs:       fs,
+		exec:     exec,
+		logger:   logger,
+		proto:    agentpkg.New(basePath, fs),
+	}
 }
 
 // NewDefaultPipeline creates a pipeline with real OS implementations.
@@ -298,96 +306,45 @@ func (p *Pipeline) steeringLoop(ctx context.Context, manifest *protocol.TaskMani
 	}
 }
 
-// waitForManifest polls for the manifest file.
+// waitForManifest polls for the manifest file by delegating to agentbox Protocol.
 func (p *Pipeline) waitForManifest(ctx context.Context) (*protocol.TaskManifest, error) {
-	manifestPath := filepath.Join(p.basePath, "manifest.json")
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
-
-		data, err := p.fs.ReadFile(manifestPath)
-		if err == nil {
-			var manifest protocol.TaskManifest
-			if err := json.Unmarshal(data, &manifest); err != nil {
-				return nil, fmt.Errorf("invalid manifest: %w", err)
-			}
-			return &manifest, nil
-		}
-
-		time.Sleep(ManifestPollInterval)
-	}
-}
-
-// waitForSteering polls for the steering file using atomic rename to prevent TOCTOU races.
-func (p *Pipeline) waitForSteering(ctx context.Context) (*protocol.SteeringInstruction, error) {
-	steeringPath := filepath.Join(p.basePath, "steering.json")
-	processingPath := steeringPath + ".processing"
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
-
-		// Atomic claim via rename (H4 fix)
-		if err := p.fs.Rename(steeringPath, processingPath); err != nil {
-			// File doesn't exist yet — keep polling
-			time.Sleep(SteeringPollInterval)
-			continue
-		}
-
-		data, err := p.fs.ReadFile(processingPath)
-		_ = p.fs.Remove(processingPath)
-		if err != nil {
-			p.logger.Warn("Failed to read steering file after rename", "error", err)
-			continue
-		}
-
-		var instruction protocol.SteeringInstruction
-		if err := json.Unmarshal(data, &instruction); err != nil {
-			p.logger.Warn("Invalid steering.json, ignoring", "error", err)
-			continue
-		}
-		return &instruction, nil
-	}
-}
-
-// writeStatus writes the status file atomically to prevent partial reads.
-func (p *Pipeline) writeStatus(status protocol.AgentStatus) {
-	data, err := json.Marshal(status)
+	data, err := p.proto.WaitForManifest(ctx)
 	if err != nil {
-		p.logger.Error("Failed to marshal status", "error", err)
-		return
+		return nil, err
 	}
-	// Atomic write via rename to prevent partial reads
-	tmpPath := filepath.Join(p.basePath, "status.json.tmp")
-	if err := p.fs.WriteFile(tmpPath, data, 0644); err != nil {
-		p.logger.Warn("Failed to write status tmp", "error", err)
-		return
+	var manifest protocol.TaskManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return nil, fmt.Errorf("invalid manifest: %w", err)
 	}
-	if err := p.fs.Rename(tmpPath, filepath.Join(p.basePath, "status.json")); err != nil {
-		p.logger.Warn("Failed to rename status", "error", err)
+	return &manifest, nil
+}
+
+// waitForSteering polls for the steering file by delegating to agentbox Protocol.
+// The agentbox Protocol handles atomic rename to prevent TOCTOU races.
+func (p *Pipeline) waitForSteering(ctx context.Context) (*protocol.SteeringInstruction, error) {
+	si, err := p.proto.WaitForSteering(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &protocol.SteeringInstruction{
+		Action:    si.Action,
+		Prompt:    si.Prompt,
+		Iteration: si.Iteration,
+	}, nil
+}
+
+// writeStatus writes the status file atomically by delegating to agentbox Protocol.
+func (p *Pipeline) writeStatus(status protocol.AgentStatus) {
+	if err := p.proto.WriteStatus(status); err != nil {
+		p.logger.Warn("Failed to write status", "error", err)
 	}
 }
 
-// writeResult writes the result file atomically. Returns error because result is critical.
+// writeResult writes the result file atomically by delegating to agentbox Protocol.
 func (p *Pipeline) writeResult(result *protocol.AgentResult) error {
 	data, err := json.Marshal(result)
 	if err != nil {
 		return fmt.Errorf("marshal result: %w", err)
 	}
-	// Atomic write via rename to prevent partial reads
-	tmpPath := filepath.Join(p.basePath, "result.json.tmp")
-	if err := p.fs.WriteFile(tmpPath, data, 0644); err != nil {
-		return fmt.Errorf("write result tmp: %w", err)
-	}
-	if err := p.fs.Rename(tmpPath, filepath.Join(p.basePath, "result.json")); err != nil {
-		return fmt.Errorf("rename result: %w", err)
-	}
-	return nil
+	return p.proto.WriteResult(data)
 }
