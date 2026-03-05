@@ -4,22 +4,22 @@ import (
 	"context"
 	"strings"
 
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 )
 
 // runVerifiers executes all verifiers defined in the manifest.
 // Returns a map of repo name → []VerifierResult.
-func (p *Pipeline) runVerifiers(ctx context.Context, manifest *protocol.TaskManifest) map[string][]protocol.VerifierResult {
+func (p *Pipeline) runVerifiers(ctx context.Context, manifest *fleetproto.TaskManifest) map[string][]fleetproto.VerifierResult {
 	if len(manifest.Verifiers) == 0 {
 		return nil
 	}
 
-	results := make(map[string][]protocol.VerifierResult)
+	results := make(map[string][]fleetproto.VerifierResult)
 	repos := manifest.EffectiveRepos()
 
 	for _, repo := range repos {
 		repoPath := manifest.RepoPath(repo.Name)
-		var repoResults []protocol.VerifierResult
+		var repoResults []fleetproto.VerifierResult
 
 		for _, verifier := range manifest.Verifiers {
 			p.logger.Info("Running verifier", "verifier", verifier.Name, "repo", repo.Name)
@@ -38,9 +38,9 @@ func (p *Pipeline) runVerifiers(ctx context.Context, manifest *protocol.TaskMani
 	return results
 }
 
-func (p *Pipeline) runVerifier(ctx context.Context, verifier protocol.ManifestVerifier, workDir string) protocol.VerifierResult {
+func (p *Pipeline) runVerifier(ctx context.Context, verifier fleetproto.ManifestVerifier, workDir string) fleetproto.VerifierResult {
 	if len(verifier.Command) == 0 {
-		return protocol.VerifierResult{
+		return fleetproto.VerifierResult{
 			Name:     verifier.Name,
 			Success:  false,
 			ExitCode: -1,
@@ -69,7 +69,7 @@ func (p *Pipeline) runVerifier(ctx context.Context, verifier protocol.ManifestVe
 		outputStr = outputStr[:MaxOutputTruncation] + "\n... [truncated]"
 	}
 
-	return protocol.VerifierResult{
+	return fleetproto.VerifierResult{
 		Name:     verifier.Name,
 		Success:  exitCode == 0,
 		ExitCode: exitCode,

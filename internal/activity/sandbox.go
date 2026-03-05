@@ -4,49 +4,18 @@ package activity
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 
 	"go.temporal.io/sdk/activity"
 
 	agentboxsandbox "github.com/tinkerloft/agentbox/sandbox"
+	agentboxtemporalkit "github.com/tinkerloft/agentbox/temporalkit"
 
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 	"github.com/tinkerloft/fleetlift/internal/model"
 )
-
-// gitRefPattern validates git ref names (branches, tags, repo names)
-// SEC-004: Prevents command injection via malicious ref names
-var gitRefPattern = regexp.MustCompile(`^[a-zA-Z0-9._/-]+$`)
-
-// validateGitRef validates that a string is safe for use as a git ref
-func validateGitRef(ref, fieldName string) error {
-	if ref == "" {
-		return fmt.Errorf("%s cannot be empty", fieldName)
-	}
-	if !gitRefPattern.MatchString(ref) {
-		return fmt.Errorf("invalid %s: %q contains invalid characters", fieldName, ref)
-	}
-	return nil
-}
-
-// validateGitURL validates that a URL is a safe git URL (SEC-005)
-func validateGitURL(rawURL string) error {
-	if rawURL == "" {
-		return fmt.Errorf("URL cannot be empty")
-	}
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("invalid URL: %w", err)
-	}
-	if u.Scheme != "https" && u.Scheme != "http" && u.Scheme != "git" && u.Scheme != "ssh" {
-		return fmt.Errorf("unsupported URL scheme: %s", u.Scheme)
-	}
-	return nil
-}
 
 // shortContainerID safely truncates container ID for logging
 func shortContainerID(id string) string {
@@ -61,12 +30,16 @@ func shortContainerID(id string) string {
 
 // SandboxActivities contains activities for managing sandbox containers.
 type SandboxActivities struct {
-	Provider agentboxsandbox.Provider
+	Provider agentboxsandbox.AgentProvider
+	base     *agentboxtemporalkit.SandboxActivities
 }
 
 // NewSandboxActivities creates a new SandboxActivities instance.
-func NewSandboxActivities(provider agentboxsandbox.Provider) *SandboxActivities {
-	return &SandboxActivities{Provider: provider}
+func NewSandboxActivities(provider agentboxsandbox.AgentProvider) *SandboxActivities {
+	return &SandboxActivities{
+		Provider: provider,
+		base:     &agentboxtemporalkit.SandboxActivities{Provider: provider},
+	}
 }
 
 // getEnvOrDefault returns the environment variable value or a default.
@@ -179,7 +152,7 @@ func (a *SandboxActivities) ProvisionAgentSandbox(ctx context.Context, input Pro
 		TaskID:     input.TaskID,
 		Image:      sandboxImage,
 		Cmd:        []string{"/agent-bin/agent", "serve"},
-		BasePath:   protocol.BasePath,
+		BasePath:   fleetproto.DefaultBasePath,
 		WorkingDir: WorkspacePath,
 		Env: map[string]string{
 			"ANTHROPIC_API_KEY": os.Getenv("ANTHROPIC_API_KEY"),
@@ -192,7 +165,7 @@ func (a *SandboxActivities) ProvisionAgentSandbox(ctx context.Context, input Pro
 		},
 	}
 
-	sb, err := a.Provider.Provision(ctx, opts)
+	sb, err := a.base.Provision(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to provision sandbox: %w", err)
 	}
@@ -240,7 +213,7 @@ func (a *SandboxActivities) ProvisionSandbox(ctx context.Context, taskID string)
 		},
 	}
 
-	sb, err := a.Provider.Provision(ctx, opts)
+	sb, err := a.base.Provision(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to provision sandbox: %w", err)
 	}
@@ -251,257 +224,6 @@ func (a *SandboxActivities) ProvisionSandbox(ctx context.Context, taskID string)
 		ContainerID:   sb.ID,
 		WorkspacePath: WorkspacePath,
 	}, nil
-}
-
-// configureGitCredentials sets up git credential helper to avoid token in command line (SEC-002 fix)
-func (a *SandboxActivities) configureGitCredentials(ctx context.Context, containerID, token string) error {
-	if token == "" {
-		return nil
-	}
-
-	// Configure git to use credential helper with stored credentials
-	// This avoids exposing the token in shell commands, process lists, and logs
-	// Use umask 077 to ensure the credentials file is never world-readable (SEC-002 enhancement)
-	cmd := fmt.Sprintf(`git config --global credential.helper store && (
-umask 077 && cat > ~/.git-credentials << 'CRED_EOF'
-https://x-access-token:%s@github.com
-CRED_EOF
-)`, token)
-
-	result, err := a.Provider.ExecShell(ctx, containerID, cmd, AgentUser)
-	if err != nil {
-		return fmt.Errorf("failed to configure git credentials: %w", err)
-	}
-	if result.ExitCode != 0 {
-		return fmt.Errorf("failed to configure git credentials: %s", result.Stderr)
-	}
-	return nil
-}
-
-// CloneRepositoriesInput defines the input for CloneRepositories activity.
-type CloneRepositoriesInput struct {
-	SandboxInfo model.SandboxInfo
-
-	// Transformation repo - when set, cloned to /workspace/ root
-	// Targets are then cloned to /workspace/targets/
-	Transformation *model.Repository
-
-	// Target repos - cloned to /workspace/targets/{name} when Transformation is set
-	Targets []model.Repository
-
-	// Legacy repos - cloned to /workspace/{name} when Transformation is not set
-	Repositories []model.Repository
-
-	// AGENTS.md content to write to workspace root
-	AgentsMD string
-}
-
-// CloneRepositories clones repositories into the sandbox and runs setup commands.
-// Supports two modes:
-// 1. Transformation mode: Clone transformation repo to /workspace, targets to /workspace/targets/
-// 2. Legacy mode: Clone repos directly to /workspace/{name}
-func (a *SandboxActivities) CloneRepositories(ctx context.Context, input CloneRepositoriesInput) ([]string, error) {
-	logger := activity.GetLogger(ctx)
-
-	// SEC-002: Configure git credentials once at start (token not exposed in clone commands)
-	githubToken := os.Getenv("GITHUB_TOKEN")
-	if err := a.configureGitCredentials(ctx, input.SandboxInfo.ContainerID, githubToken); err != nil {
-		return nil, fmt.Errorf("failed to configure git credentials: %w", err)
-	}
-
-	// BUG-004: Configurable clone depth (default 50 for reasonable history)
-	cloneDepth := getEnvOrDefault("SANDBOX_GIT_CLONE_DEPTH", DefaultCloneDepth)
-
-	var clonedPaths []string
-
-	if input.Transformation != nil {
-		// Transformation mode: clone transformation repo to /workspace, targets to /workspace/targets/
-		paths, err := a.cloneTransformationMode(ctx, input, cloneDepth)
-		if err != nil {
-			return nil, err
-		}
-		clonedPaths = paths
-	} else {
-		// Legacy mode: clone repos to /workspace/{name}
-		logger.Info("Cloning repositories (legacy mode)", "count", len(input.Repositories))
-		paths, err := a.cloneRepos(ctx, input.SandboxInfo.ContainerID, input.Repositories, "/workspace", cloneDepth)
-		if err != nil {
-			return nil, err
-		}
-		clonedPaths = paths
-	}
-
-	// Create AGENTS.md in workspace root
-	logger.Info("Creating AGENTS.md")
-
-	// Use heredoc to write file content
-	writeCmd := fmt.Sprintf("cat > /workspace/AGENTS.md << 'AGENTS_EOF'\n%s\nAGENTS_EOF", input.AgentsMD)
-	result, err := a.Provider.ExecShell(ctx, input.SandboxInfo.ContainerID, writeCmd, AgentUser)
-	if err != nil {
-		logger.Warn("Failed to create AGENTS.md", "error", err)
-	} else if result.ExitCode != 0 {
-		logger.Warn("Failed to create AGENTS.md", "stderr", result.Stderr)
-	}
-
-	return clonedPaths, nil
-}
-
-// cloneTransformationMode handles the transformation repo layout:
-// - Clone transformation repo contents to /workspace (the recipe)
-// - Clone target repos to /workspace/targets/{name}
-func (a *SandboxActivities) cloneTransformationMode(ctx context.Context, input CloneRepositoriesInput, cloneDepth string) ([]string, error) {
-	logger := activity.GetLogger(ctx)
-	transformation := input.Transformation
-
-	logger.Info("Cloning transformation repository", "url", transformation.URL, "branch", transformation.Branch)
-
-	// Validate transformation repo
-	if err := validateGitRef(transformation.Branch, "branch"); err != nil {
-		return nil, fmt.Errorf("invalid transformation branch: %w", err)
-	}
-	if err := validateGitURL(transformation.URL); err != nil {
-		return nil, fmt.Errorf("invalid transformation URL: %w", err)
-	}
-
-	// Clone transformation repo to a temp location first, then move contents to /workspace
-	// This ensures .claude/, CLAUDE.md, bin/, etc. are at the workspace root
-	tmpDir := "/tmp/transformation-clone"
-
-	// Build clone command
-	var cloneCmd string
-	if cloneDepth == "0" || cloneDepth == "" {
-		cloneCmd = fmt.Sprintf("git clone --branch %s %s %s", transformation.Branch, transformation.URL, tmpDir)
-	} else {
-		cloneCmd = fmt.Sprintf("git clone --depth %s --branch %s %s %s", cloneDepth, transformation.Branch, transformation.URL, tmpDir)
-	}
-
-	result, err := a.Provider.ExecShell(ctx, input.SandboxInfo.ContainerID, cloneCmd, AgentUser)
-	if err != nil {
-		return nil, fmt.Errorf("failed to clone transformation repo: %w", err)
-	}
-	if result.ExitCode != 0 {
-		return nil, fmt.Errorf("failed to clone transformation repo: %s", result.Stderr)
-	}
-
-	// Move transformation repo contents (including hidden files) to /workspace
-	// Using cp -a to preserve all attributes and handle hidden files, then remove temp
-	moveCmd := fmt.Sprintf("cp -a %s/. /workspace/ && rm -rf %s", tmpDir, tmpDir)
-	result, err = a.Provider.ExecShell(ctx, input.SandboxInfo.ContainerID, moveCmd, AgentUser)
-	if err != nil {
-		return nil, fmt.Errorf("failed to move transformation contents: %w", err)
-	}
-	if result.ExitCode != 0 {
-		return nil, fmt.Errorf("failed to move transformation contents: %s", result.Stderr)
-	}
-
-	activity.RecordHeartbeat(ctx, "Cloned transformation repo")
-
-	// Run transformation repo setup commands (from /workspace)
-	if len(transformation.Setup) > 0 {
-		logger.Info("Running transformation setup commands", "count", len(transformation.Setup))
-		for i, setupCmd := range transformation.Setup {
-			logger.Info("Running transformation setup command", "command", setupCmd)
-			fullCmd := fmt.Sprintf("cd /workspace && %s", setupCmd)
-			result, err := a.Provider.ExecShell(ctx, input.SandboxInfo.ContainerID, fullCmd, AgentUser)
-			if err != nil {
-				return nil, fmt.Errorf("failed to execute transformation setup command %d: %w", i+1, err)
-			}
-			if result.ExitCode != 0 {
-				return nil, fmt.Errorf("transformation setup command %d failed: %s", i+1, result.Stderr)
-			}
-			activity.RecordHeartbeat(ctx, fmt.Sprintf("Transformation setup %d/%d", i+1, len(transformation.Setup)))
-		}
-	}
-
-	var clonedPaths []string
-
-	// Clone target repos to /workspace/targets/ if any
-	if len(input.Targets) > 0 {
-		// Create targets directory
-		mkdirCmd := "mkdir -p /workspace/targets"
-		result, err = a.Provider.ExecShell(ctx, input.SandboxInfo.ContainerID, mkdirCmd, AgentUser)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create targets directory: %w", err)
-		}
-		if result.ExitCode != 0 {
-			return nil, fmt.Errorf("failed to create targets directory: %s", result.Stderr)
-		}
-
-		logger.Info("Cloning target repositories", "count", len(input.Targets))
-		targetPaths, err := a.cloneRepos(ctx, input.SandboxInfo.ContainerID, input.Targets, "/workspace/targets", cloneDepth)
-		if err != nil {
-			return nil, fmt.Errorf("failed to clone target repos: %w", err)
-		}
-		clonedPaths = append(clonedPaths, targetPaths...)
-	}
-
-	return clonedPaths, nil
-}
-
-// cloneRepos clones multiple repositories to the specified base path.
-func (a *SandboxActivities) cloneRepos(ctx context.Context, containerID string, repos []model.Repository, basePath string, cloneDepth string) ([]string, error) {
-	logger := activity.GetLogger(ctx)
-	var clonedPaths []string
-
-	for _, repo := range repos {
-		// SEC-004: Validate git refs to prevent command injection
-		if err := validateGitRef(repo.Branch, "branch"); err != nil {
-			return nil, fmt.Errorf("invalid branch for %s: %w", repo.Name, err)
-		}
-		if err := validateGitRef(repo.Name, "repo name"); err != nil {
-			return nil, fmt.Errorf("invalid repo name: %w", err)
-		}
-		// SEC-005: Validate URL to ensure safe git operations
-		if err := validateGitURL(repo.URL); err != nil {
-			return nil, fmt.Errorf("invalid URL for %s: %w", repo.Name, err)
-		}
-
-		repoPath := fmt.Sprintf("%s/%s", basePath, repo.Name)
-		logger.Info("Cloning repository", "url", repo.URL, "name", repo.Name, "branch", repo.Branch, "path", repoPath)
-
-		// SEC-002: Clone without token in URL - git will use stored credentials
-		var cmd string
-		if cloneDepth == "0" || cloneDepth == "" {
-			// Full clone
-			cmd = fmt.Sprintf("git clone --branch %s %s %s", repo.Branch, repo.URL, repoPath)
-		} else {
-			// Shallow clone with configurable depth
-			cmd = fmt.Sprintf("git clone --depth %s --branch %s %s %s", cloneDepth, repo.Branch, repo.URL, repoPath)
-		}
-
-		result, err := a.Provider.ExecShell(ctx, containerID, cmd, AgentUser)
-		if err != nil {
-			return nil, fmt.Errorf("failed to execute clone command: %w", err)
-		}
-		if result.ExitCode != 0 {
-			return nil, fmt.Errorf("failed to clone %s: %s", repo.URL, result.Stderr)
-		}
-
-		clonedPaths = append(clonedPaths, repoPath)
-
-		// Record heartbeat
-		activity.RecordHeartbeat(ctx, fmt.Sprintf("Cloned %s", repo.Name))
-
-		// Run setup commands if defined
-		if len(repo.Setup) > 0 {
-			logger.Info("Running setup commands", "repo", repo.Name, "count", len(repo.Setup))
-			for i, setupCmd := range repo.Setup {
-				logger.Info("Running setup command", "repo", repo.Name, "command", setupCmd)
-				fullCmd := fmt.Sprintf("cd %s && %s", repoPath, setupCmd)
-				result, err := a.Provider.ExecShell(ctx, containerID, fullCmd, AgentUser)
-				if err != nil {
-					return nil, fmt.Errorf("failed to execute setup command %d for %s: %w", i+1, repo.Name, err)
-				}
-				if result.ExitCode != 0 {
-					return nil, fmt.Errorf("setup command %d failed for %s: %s", i+1, repo.Name, result.Stderr)
-				}
-				activity.RecordHeartbeat(ctx, fmt.Sprintf("Setup %d/%d for %s", i+1, len(repo.Setup), repo.Name))
-			}
-			logger.Info("Setup completed", "repo", repo.Name)
-		}
-	}
-
-	return clonedPaths, nil
 }
 
 // CleanupSandbox stops and removes the sandbox container.
@@ -518,7 +240,7 @@ func (a *SandboxActivities) CleanupSandbox(ctx context.Context, containerID stri
 
 	logger.Info("Cleaning up container", "containerID", shortContainerID(containerID))
 
-	if err := a.Provider.Cleanup(ctx, containerID); err != nil {
+	if err := a.base.Cleanup(ctx, containerID); err != nil {
 		logger.Error("Error cleaning up container", "error", err)
 		return err
 	}

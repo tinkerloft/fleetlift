@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 )
 
 func testPipeline(fs *mockFS, exec *mockExecutor) *Pipeline {
@@ -21,13 +21,13 @@ func TestCloneRepos_GitCommandsIssued(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		TaskID: "task-1",
 		Mode:   "transform",
-		Repositories: []protocol.ManifestRepo{
+		Repositories: []fleetproto.ManifestRepo{
 			{Name: "svc", URL: "https://github.com/org/svc.git", Branch: "main"},
 		},
-		GitConfig: protocol.ManifestGitConfig{
+		GitConfig: fleetproto.ManifestGitConfig{
 			UserEmail:  "bot@test.com",
 			UserName:   "Bot",
 			CloneDepth: 10,
@@ -63,13 +63,13 @@ func TestCloneRepos_CredentialStore(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		TaskID: "task-1",
 		Mode:   "transform",
-		Repositories: []protocol.ManifestRepo{
+		Repositories: []fleetproto.ManifestRepo{
 			{Name: "svc", URL: "https://github.com/org/svc.git"},
 		},
-		GitConfig: protocol.ManifestGitConfig{UserEmail: "bot@test.com", UserName: "Bot"},
+		GitConfig: fleetproto.ManifestGitConfig{UserEmail: "bot@test.com", UserName: "Bot"},
 	}
 
 	t.Setenv("GITHUB_TOKEN", "ghp_test123")
@@ -101,16 +101,16 @@ func TestCloneRepos_TransformationMode(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		TaskID: "task-1",
 		Mode:   "transform",
-		Transformation: &protocol.ManifestRepo{
+		Transformation: &fleetproto.ManifestRepo{
 			Name: "tools", URL: "https://github.com/org/tools.git", Branch: "main",
 		},
-		Targets: []protocol.ManifestRepo{
+		Targets: []fleetproto.ManifestRepo{
 			{Name: "svc-a", URL: "https://github.com/org/svc-a.git", Branch: "main"},
 		},
-		GitConfig: protocol.ManifestGitConfig{UserEmail: "bot@test.com", UserName: "Bot"},
+		GitConfig: fleetproto.ManifestGitConfig{UserEmail: "bot@test.com", UserName: "Bot"},
 	}
 
 	t.Setenv("GITHUB_TOKEN", "")
@@ -134,13 +134,13 @@ func TestCloneRepos_SetupCommands(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		TaskID: "task-1",
 		Mode:   "transform",
-		Repositories: []protocol.ManifestRepo{
+		Repositories: []fleetproto.ManifestRepo{
 			{Name: "svc", URL: "https://github.com/org/svc.git", Setup: []string{"npm install"}},
 		},
-		GitConfig: protocol.ManifestGitConfig{UserEmail: "bot@test.com", UserName: "Bot"},
+		GitConfig: fleetproto.ManifestGitConfig{UserEmail: "bot@test.com", UserName: "Bot"},
 	}
 
 	t.Setenv("GITHUB_TOKEN", "")

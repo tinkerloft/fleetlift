@@ -2,7 +2,7 @@
 
 Incremental implementation phases for the code transformation and discovery platform.
 
-> **Last Updated**: 2026-02-19 (Phase 9.5 Web UI complete)
+> **Last Updated**: 2026-03-05 (Agentbox Split Phases 1–4 complete)
 >
 > **Note**: Implementation uses Task/Campaign terminology aligned with the design documents.
 >
@@ -1259,6 +1259,12 @@ $ fleetlift create \
 | 9.6 | **Report storage** | S3/GCS backend for large-scale discovery | ⬜ Not started |
 | 10 | **Continual Learning** | Knowledge capture, enrichment, curation | ⬜ Not started |
 | 11 | **NL Task Creation** | Conversational task creation, repo discovery, templates | ⬜ Not started |
+| AB-1 | **Agentbox Split — Protocol + Sandbox** | `agentbox/protocol`, `agentbox/sandbox` published; fleetlift imports both | ✅ Complete |
+| AB-2 | **Agentbox Split — Agent + Temporalkit** | `agentbox/agent` Protocol struct, `agentbox/temporalkit`; fleetlift go.mod wired | ✅ Complete |
+| AB-3a | **Agentbox Split — fleetproto + shim** | `internal/agent/fleetproto` created; protocol shim in place; `internal/sandbox/` deleted | ✅ Complete |
+| AB-3b | **Agentbox Split — pipeline.go refactor** | `pipeline.go` uses `agentbox/agent.Protocol`; `cmd/agent/main.go` wired; `OSFileSystem` exported | ✅ Complete |
+| AB-3c | **Agentbox Split — legacy workflow migration** | Migrate old `Transform` workflow activities to agentbox temporalkit interfaces | ✅ Complete |
+| AB-4 | **Agentbox Split — delete protocol shim** | Remove `internal/agent/protocol/types.go`; all callers import `fleetproto`/`agentboxproto` directly | ✅ Complete |
 
 Each phase builds on the previous and delivers working functionality.
 
@@ -1282,6 +1288,75 @@ Each phase builds on the previous and delivers working functionality.
 > transforms, report mode, grouped execution, failure handling, retry, HITL iterative steering, sidecar
 > agent with file-based protocol) are implemented. Next phase focuses on production infrastructure
 > (Kubernetes provider) and operational features (observability, security).
+
+---
+
+## Agentbox Split (Branch: `feat/agentbox-split`)
+
+**Goal**: Extract reusable sandbox/agent/protocol primitives from fleetlift into a separate `agentbox` module, then refactor fleetlift to import it. Improves modularity and allows other consumers to build on the same primitives.
+
+### AB-1: agentbox — Protocol + Sandbox ✅ Complete
+
+- [x] Create `agentbox` Go module at `github.com/tinkerloft/agentbox`
+- [x] `agentbox/protocol` — generic Phase/AgentStatus/SteeringInstruction/path helpers
+- [x] `agentbox/sandbox` — Provider interface, SandboxStatus, Docker + K8s implementations
+- [x] fleetlift imports `agentbox/sandbox` (local replace directive)
+
+### AB-2: agentbox — Agent + Temporalkit ✅ Complete
+
+- [x] `agentbox/agent` — FileSystem/CommandExecutor interfaces, Protocol struct (WaitForManifest/WriteStatus/WriteResult/WaitForSteering)
+- [x] `agentbox/temporalkit` — AgentActivities (WaitForPhase, SubmitSteering), SandboxActivities (Provision, Cleanup, PollStatus) with `[]byte` interfaces
+- [x] All agentbox packages have full test coverage
+- [x] `make lint` + `go test ./...` clean in agentbox
+
+### AB-3a: fleetlift — fleetproto + shim ✅ Complete
+
+- [x] Create `internal/agent/fleetproto/types.go` — all fleetlift-specific protocol types (TaskManifest, AgentResult, RepoResult, etc.)
+- [x] Replace `internal/agent/protocol/types.go` with compatibility shim re-exporting from `agentbox/protocol` + `fleetproto`
+- [x] Delete `internal/sandbox/` — all callers updated to use `agentbox/sandbox`
+- [x] Zero breakage to existing code
+
+### AB-3b: fleetlift — pipeline.go refactor ✅ Complete
+
+- [x] `internal/agent/pipeline.go` uses `agentbox/agent.Protocol` (WaitForManifest/WriteStatus/WriteResult/WaitForSteering) via injected `proto` field
+- [x] `cmd/agent/main.go` creates `agentboxagent.Protocol` and passes it to Pipeline
+- [x] `internal/agent/deps.go` exports `OSFileSystem` type alias (satisfies both local and agentbox FileSystem interfaces)
+- [x] `go test ./...` passes; `make lint` clean
+
+### AB-3c: fleetlift — Legacy workflow migration ✅ Complete
+
+Being completed by separate agent. Migrates old `Transform` workflow activity signatures to match `agentbox/temporalkit` interfaces.
+
+### AB-4: Delete protocol shim ✅ Complete
+
+Cannot proceed until all 18 shim importers are migrated (see audit below).
+
+**Protocol shim importers** (`internal/agent/protocol/types.go`) — why each still needs the shim:
+
+| File | Reason |
+|------|--------|
+| `cmd/agent/main.go` | Uses `protocol.BasePath` constant (fleetproto-backed) |
+| `internal/activity/sandbox.go` | Uses `protocol.DefaultBasePath`, `protocol.ManifestPath()` etc. |
+| `internal/activity/agent_test.go` | Uses `protocol.PhaseComplete`, `protocol.AgentStatus` etc. |
+| `internal/agent/collect.go` | Uses `protocol.TaskManifest`, `protocol.VerifierResult`, `protocol.RepoResult` (fleetproto types) |
+| `internal/agent/transform.go` | Uses fleetproto types via shim |
+| `internal/agent/pr.go` | Uses fleetproto types via shim |
+| `internal/agent/validate.go` | Uses fleetproto types via shim |
+| `internal/agent/verify.go` | Uses fleetproto types via shim |
+| `internal/agent/clone.go` | Uses fleetproto types via shim |
+| `internal/agent/pipeline.go` | Uses shim for type aliases (fleetproto + agentboxproto) |
+| `internal/agent/clone_test.go` | Tests use shim-exported types |
+| `internal/agent/collect_test.go` | Tests use shim-exported types |
+| `internal/agent/pipeline_test.go` | Tests use shim-exported types |
+| `internal/agent/pr_test.go` | Tests use shim-exported types |
+| `internal/agent/transform_test.go` | Tests use shim-exported types |
+| `internal/agent/validate_test.go` | Tests use shim-exported types |
+| `internal/agent/verify_test.go` | Tests use shim-exported types |
+| `internal/workflow/transform_v2_test.go` | Uses `protocol.AgentStatus`, phase constants |
+
+**Migration path for shim deletion**: Each importer must be changed to import either `agentboxproto "github.com/tinkerloft/agentbox/protocol"` (for Phase/AgentStatus/Steering types) or `"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"` (for TaskManifest/AgentResult/RepoResult etc.) directly.
+
+---
 
 ### Key Changes from Previous Plan
 

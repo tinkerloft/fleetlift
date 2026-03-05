@@ -6,12 +6,12 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 )
 
 // ValidateManifest validates a task manifest for required fields and security constraints.
 // Command content is trusted (manifest authors are privileged) — only structural and path safety validated.
-func ValidateManifest(m *protocol.TaskManifest) error {
+func ValidateManifest(m *fleetproto.TaskManifest) error {
 	if m.TaskID == "" {
 		return errors.New("task_id is required")
 	}

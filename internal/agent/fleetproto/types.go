@@ -9,6 +9,10 @@ import (
 	agentboxproto "github.com/tinkerloft/agentbox/protocol"
 )
 
+// DefaultBasePath is the base directory for fleetlift agent protocol files inside the sandbox.
+// This is the fleetlift-specific override of agentbox's DefaultBasePath.
+const DefaultBasePath = "/workspace/.fleetlift"
+
 // PhaseCreatingPRs is a fleetlift-specific agent lifecycle phase.
 const PhaseCreatingPRs agentboxproto.Phase = "creating_prs"
 

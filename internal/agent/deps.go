@@ -52,6 +52,10 @@ type CommandResult struct {
 	ExitCode int
 }
 
+// OSFileSystem is the exported OS-backed FileSystem implementation.
+// It satisfies both the agent.FileSystem interface and agentbox/agent.FileSystem interface.
+type OSFileSystem = osFileSystem
+
 // osFileSystem implements FileSystem using the real OS.
 type osFileSystem struct{}
 

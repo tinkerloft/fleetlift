@@ -23,8 +23,11 @@ Project-specific instructions for Claude Code when working on this repository.
 - `internal/activity/` - Temporal activity implementations
 - `internal/workflow/` - Temporal workflow definitions
 - `internal/model/` - Data models and types
-- `internal/sandbox/` - Sandbox provider interfaces and implementations
+- `internal/agent/fleetproto/` - Fleetlift-specific protocol types (extends agentbox/protocol)
 - `docs/` - Design documents and implementation plan
+
+> Note: `internal/sandbox/` was deleted (sandbox logic moved to `github.com/tinkerloft/agentbox`).
+> Note: `internal/agent/protocol/` shim was deleted in Phase AB-4; import `fleetproto` or `agentboxproto` directly.
 
 ## Key Conventions
 

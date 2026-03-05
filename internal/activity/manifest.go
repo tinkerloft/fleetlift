@@ -4,13 +4,13 @@ import (
 	"os"
 
 	"github.com/tinkerloft/fleetlift/internal/agent"
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 	"github.com/tinkerloft/fleetlift/internal/model"
 )
 
-// BuildManifest converts a model.Task to a protocol.TaskManifest for the sidecar agent.
-func BuildManifest(task model.Task) protocol.TaskManifest {
-	manifest := protocol.TaskManifest{
+// BuildManifest converts a model.Task to a fleetproto.TaskManifest for the sidecar agent.
+func BuildManifest(task model.Task) fleetproto.TaskManifest {
+	manifest := fleetproto.TaskManifest{
 		TaskID:                task.ID,
 		Mode:                  string(task.GetMode()),
 		Title:                 task.Title,
@@ -38,7 +38,7 @@ func BuildManifest(task model.Task) protocol.TaskManifest {
 
 	// ForEach
 	for _, fe := range task.ForEach {
-		manifest.ForEach = append(manifest.ForEach, protocol.ForEachTarget{
+		manifest.ForEach = append(manifest.ForEach, fleetproto.ForEachTarget{
 			Name:    fe.Name,
 			Context: fe.Context,
 		})
@@ -49,7 +49,7 @@ func BuildManifest(task model.Task) protocol.TaskManifest {
 
 	// Verifiers
 	for _, v := range task.Execution.GetVerifiers() {
-		manifest.Verifiers = append(manifest.Verifiers, protocol.ManifestVerifier{
+		manifest.Verifiers = append(manifest.Verifiers, fleetproto.ManifestVerifier{
 			Name:    v.Name,
 			Command: v.Command,
 		})
@@ -57,7 +57,7 @@ func BuildManifest(task model.Task) protocol.TaskManifest {
 
 	// PR config
 	if task.PullRequest != nil {
-		manifest.PullRequest = &protocol.ManifestPRConfig{
+		manifest.PullRequest = &fleetproto.ManifestPRConfig{
 			BranchPrefix: task.PullRequest.BranchPrefix,
 			Title:        task.PullRequest.Title,
 			Body:         task.PullRequest.Body,
@@ -69,11 +69,11 @@ func BuildManifest(task model.Task) protocol.TaskManifest {
 	return manifest
 }
 
-func convertRepo(r *model.Repository) *protocol.ManifestRepo {
+func convertRepo(r *model.Repository) *fleetproto.ManifestRepo {
 	if r == nil {
 		return nil
 	}
-	return &protocol.ManifestRepo{
+	return &fleetproto.ManifestRepo{
 		URL:    r.URL,
 		Branch: r.Branch,
 		Name:   r.Name,
@@ -81,9 +81,9 @@ func convertRepo(r *model.Repository) *protocol.ManifestRepo {
 	}
 }
 
-func buildExecution(exec model.Execution) protocol.ManifestExecution {
+func buildExecution(exec model.Execution) fleetproto.ManifestExecution {
 	if exec.Deterministic != nil {
-		return protocol.ManifestExecution{
+		return fleetproto.ManifestExecution{
 			Type:    "deterministic",
 			Image:   exec.Deterministic.Image,
 			Args:    exec.Deterministic.Args,
@@ -92,15 +92,15 @@ func buildExecution(exec model.Execution) protocol.ManifestExecution {
 		}
 	}
 	if exec.Agentic != nil {
-		return protocol.ManifestExecution{
+		return fleetproto.ManifestExecution{
 			Type:   "agentic",
 			Prompt: exec.Agentic.Prompt,
 		}
 	}
-	return protocol.ManifestExecution{Type: "agentic"}
+	return fleetproto.ManifestExecution{Type: "agentic"}
 }
 
-func buildGitConfig() protocol.ManifestGitConfig {
+func buildGitConfig() fleetproto.ManifestGitConfig {
 	email := os.Getenv("GIT_USER_EMAIL")
 	if email == "" {
 		email = DefaultGitEmail
@@ -109,7 +109,7 @@ func buildGitConfig() protocol.ManifestGitConfig {
 	if name == "" {
 		name = DefaultGitName
 	}
-	return protocol.ManifestGitConfig{
+	return fleetproto.ManifestGitConfig{
 		UserEmail:  email,
 		UserName:   name,
 		CloneDepth: agent.DefaultCloneDepth,

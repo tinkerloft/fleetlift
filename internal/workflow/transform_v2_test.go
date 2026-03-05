@@ -9,8 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/testsuite"
 
+	agentboxproto "github.com/tinkerloft/agentbox/protocol"
+
 	"github.com/tinkerloft/fleetlift/internal/activity"
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 	"github.com/tinkerloft/fleetlift/internal/model"
 )
 
@@ -32,20 +34,20 @@ func (m *AgentMockActivities) SubmitTaskManifest(ctx context.Context, input acti
 	return args.Error(0)
 }
 
-func (m *AgentMockActivities) WaitForAgentPhase(ctx context.Context, input activity.WaitForAgentPhaseInput) (*protocol.AgentStatus, error) {
+func (m *AgentMockActivities) WaitForAgentPhase(ctx context.Context, input activity.WaitForAgentPhaseInput) (*agentboxproto.AgentStatus, error) {
 	args := m.Called(ctx, input)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*protocol.AgentStatus), args.Error(1)
+	return args.Get(0).(*agentboxproto.AgentStatus), args.Error(1)
 }
 
-func (m *AgentMockActivities) ReadAgentResult(ctx context.Context, input activity.ReadAgentResultInput) (*protocol.AgentResult, error) {
+func (m *AgentMockActivities) ReadAgentResult(ctx context.Context, input activity.ReadAgentResultInput) (*fleetproto.AgentResult, error) {
 	args := m.Called(ctx, input)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*protocol.AgentResult), args.Error(1)
+	return args.Get(0).(*fleetproto.AgentResult), args.Error(1)
 }
 
 func (m *AgentMockActivities) SubmitSteeringAction(ctx context.Context, input activity.SubmitSteeringActionInput) error {
@@ -99,17 +101,17 @@ func TestTransformV2_HappyPath(t *testing.T) {
 	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
 	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
 	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.Anything).Return(
-		&protocol.AgentStatus{Phase: protocol.PhaseComplete, Message: "done"}, nil,
+		&agentboxproto.AgentStatus{Phase: agentboxproto.PhaseComplete, Message: "done"}, nil,
 	)
 	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
-		&protocol.AgentResult{
-			Status: protocol.PhaseComplete,
-			Repositories: []protocol.RepoResult{
+		&fleetproto.AgentResult{
+			Status: agentboxproto.PhaseComplete,
+			Repositories: []fleetproto.RepoResult{
 				{
 					Name:          "svc",
 					Status:        "success",
 					FilesModified: []string{"main.go"},
-					PullRequest:   &protocol.PRInfo{URL: "https://github.com/org/svc/pull/1", Title: "Fix the bug"},
+					PullRequest:   &fleetproto.PRInfo{URL: "https://github.com/org/svc/pull/1", Title: "Fix the bug"},
 				},
 			},
 		}, nil,
@@ -161,12 +163,12 @@ func TestTransformV2_AgentFailed(t *testing.T) {
 	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
 	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
 	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.Anything).Return(
-		&protocol.AgentStatus{Phase: protocol.PhaseFailed, Message: "claude code crashed"}, nil,
+		&agentboxproto.AgentStatus{Phase: agentboxproto.PhaseFailed, Message: "claude code crashed"}, nil,
 	)
 	errMsg := "claude code crashed"
 	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
-		&protocol.AgentResult{
-			Status: protocol.PhaseFailed,
+		&fleetproto.AgentResult{
+			Status: agentboxproto.PhaseFailed,
 			Error:  &errMsg,
 		}, nil,
 	)
@@ -214,16 +216,16 @@ func TestTransformV2_ReportMode(t *testing.T) {
 	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
 	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
 	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.Anything).Return(
-		&protocol.AgentStatus{Phase: protocol.PhaseComplete}, nil,
+		&agentboxproto.AgentStatus{Phase: agentboxproto.PhaseComplete}, nil,
 	)
 	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
-		&protocol.AgentResult{
-			Status: protocol.PhaseComplete,
-			Repositories: []protocol.RepoResult{
+		&fleetproto.AgentResult{
+			Status: agentboxproto.PhaseComplete,
+			Repositories: []fleetproto.RepoResult{
 				{
 					Name:   "svc",
 					Status: "success",
-					Report: &protocol.ReportResult{
+					Report: &fleetproto.ReportResult{
 						Frontmatter: map[string]any{"score": 8},
 						Body:        "# Audit\nAll good.",
 						Raw:         "---\nscore: 8\n---\n# Audit\nAll good.",
@@ -283,37 +285,37 @@ func TestTransformV2_SteeringLoop_Approve(t *testing.T) {
 	// First wait returns awaiting_input
 	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.MatchedBy(func(input activity.WaitForAgentPhaseInput) bool {
 		for _, p := range input.TargetPhases {
-			if p == string(protocol.PhaseAwaitingInput) {
+			if p == string(agentboxproto.PhaseAwaitingInput) {
 				return true
 			}
 		}
 		return false
-	})).Return(&protocol.AgentStatus{Phase: protocol.PhaseAwaitingInput}, nil).Once()
+	})).Return(&agentboxproto.AgentStatus{Phase: agentboxproto.PhaseAwaitingInput}, nil).Once()
 
 	// Second wait (after steer) returns awaiting_input again
 	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.MatchedBy(func(input activity.WaitForAgentPhaseInput) bool {
 		for _, p := range input.TargetPhases {
-			if p == string(protocol.PhaseAwaitingInput) {
+			if p == string(agentboxproto.PhaseAwaitingInput) {
 				return true
 			}
 		}
 		return false
-	})).Return(&protocol.AgentStatus{Phase: protocol.PhaseAwaitingInput}, nil).Once()
+	})).Return(&agentboxproto.AgentStatus{Phase: agentboxproto.PhaseAwaitingInput}, nil).Once()
 
 	// Third wait (after approve) returns complete
 	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.MatchedBy(func(input activity.WaitForAgentPhaseInput) bool {
 		for _, p := range input.TargetPhases {
-			if p == string(protocol.PhaseComplete) {
+			if p == string(agentboxproto.PhaseComplete) {
 				return true
 			}
 		}
 		return false
-	})).Return(&protocol.AgentStatus{Phase: protocol.PhaseComplete}, nil).Once()
+	})).Return(&agentboxproto.AgentStatus{Phase: agentboxproto.PhaseComplete}, nil).Once()
 
 	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
-		&protocol.AgentResult{
-			Status: protocol.PhaseAwaitingInput,
-			Repositories: []protocol.RepoResult{
+		&fleetproto.AgentResult{
+			Status: agentboxproto.PhaseAwaitingInput,
+			Repositories: []fleetproto.RepoResult{
 				{Name: "svc", Status: "success", FilesModified: []string{"main.go"}},
 			},
 		}, nil,
@@ -321,9 +323,9 @@ func TestTransformV2_SteeringLoop_Approve(t *testing.T) {
 
 	// Re-read after steer
 	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
-		&protocol.AgentResult{
-			Status: protocol.PhaseAwaitingInput,
-			Repositories: []protocol.RepoResult{
+		&fleetproto.AgentResult{
+			Status: agentboxproto.PhaseAwaitingInput,
+			Repositories: []fleetproto.RepoResult{
 				{Name: "svc", Status: "success", FilesModified: []string{"main.go", "handler.go"}},
 			},
 		}, nil,
@@ -331,13 +333,13 @@ func TestTransformV2_SteeringLoop_Approve(t *testing.T) {
 
 	// Final read after approve
 	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
-		&protocol.AgentResult{
-			Status: protocol.PhaseComplete,
-			Repositories: []protocol.RepoResult{
+		&fleetproto.AgentResult{
+			Status: agentboxproto.PhaseComplete,
+			Repositories: []fleetproto.RepoResult{
 				{
 					Name: "svc", Status: "success",
 					FilesModified: []string{"main.go", "handler.go"},
-					PullRequest:   &protocol.PRInfo{URL: "https://github.com/org/svc/pull/42", Title: "Fix"},
+					PullRequest:   &fleetproto.PRInfo{URL: "https://github.com/org/svc/pull/42", Title: "Fix"},
 				},
 			},
 		}, nil,
@@ -395,12 +397,12 @@ func TestTransformV2_SteeringLoop_Reject(t *testing.T) {
 	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
 	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
 	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.Anything).Return(
-		&protocol.AgentStatus{Phase: protocol.PhaseAwaitingInput}, nil,
+		&agentboxproto.AgentStatus{Phase: agentboxproto.PhaseAwaitingInput}, nil,
 	)
 	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
-		&protocol.AgentResult{
-			Status:       protocol.PhaseAwaitingInput,
-			Repositories: []protocol.RepoResult{{Name: "svc", Status: "success"}},
+		&fleetproto.AgentResult{
+			Status:       agentboxproto.PhaseAwaitingInput,
+			Repositories: []fleetproto.RepoResult{{Name: "svc", Status: "success"}},
 		}, nil,
 	)
 	mockActivities.On("SubmitSteeringAction", mock.Anything, mock.Anything).Return(nil)
@@ -451,12 +453,12 @@ func TestTransformV2_SteeringLoop_Cancel(t *testing.T) {
 	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
 	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
 	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.Anything).Return(
-		&protocol.AgentStatus{Phase: protocol.PhaseAwaitingInput}, nil,
+		&agentboxproto.AgentStatus{Phase: agentboxproto.PhaseAwaitingInput}, nil,
 	)
 	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
-		&protocol.AgentResult{
-			Status:       protocol.PhaseAwaitingInput,
-			Repositories: []protocol.RepoResult{{Name: "svc", Status: "success"}},
+		&fleetproto.AgentResult{
+			Status:       agentboxproto.PhaseAwaitingInput,
+			Repositories: []fleetproto.RepoResult{{Name: "svc", Status: "success"}},
 		}, nil,
 	)
 	mockActivities.On("SubmitSteeringAction", mock.Anything, mock.Anything).Return(nil)
@@ -482,17 +484,17 @@ func TestBuildTaskResultFromAgent(t *testing.T) {
 		Mode: model.TaskModeTransform,
 	}
 
-	agentResult := &protocol.AgentResult{
-		Status: protocol.PhaseComplete,
-		Repositories: []protocol.RepoResult{
+	agentResult := &fleetproto.AgentResult{
+		Status: agentboxproto.PhaseComplete,
+		Repositories: []fleetproto.RepoResult{
 			{
 				Name:          "svc",
 				Status:        "success",
 				FilesModified: []string{"main.go", "handler.go"},
-				Diffs: []protocol.DiffEntry{
+				Diffs: []fleetproto.DiffEntry{
 					{Path: "main.go", Status: "modified", Additions: 10, Deletions: 5},
 				},
-				PullRequest: &protocol.PRInfo{
+				PullRequest: &fleetproto.PRInfo{
 					URL:        "https://github.com/org/svc/pull/42",
 					Number:     42,
 					BranchName: "auto/test-task-svc",
@@ -525,11 +527,11 @@ func TestBuildTaskResultFromAgent(t *testing.T) {
 }
 
 func TestExtractDiffsFromAgent(t *testing.T) {
-	agentResult := &protocol.AgentResult{
-		Repositories: []protocol.RepoResult{
+	agentResult := &fleetproto.AgentResult{
+		Repositories: []fleetproto.RepoResult{
 			{
 				Name: "svc",
-				Diffs: []protocol.DiffEntry{
+				Diffs: []fleetproto.DiffEntry{
 					{Path: "main.go", Status: "modified", Additions: 10, Deletions: 5, Diff: "..."},
 					{Path: "new.go", Status: "added", Additions: 20, Deletions: 0, Diff: "..."},
 				},

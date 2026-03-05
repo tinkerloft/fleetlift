@@ -4,30 +4,31 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
-	"go.temporal.io/sdk/activity"
-
+	agentboxproto "github.com/tinkerloft/agentbox/protocol"
 	agentboxsandbox "github.com/tinkerloft/agentbox/sandbox"
+	agentboxtemporalkit "github.com/tinkerloft/agentbox/temporalkit"
 
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 )
 
 // AgentActivities contains activities for the sidecar agent workflow pattern.
 type AgentActivities struct {
-	provider agentboxsandbox.AgentProvider
+	base *agentboxtemporalkit.AgentActivities
 }
 
 // NewAgentActivities creates a new AgentActivities.
 func NewAgentActivities(provider agentboxsandbox.AgentProvider) *AgentActivities {
-	return &AgentActivities{provider: provider}
+	return &AgentActivities{
+		base: &agentboxtemporalkit.AgentActivities{Provider: provider},
+	}
 }
 
 // SubmitTaskManifestInput contains the input for SubmitTaskManifest.
 type SubmitTaskManifestInput struct {
 	SandboxID string                `json:"sandbox_id"`
-	Manifest  protocol.TaskManifest `json:"manifest"`
+	Manifest  fleetproto.TaskManifest `json:"manifest"`
 }
 
 // SubmitTaskManifest writes the task manifest to the sandbox for the agent to execute.
@@ -37,7 +38,7 @@ func (a *AgentActivities) SubmitTaskManifest(ctx context.Context, input SubmitTa
 		return fmt.Errorf("failed to marshal manifest: %w", err)
 	}
 
-	return a.provider.SubmitManifest(ctx, input.SandboxID, data)
+	return a.base.SubmitManifest(ctx, input.SandboxID, data)
 }
 
 // WaitForAgentPhaseInput contains the input for WaitForAgentPhase.
@@ -48,51 +49,18 @@ type WaitForAgentPhaseInput struct {
 
 // WaitForAgentPhase polls the agent's status until it reaches one of the target phases.
 // Uses Temporal heartbeats for long-running polling.
-func (a *AgentActivities) WaitForAgentPhase(ctx context.Context, input WaitForAgentPhaseInput) (*protocol.AgentStatus, error) {
-	pollInterval := 500 * time.Millisecond
-
-	targetSet := make(map[protocol.Phase]bool)
-	for _, phase := range input.TargetPhases {
-		targetSet[protocol.Phase(phase)] = true
+func (a *AgentActivities) WaitForAgentPhase(ctx context.Context, input WaitForAgentPhaseInput) (*agentboxproto.AgentStatus, error) {
+	raw, err := a.base.WaitForPhase(ctx, input.SandboxID, input.TargetPhases)
+	if err != nil {
+		return nil, err
 	}
-	// Always treat terminal phases as targets
-	targetSet[protocol.PhaseFailed] = true
-	targetSet[protocol.PhaseCancelled] = true
 
-	for {
-		activity.RecordHeartbeat(ctx, fmt.Sprintf("polling agent status for phases: %s", strings.Join(input.TargetPhases, "|")))
-
-		statusBytes, err := a.provider.PollStatus(ctx, input.SandboxID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to poll status: %w", err)
-		}
-
-		var status protocol.AgentStatus
-		if err := json.Unmarshal(statusBytes, &status); err != nil {
-			return nil, fmt.Errorf("failed to parse agent status: %w", err)
-		}
-
-		if targetSet[status.Phase] {
-			return &status, nil
-		}
-
-		// Staleness detection: if agent hasn't updated in a while, it may have crashed
-		// Double-check by verifying container status to avoid false positives from clock skew
-		if !status.UpdatedAt.IsZero() && time.Since(status.UpdatedAt) > AgentStaleThreshold {
-			containerStatus, err := a.provider.Status(ctx, input.SandboxID)
-			if err == nil && containerStatus.Phase != agentboxsandbox.SandboxPhaseRunning {
-				return nil, fmt.Errorf("agent stale: last update %s, phase %s, container %s",
-					status.UpdatedAt.Format(time.RFC3339), status.Phase, containerStatus.Phase)
-			}
-			// Container is still running -- clock skew likely, continue polling
-		}
-
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(pollInterval):
-		}
+	var status agentboxproto.AgentStatus
+	if err := json.Unmarshal(raw, &status); err != nil {
+		return nil, fmt.Errorf("failed to parse agent status: %w", err)
 	}
+
+	return &status, nil
 }
 
 // ReadAgentResultInput contains the input for ReadAgentResult.
@@ -101,13 +69,13 @@ type ReadAgentResultInput struct {
 }
 
 // ReadAgentResult reads the full result from the sandbox agent.
-func (a *AgentActivities) ReadAgentResult(ctx context.Context, input ReadAgentResultInput) (*protocol.AgentResult, error) {
-	data, err := a.provider.ReadResult(ctx, input.SandboxID)
+func (a *AgentActivities) ReadAgentResult(ctx context.Context, input ReadAgentResultInput) (*fleetproto.AgentResult, error) {
+	data, err := a.base.ReadResult(ctx, input.SandboxID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read result: %w", err)
 	}
 
-	var result protocol.AgentResult
+	var result fleetproto.AgentResult
 	if err := json.Unmarshal(data, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse result: %w", err)
 	}
@@ -126,16 +94,16 @@ type SubmitSteeringActionInput struct {
 // SubmitSteeringAction writes a steering instruction to the sandbox for the agent to process.
 func (a *AgentActivities) SubmitSteeringAction(ctx context.Context, input SubmitSteeringActionInput) error {
 	// Validate steering action
-	action := protocol.SteeringAction(input.Action)
+	action := agentboxproto.SteeringAction(input.Action)
 	switch action {
-	case protocol.SteeringActionSteer, protocol.SteeringActionApprove,
-		protocol.SteeringActionReject, protocol.SteeringActionCancel:
+	case agentboxproto.SteeringActionSteer, agentboxproto.SteeringActionApprove,
+		agentboxproto.SteeringActionReject, agentboxproto.SteeringActionCancel:
 		// valid
 	default:
 		return fmt.Errorf("invalid steering action: %q", input.Action)
 	}
 
-	instruction := protocol.SteeringInstruction{
+	instruction := fleetproto.SteeringInstruction{
 		Action:    action,
 		Prompt:    input.Prompt,
 		Iteration: input.Iteration,
@@ -147,5 +115,5 @@ func (a *AgentActivities) SubmitSteeringAction(ctx context.Context, input Submit
 		return fmt.Errorf("failed to marshal steering instruction: %w", err)
 	}
 
-	return a.provider.SubmitSteering(ctx, input.SandboxID, data)
+	return a.base.SubmitSteering(ctx, input.SandboxID, data)
 }

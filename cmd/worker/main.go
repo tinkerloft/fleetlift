@@ -107,12 +107,9 @@ func main() {
 
 	// Create activities
 	sandboxActivities := activity.NewSandboxActivities(provider)
-	claudeActivities := activity.NewClaudeCodeActivities(provider)
-	deterministicActivities := activity.NewDeterministicActivities(provider)
 	githubActivities := activity.NewGitHubActivities(provider)
 	slackActivities := activity.NewSlackActivities()
 	reportActivities := activity.NewReportActivities(provider)
-	steeringActivities := activity.NewSteeringActivities(provider)
 	agentActivities := activity.NewAgentActivities(provider)
 	knowledgeActivities := activity.NewKnowledgeActivities()
 
@@ -128,17 +125,11 @@ func main() {
 
 	// Register activities with explicit names to match workflow constants
 	w.RegisterActivityWithOptions(sandboxActivities.ProvisionSandbox, temporalactivity.RegisterOptions{Name: activity.ActivityProvisionSandbox})
-	w.RegisterActivityWithOptions(sandboxActivities.CloneRepositories, temporalactivity.RegisterOptions{Name: activity.ActivityCloneRepositories})
 	w.RegisterActivityWithOptions(sandboxActivities.CleanupSandbox, temporalactivity.RegisterOptions{Name: activity.ActivityCleanupSandbox})
 	w.RegisterActivityWithOptions(sandboxActivities.RunVerifiers, temporalactivity.RegisterOptions{Name: activity.ActivityRunVerifiers})
-	w.RegisterActivityWithOptions(claudeActivities.RunClaudeCode, temporalactivity.RegisterOptions{Name: activity.ActivityRunClaudeCode})
-	w.RegisterActivityWithOptions(deterministicActivities.ExecuteDeterministic, temporalactivity.RegisterOptions{Name: activity.ActivityExecuteDeterministic})
 	w.RegisterActivityWithOptions(githubActivities.CreatePullRequest, temporalactivity.RegisterOptions{Name: activity.ActivityCreatePullRequest})
 	w.RegisterActivityWithOptions(slackActivities.NotifySlack, temporalactivity.RegisterOptions{Name: activity.ActivityNotifySlack})
-	w.RegisterActivityWithOptions(reportActivities.CollectReport, temporalactivity.RegisterOptions{Name: activity.ActivityCollectReport})
 	w.RegisterActivityWithOptions(reportActivities.ValidateSchema, temporalactivity.RegisterOptions{Name: activity.ActivityValidateSchema})
-	w.RegisterActivityWithOptions(steeringActivities.GetDiff, temporalactivity.RegisterOptions{Name: activity.ActivityGetDiff})
-	w.RegisterActivityWithOptions(steeringActivities.GetVerifierOutput, temporalactivity.RegisterOptions{Name: activity.ActivityGetVerifierOutput})
 	w.RegisterActivityWithOptions(sandboxActivities.ProvisionAgentSandbox, temporalactivity.RegisterOptions{Name: activity.ActivityProvisionAgentSandbox})
 	w.RegisterActivityWithOptions(agentActivities.SubmitTaskManifest, temporalactivity.RegisterOptions{Name: activity.ActivitySubmitTaskManifest})
 	w.RegisterActivityWithOptions(agentActivities.WaitForAgentPhase, temporalactivity.RegisterOptions{Name: activity.ActivityWaitForAgentPhase})

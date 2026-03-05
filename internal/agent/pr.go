@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 )
 
 // sensitivePatterns are .gitignore patterns to exclude secrets from git add -A (H2 fix).
@@ -22,7 +22,7 @@ var sensitivePatterns = []string{
 }
 
 // createPullRequests creates PRs for all repos with changes.
-func (p *Pipeline) createPullRequests(ctx context.Context, manifest *protocol.TaskManifest, repoResults []protocol.RepoResult) []protocol.RepoResult {
+func (p *Pipeline) createPullRequests(ctx context.Context, manifest *fleetproto.TaskManifest, repoResults []fleetproto.RepoResult) []fleetproto.RepoResult {
 	if manifest.PullRequest == nil {
 		return repoResults
 	}
@@ -35,7 +35,7 @@ func (p *Pipeline) createPullRequests(ctx context.Context, manifest *protocol.Ta
 		}
 
 		// Find the matching repo config
-		var repo *protocol.ManifestRepo
+		var repo *fleetproto.ManifestRepo
 		for _, r := range repos {
 			if r.Name == result.Name {
 				repo = &r
@@ -62,7 +62,7 @@ func (p *Pipeline) createPullRequests(ctx context.Context, manifest *protocol.Ta
 	return repoResults
 }
 
-func (p *Pipeline) createPR(ctx context.Context, manifest *protocol.TaskManifest, repo *protocol.ManifestRepo, repoPath string) (*protocol.PRInfo, error) {
+func (p *Pipeline) createPR(ctx context.Context, manifest *fleetproto.TaskManifest, repo *fleetproto.ManifestRepo, repoPath string) (*fleetproto.PRInfo, error) {
 	prCfg := manifest.PullRequest
 
 	// Determine branch name
@@ -147,7 +147,7 @@ func (p *Pipeline) createPR(ctx context.Context, manifest *protocol.TaskManifest
 		prURL = strings.TrimSpace(result.Stdout)
 	}
 
-	return &protocol.PRInfo{
+	return &fleetproto.PRInfo{
 		URL:        prURL,
 		BranchName: branchName,
 		Title:      prCfg.Title,

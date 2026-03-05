@@ -9,12 +9,19 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	agentboxagent "github.com/tinkerloft/agentbox/agent"
+	agentboxproto "github.com/tinkerloft/agentbox/protocol"
 
 	"github.com/tinkerloft/fleetlift/internal/agent"
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 )
 
 func main() {
@@ -25,7 +32,7 @@ func main() {
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 
-	basePath := protocol.BasePath
+	basePath := fleetproto.DefaultBasePath
 
 	// Allow override for testing
 	if envPath := os.Getenv("FLEETLIFT_BASE_PATH"); envPath != "" {
@@ -38,12 +45,70 @@ func main() {
 		os.Exit(1)
 	}
 
-	pipeline := agent.NewDefaultPipeline(basePath)
+	// Create agentbox Protocol with the fleetlift base path.
+	// agent.OSFileSystem satisfies the agentbox/agent.FileSystem interface.
+	proto := agentboxagent.New(basePath, agent.OSFileSystem{})
 
 	logger.Info("Sidecar agent starting", "basePath", basePath)
 
-	if err := pipeline.Run(context.Background()); err != nil {
+	if err := run(context.Background(), proto, basePath, logger); err != nil {
 		logger.Error("Pipeline failed", "error", err)
 		os.Exit(1)
 	}
+}
+
+func run(ctx context.Context, proto *agentboxagent.Protocol, basePath string, logger *slog.Logger) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Handle SIGTERM/SIGINT
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	defer signal.Stop(sigCh)
+	go func() {
+		select {
+		case <-sigCh:
+			logger.Info("Received shutdown signal")
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	logger.Info("Agent starting, waiting for manifest...")
+	if err := proto.WriteStatus(agentboxproto.AgentStatus{
+		Phase:     agentboxproto.PhaseInitializing,
+		Message:   "Waiting for manifest",
+		UpdatedAt: time.Now().UTC(),
+	}); err != nil {
+		logger.Warn("Failed to write initial status", "error", err)
+	}
+
+	// Wait for manifest
+	rawManifest, err := proto.WaitForManifest(ctx)
+	if err != nil {
+		return fmt.Errorf("waiting for manifest: %w", err)
+	}
+
+	var manifest fleetproto.TaskManifest
+	if err := json.Unmarshal(rawManifest, &manifest); err != nil {
+		return fmt.Errorf("invalid manifest: %w", err)
+	}
+
+	logger.Info("Manifest received", "taskID", manifest.TaskID, "mode", manifest.Mode)
+
+	// Validate manifest
+	if err := agent.ValidateManifest(&manifest); err != nil {
+		return fmt.Errorf("invalid manifest: %w", err)
+	}
+
+	// Set timeout from manifest
+	if manifest.TimeoutSeconds > 0 {
+		var timeoutCancel context.CancelFunc
+		ctx, timeoutCancel = context.WithTimeout(ctx, time.Duration(manifest.TimeoutSeconds)*time.Second)
+		defer timeoutCancel()
+	}
+
+	// Execute the pipeline steps
+	pipeline := agent.NewDefaultPipeline(basePath)
+	return pipeline.Execute(ctx, &manifest)
 }
