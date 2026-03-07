@@ -70,3 +70,6 @@ docker/fleetlift-agent
 # Built binaries (root-level)
 /server
 /worker
+
+# Git worktrees
+.worktrees/
