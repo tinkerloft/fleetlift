@@ -57,14 +57,14 @@ Create Task YAML via conversation instead of hand-editing.
 
 ### 11.1 Core commands
 - [ ] `fleetlift create` — multi-step interactive session; asks for repos, prompt, verifiers, mode, approval
-- [ ] `fleetlift create --describe "..."` — one-shot; Claude infers all params, writes YAML
-- [ ] Generated YAML validated against schema; show with syntax highlighting; prompt `[Y/n/edit]`
-- [ ] `--dry-run`, `--output task.yaml`; `edit` choice opens `$EDITOR`
+- [x] `fleetlift create --describe "..."` — one-shot; Claude infers all params, writes YAML
+- [x] Generated YAML validated + `[Y/n/e]` prompt
+- [x] `--dry-run`, `--output task.yaml`; `edit` choice opens `$EDITOR`
 
 ### 11.2 Schema bundle
-- [ ] Embed Task YAML schema + 4–5 canonical examples as `//go:embed` in CLI binary
-- [ ] Include field descriptions + constraints (e.g. `timeout` format: `"30m"`, `"1h"`)
-- [ ] Bundle is the system prompt for all `create` flow Claude API calls
+- [x] Embed Task YAML schema + canonical examples as `//go:embed` in CLI binary
+- [x] Include field descriptions + constraints (e.g. `timeout` format: `"30m"`, `"1h"`)
+- [x] Bundle is the system prompt for all `create` flow Claude API calls
 
 ### 11.3 Repo discovery
 - [ ] GitHub API: support patterns like `"all repos in acme-org"`, `"repos matching service-*"`, `"repos with go.mod"`

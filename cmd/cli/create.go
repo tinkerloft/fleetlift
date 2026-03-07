@@ -1,9 +1,15 @@
 package main
 
 import (
+	"bufio"
+	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 
+	anthropic "github.com/anthropics/anthropic-sdk-go"
+	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
 	"github.com/tinkerloft/fleetlift/internal/model"
@@ -61,4 +67,188 @@ func buildSystemPrompt() string {
 		"# Example: Report Task",
 		exampleReport,
 	}, "\n")
+}
+
+var createCmd = &cobra.Command{
+	Use:   "create",
+	Short: "Generate a task YAML using AI from a natural language description",
+	Long: `Generate a Fleetlift task YAML file using Claude.
+
+Examples:
+  # One-shot from description:
+  fleetlift create --describe "Add OpenTelemetry tracing to all Go services" \
+    --repo https://github.com/acme/api.git \
+    --output tracing-task.yaml
+
+  # Preview without saving:
+  fleetlift create --describe "Security audit of auth module" --dry-run`,
+	RunE: runCreate,
+}
+
+func init() {
+	createCmd.Flags().String("describe", "", "Natural language description of the task (required)")
+	createCmd.Flags().StringArray("repo", nil, "Repository URL to include (repeatable)")
+	createCmd.Flags().String("output", "", "Save generated YAML to this file path")
+	createCmd.Flags().Bool("dry-run", false, "Print generated YAML without prompting to save")
+}
+
+func runCreate(cmd *cobra.Command, args []string) error {
+	description, _ := cmd.Flags().GetString("describe")
+	repos, _ := cmd.Flags().GetStringArray("repo")
+	outputPath, _ := cmd.Flags().GetString("output")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+
+	if description == "" {
+		fmt.Print("Describe what you want the agent to do: ")
+		reader := bufio.NewReader(os.Stdin)
+		line, _ := reader.ReadString('\n')
+		description = strings.TrimSpace(line)
+		if description == "" {
+			return fmt.Errorf("description is required (use --describe or enter interactively)")
+		}
+	}
+
+	fmt.Fprintf(os.Stderr, "Generating task YAML...\n")
+
+	yamlStr, err := generateTaskYAML(cmd.Context(), description, repos)
+	if err != nil {
+		return fmt.Errorf("generation failed: %w", err)
+	}
+
+	if _, err := validateTaskYAML(yamlStr); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: generated YAML may have issues: %v\n", err)
+	}
+
+	fmt.Println("---")
+	fmt.Print(yamlStr)
+	fmt.Println("---")
+
+	if dryRun {
+		return nil
+	}
+
+	return confirmAndSave(yamlStr, outputPath)
+}
+
+func generateTaskYAML(ctx context.Context, description string, repos []string) (string, error) {
+	systemPrompt := buildSystemPrompt()
+
+	var userMsg strings.Builder
+	userMsg.WriteString("Generate a Fleetlift task YAML for the following:\n\n")
+	userMsg.WriteString(description)
+	if len(repos) > 0 {
+		userMsg.WriteString("\n\nRepositories to include:\n")
+		for _, r := range repos {
+			userMsg.WriteString("  - url: ")
+			userMsg.WriteString(r)
+			userMsg.WriteString("\n")
+		}
+	}
+
+	client := anthropic.NewClient()
+	msg, err := client.Messages.New(ctx, anthropic.MessageNewParams{
+		Model:     anthropic.ModelClaudeSonnet4_6,
+		MaxTokens: 4096,
+		System: []anthropic.TextBlockParam{
+			{Text: systemPrompt},
+		},
+		Messages: []anthropic.MessageParam{
+			{
+				Role: anthropic.MessageParamRoleUser,
+				Content: []anthropic.ContentBlockParamUnion{
+					{OfText: &anthropic.TextBlockParam{Text: userMsg.String()}},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("Claude API error: %w", err)
+	}
+
+	var raw string
+	for _, block := range msg.Content {
+		if block.Type == "text" {
+			raw += block.Text
+		}
+	}
+
+	return extractYAML(raw), nil
+}
+
+func confirmAndSave(yamlStr, outputPath string) error {
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		if outputPath != "" {
+			fmt.Printf("\nSave to %s? [Y]es / [n]o / [e]dit: ", outputPath)
+		} else {
+			fmt.Print("\nSave task? [Y]es (requires --output) / [n]o / [e]dit: ")
+		}
+
+		line, _ := reader.ReadString('\n')
+		line = strings.TrimSpace(strings.ToLower(line))
+
+		switch line {
+		case "y", "yes", "":
+			if outputPath == "" {
+				fmt.Fprintln(os.Stderr, "Use --output <file> to specify where to save.")
+				continue
+			}
+			if err := os.WriteFile(outputPath, []byte(yamlStr), 0o644); err != nil {
+				return fmt.Errorf("writing file: %w", err)
+			}
+			fmt.Printf("Saved to %s\n", outputPath)
+			fmt.Printf("Run with: fleetlift run %s\n", outputPath)
+			return nil
+		case "n", "no":
+			fmt.Println("Discarded.")
+			return nil
+		case "e", "edit":
+			edited, err := openEditor(yamlStr)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Editor error: %v\n", err)
+				continue
+			}
+			yamlStr = edited
+			fmt.Println("---")
+			fmt.Print(yamlStr)
+			fmt.Println("---")
+			if _, err := validateTaskYAML(yamlStr); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: YAML may have issues: %v\n", err)
+			}
+		default:
+			fmt.Println("Please enter Y, n, or e.")
+		}
+	}
+}
+
+func openEditor(content string) (string, error) {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi"
+	}
+
+	tmpFile, err := os.CreateTemp("", "fleetlift-task-*.yaml")
+	if err != nil {
+		return "", fmt.Errorf("creating temp file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.WriteString(content); err != nil {
+		return "", fmt.Errorf("writing temp file: %w", err)
+	}
+	tmpFile.Close()
+
+	c := exec.Command(editor, tmpFile.Name())
+	c.Stdin = os.Stdin
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	if err := c.Run(); err != nil {
+		return "", fmt.Errorf("editor exited with error: %w", err)
+	}
+
+	edited, err := os.ReadFile(tmpFile.Name())
+	if err != nil {
+		return "", fmt.Errorf("reading edited file: %w", err)
+	}
+	return string(edited), nil
 }
