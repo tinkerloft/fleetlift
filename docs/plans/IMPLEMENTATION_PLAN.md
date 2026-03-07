@@ -2,7 +2,7 @@
 
 Incremental implementation phases for the code transformation and discovery platform.
 
-> **Last Updated**: 2026-03-05 (Agentbox Split Phases 1–4 complete)
+> **Last Updated**: 2026-03-06 (AB-5 OpenSandbox adapter complete)
 >
 > **Note**: Implementation uses Task/Campaign terminology aligned with the design documents.
 >
@@ -1265,6 +1265,7 @@ $ fleetlift create \
 | AB-3b | **Agentbox Split — pipeline.go refactor** | `pipeline.go` uses `agentbox/agent.Protocol`; `cmd/agent/main.go` wired; `OSFileSystem` exported | ✅ Complete |
 | AB-3c | **Agentbox Split — legacy workflow migration** | Migrate old `Transform` workflow activities to agentbox temporalkit interfaces | ✅ Complete |
 | AB-4 | **Agentbox Split — delete protocol shim** | Remove `internal/agent/protocol/types.go`; all callers import `fleetproto`/`agentboxproto` directly | ✅ Complete |
+| AB-5 | **Agentbox — OpenSandbox adapter** | `sandbox/opensandbox/` package: Provider backend for OpenSandbox REST API | ✅ Complete |
 
 Each phase builds on the previous and delivers working functionality.
 
@@ -1355,6 +1356,21 @@ Cannot proceed until all 18 shim importers are migrated (see audit below).
 | `internal/workflow/transform_v2_test.go` | Uses `protocol.AgentStatus`, phase constants |
 
 **Migration path for shim deletion**: Each importer must be changed to import either `agentboxproto "github.com/tinkerloft/agentbox/protocol"` (for Phase/AgentStatus/Steering types) or `"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"` (for TaskManifest/AgentResult/RepoResult etc.) directly.
+
+### AB-5: agentbox — OpenSandbox adapter 🔄 In Progress
+
+Branch: `feat/opensandbox-adapter` (agentbox repo)
+
+- [x] `sandbox/opensandbox/lifecycle.go` — lifecycle API client (create/get/delete sandboxes)
+- [x] `sandbox/opensandbox/execd.go` — execd API client (Exec, CopyTo, CopyFrom with background poll)
+- [x] `sandbox/opensandbox/provider.go` — full `sandbox.AgentProvider` implementation (Provision, Exec, ExecShell, CopyTo, CopyFrom, Status, Cleanup, SubmitManifest, PollStatus, ReadResult, SubmitSteering)
+- [x] `sandbox/opensandbox/register.go` — self-registration in `init()`
+- [x] Unit tests with `net/http/httptest` mock servers
+- [x] Integration test stub with build tags
+- [x] Design doc: `docs/plans/2026-03-06-opensandbox-adapter-design.md`
+- [x] Implementation plan: `docs/plans/2026-03-06-opensandbox-adapter.md`
+
+**Deliverable**: Ready for integration into fleetlift workflows (deferred to later phase pending fleetlift architecture review).
 
 ---
 
