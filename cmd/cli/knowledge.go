@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
 	"github.com/tinkerloft/fleetlift/internal/knowledge"
 	"github.com/tinkerloft/fleetlift/internal/model"
@@ -53,6 +55,56 @@ For each item: [a]pprove promotes it, [d]elete removes it, [e]dit lets you updat
 
 After review, run 'fleetlift knowledge commit --repo <path>' to copy approved items to a repo.`,
 	RunE: runKnowledgeReview,
+}
+
+var knowledgeCommitCmd = &cobra.Command{
+	Use:   "commit",
+	Short: "Copy approved knowledge items into a transformation repo",
+	Long: `Copies all approved knowledge items from the local store (~/.fleetlift/knowledge)
+into the repo's knowledge directory ({repo}/.fleetlift/knowledge/items/).
+
+Items must be approved first via 'fleetlift knowledge review'.`,
+	RunE: runKnowledgeCommit,
+}
+
+func runKnowledgeCommit(cmd *cobra.Command, args []string) error {
+	repoPath, _ := cmd.Flags().GetString("repo")
+	if repoPath == "" {
+		return fmt.Errorf("--repo is required: specify the path to the transformation repo")
+	}
+
+	store := knowledge.DefaultStore()
+	approved, err := store.ListApproved()
+	if err != nil {
+		return fmt.Errorf("listing approved items: %w", err)
+	}
+
+	if len(approved) == 0 {
+		fmt.Println("No approved knowledge items found.")
+		fmt.Println("Run 'fleetlift knowledge review' to review and approve items first.")
+		return nil
+	}
+
+	destDir := filepath.Join(repoPath, ".fleetlift", "knowledge", "items")
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return fmt.Errorf("creating destination directory: %w", err)
+	}
+
+	committed := 0
+	for _, item := range approved {
+		data, err := yaml.Marshal(item)
+		if err != nil {
+			return fmt.Errorf("marshaling item %s: %w", item.ID, err)
+		}
+		destPath := filepath.Join(destDir, "item-"+item.ID+".yaml")
+		if err := os.WriteFile(destPath, data, 0o644); err != nil {
+			return fmt.Errorf("writing item %s: %w", item.ID, err)
+		}
+		committed++
+	}
+
+	fmt.Printf("Committed %d knowledge item(s) to %s\n", committed, destDir)
+	return nil
 }
 
 func runKnowledgeReview(cmd *cobra.Command, args []string) error {
@@ -164,6 +216,9 @@ func init() {
 	knowledgeCmd.AddCommand(knowledgeListCmd, knowledgeShowCmd, knowledgeAddCmd, knowledgeDeleteCmd)
 	knowledgeCmd.AddCommand(knowledgeReviewCmd)
 	knowledgeReviewCmd.Flags().String("task-id", "", "Filter review to a specific task ID")
+
+	knowledgeCmd.AddCommand(knowledgeCommitCmd)
+	knowledgeCommitCmd.Flags().String("repo", "", "Path to the transformation repo (required)")
 }
 
 func runKnowledgeList(cmd *cobra.Command, _ []string) error {
