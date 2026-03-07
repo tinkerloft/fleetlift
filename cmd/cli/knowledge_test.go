@@ -45,3 +45,26 @@ func TestKnowledgeAddAndList(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, items, 1)
 }
+
+func TestKnowledgeReview_PendingFilter(t *testing.T) {
+	dir := t.TempDir()
+	store := knowledge.NewStore(dir)
+
+	pending := model.KnowledgeItem{ID: "pend-01", Type: model.KnowledgeTypePattern, Summary: "pending item", Source: model.KnowledgeSourceAutoCaptured, CreatedAt: time.Now()}
+	approved := model.KnowledgeItem{ID: "appr-01", Type: model.KnowledgeTypePattern, Summary: "approved item", Source: model.KnowledgeSourceAutoCaptured, Status: model.KnowledgeStatusApproved, CreatedAt: time.Now()}
+
+	require.NoError(t, store.Write("task-1", pending))
+	require.NoError(t, store.Write("task-1", approved))
+
+	all, err := store.ListAll()
+	require.NoError(t, err)
+
+	var pendingItems []model.KnowledgeItem
+	for _, item := range all {
+		if item.Status == "" || item.Status == model.KnowledgeStatusPending {
+			pendingItems = append(pendingItems, item)
+		}
+	}
+	assert.Len(t, pendingItems, 1)
+	assert.Equal(t, "pend-01", pendingItems[0].ID)
+}

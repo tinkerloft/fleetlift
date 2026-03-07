@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -43,6 +45,111 @@ var knowledgeDeleteCmd = &cobra.Command{
 	RunE:  runKnowledgeDelete,
 }
 
+var knowledgeReviewCmd = &cobra.Command{
+	Use:   "review",
+	Short: "Interactively review pending knowledge items (approve/edit/delete)",
+	Long: `Review auto-captured knowledge items one by one.
+For each item: [a]pprove promotes it, [d]elete removes it, [e]dit lets you update the summary before approving, [s]kip leaves it as pending.
+
+After review, run 'fleetlift knowledge commit --repo <path>' to copy approved items to a repo.`,
+	RunE: runKnowledgeReview,
+}
+
+func runKnowledgeReview(cmd *cobra.Command, args []string) error {
+	taskID, _ := cmd.Flags().GetString("task-id")
+	store := knowledge.DefaultStore()
+
+	var items []model.KnowledgeItem
+	var err error
+	if taskID != "" {
+		items, err = store.List(taskID)
+	} else {
+		items, err = store.ListAll()
+	}
+	if err != nil {
+		return err
+	}
+
+	// Filter to pending items only (Status == "" or "pending")
+	var pending []model.KnowledgeItem
+	for _, item := range items {
+		if item.Status == "" || item.Status == model.KnowledgeStatusPending {
+			pending = append(pending, item)
+		}
+	}
+
+	if len(pending) == 0 {
+		fmt.Println("No pending knowledge items to review.")
+		return nil
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+	approved, deleted, skipped := 0, 0, 0
+
+	for i, item := range pending {
+		fmt.Printf("\n--- Item %d/%d ---\n", i+1, len(pending))
+		fmt.Printf("ID:         %s\n", item.ID)
+		fmt.Printf("Type:       %s\n", item.Type)
+		fmt.Printf("Confidence: %.2f\n", item.Confidence)
+		if len(item.Tags) > 0 {
+			fmt.Printf("Tags:       %s\n", strings.Join(item.Tags, ", "))
+		}
+		fmt.Printf("Summary:    %s\n", item.Summary)
+		if item.Details != "" {
+			fmt.Printf("Details:    %s\n", item.Details)
+		}
+		if item.CreatedFrom != nil && item.CreatedFrom.TaskID != "" {
+			fmt.Printf("From task:  %s\n", item.CreatedFrom.TaskID)
+		}
+
+	prompt:
+		fmt.Print("\n[a]pprove / [d]elete / [s]kip / [e]dit summary: ")
+		line, _ := reader.ReadString('\n')
+		line = strings.TrimSpace(strings.ToLower(line))
+
+		switch line {
+		case "a", "approve":
+			item.Status = model.KnowledgeStatusApproved
+			if err := store.Update(item); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to approve %s: %v\n", item.ID, err)
+			} else {
+				approved++
+			}
+		case "d", "delete":
+			if err := store.Delete(item.ID); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to delete %s: %v\n", item.ID, err)
+			} else {
+				deleted++
+			}
+		case "s", "skip", "":
+			skipped++
+		case "e", "edit":
+			fmt.Printf("New summary (leave blank to cancel): ")
+			newSummary, _ := reader.ReadString('\n')
+			newSummary = strings.TrimSpace(newSummary)
+			if newSummary == "" {
+				goto prompt
+			}
+			item.Summary = newSummary
+			item.Status = model.KnowledgeStatusApproved
+			if err := store.Update(item); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to update %s: %v\n", item.ID, err)
+			} else {
+				approved++
+			}
+		default:
+			fmt.Println("Please enter a, d, s, or e.")
+			goto prompt
+		}
+	}
+
+	fmt.Printf("\nReview complete: %d approved, %d deleted, %d skipped\n", approved, deleted, skipped)
+	if approved > 0 {
+		fmt.Println("Run 'fleetlift knowledge commit --repo <path>' to promote approved items to a repo.")
+	}
+	return nil
+}
+
 func init() {
 	knowledgeListCmd.Flags().String("task-id", "", "Filter by task ID")
 	knowledgeListCmd.Flags().String("type", "", "Filter by type (pattern|correction|gotcha|context)")
@@ -55,6 +162,8 @@ func init() {
 	_ = knowledgeAddCmd.MarkFlagRequired("summary")
 
 	knowledgeCmd.AddCommand(knowledgeListCmd, knowledgeShowCmd, knowledgeAddCmd, knowledgeDeleteCmd)
+	knowledgeCmd.AddCommand(knowledgeReviewCmd)
+	knowledgeReviewCmd.Flags().String("task-id", "", "Filter review to a specific task ID")
 }
 
 func runKnowledgeList(cmd *cobra.Command, _ []string) error {
