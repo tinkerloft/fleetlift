@@ -25,6 +25,16 @@ const (
 	KnowledgeSourceManual            KnowledgeSource = "manual"
 )
 
+// KnowledgeStatus represents the curation state of a knowledge item.
+type KnowledgeStatus string
+
+const (
+	// KnowledgeStatusPending is the default state — item awaits review.
+	KnowledgeStatusPending KnowledgeStatus = "pending"
+	// KnowledgeStatusApproved means the item has been reviewed and approved for promotion.
+	KnowledgeStatusApproved KnowledgeStatus = "approved"
+)
+
 // KnowledgeOrigin links a knowledge item back to its source execution.
 type KnowledgeOrigin struct {
 	TaskID         string `json:"task_id" yaml:"task_id"`
@@ -44,6 +54,7 @@ type KnowledgeItem struct {
 	Confidence  float64          `json:"confidence" yaml:"confidence"`
 	CreatedFrom *KnowledgeOrigin `json:"created_from,omitempty" yaml:"created_from,omitempty"`
 	CreatedAt   time.Time        `json:"created_at" yaml:"created_at"`
+	Status      KnowledgeStatus  `json:"status,omitempty" yaml:"status,omitempty"`
 }
 
 // KnowledgeConfig is the optional knowledge section in a Task YAML.

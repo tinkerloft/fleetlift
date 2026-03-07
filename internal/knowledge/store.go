@@ -121,6 +121,47 @@ func (s *Store) Delete(itemID string) error {
 	return fmt.Errorf("knowledge item %q not found", itemID)
 }
 
+// Update finds a knowledge item by ID across all task directories and rewrites it in-place.
+func (s *Store) Update(item model.KnowledgeItem) error {
+	entries, err := os.ReadDir(s.baseDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("item %s not found", item.ID)
+		}
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		itemPath := filepath.Join(s.baseDir, entry.Name(), "item-"+item.ID+".yaml")
+		if _, err := os.Stat(itemPath); os.IsNotExist(err) {
+			continue
+		}
+		data, err := yaml.Marshal(item)
+		if err != nil {
+			return fmt.Errorf("marshaling item: %w", err)
+		}
+		return os.WriteFile(itemPath, data, 0o644)
+	}
+	return fmt.Errorf("item %s not found", item.ID)
+}
+
+// ListApproved returns all knowledge items with Status == KnowledgeStatusApproved.
+func (s *Store) ListApproved() ([]model.KnowledgeItem, error) {
+	all, err := s.ListAll()
+	if err != nil {
+		return nil, err
+	}
+	var approved []model.KnowledgeItem
+	for _, item := range all {
+		if item.Status == model.KnowledgeStatusApproved {
+			approved = append(approved, item)
+		}
+	}
+	return approved, nil
+}
+
 // FilterByTags returns up to maxItems knowledge items whose tags overlap with filterTags.
 // If filterTags is empty, returns all items up to maxItems, sorted by confidence descending.
 func (s *Store) FilterByTags(filterTags []string, maxItems int) ([]model.KnowledgeItem, error) {
