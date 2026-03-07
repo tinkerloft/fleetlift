@@ -79,8 +79,24 @@ execution:
 	assert.ErrorContains(t, err, "repositor")
 }
 
+func TestValidateTaskYAML_GroupsOnlyTask(t *testing.T) {
+	yaml := `version: 1
+title: "Test"
+groups:
+  - name: my-group
+    repositories:
+      - url: https://github.com/org/repo.git
+execution:
+  agentic:
+    prompt: "Do the thing"
+`
+	task, err := validateTaskYAML(yaml)
+	require.NoError(t, err)
+	assert.Equal(t, "Test", task.Title)
+}
+
 func TestBuildSystemPrompt_ContainsSchema(t *testing.T) {
 	prompt := buildSystemPrompt()
-	assert.True(t, strings.Contains(prompt, "version: 1"))
+	assert.Contains(t, prompt, "version: 1")
 	assert.True(t, strings.Contains(prompt, "example-transform") || strings.Contains(prompt, "mode: transform"))
 }
