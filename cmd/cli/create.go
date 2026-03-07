@@ -145,6 +145,9 @@ func generateTaskYAML(ctx context.Context, description string, repos []string) (
 		}
 	}
 
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		return "", fmt.Errorf("ANTHROPIC_API_KEY environment variable is not set")
+	}
 	client := anthropic.NewClient()
 	msg, err := client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.ModelClaudeSonnet4_6,
@@ -171,6 +174,9 @@ func generateTaskYAML(ctx context.Context, description string, repos []string) (
 			raw += block.Text
 		}
 	}
+	if raw == "" {
+		return "", fmt.Errorf("Claude returned an empty response")
+	}
 
 	return extractYAML(raw), nil
 }
@@ -184,7 +190,11 @@ func confirmAndSave(yamlStr, outputPath string) error {
 			fmt.Print("\nSave task? [Y]es (requires --output) / [n]o / [e]dit: ")
 		}
 
-		line, _ := reader.ReadString('\n')
+		line, err := reader.ReadString('\n')
+		if err != nil && line == "" {
+			fmt.Fprintln(os.Stderr, "No input; discarding.")
+			return nil
+		}
 		line = strings.TrimSpace(strings.ToLower(line))
 
 		switch line {
@@ -232,11 +242,14 @@ func openEditor(content string) (string, error) {
 		return "", fmt.Errorf("creating temp file: %w", err)
 	}
 	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close() // ensures close on all error paths
 
 	if _, err := tmpFile.WriteString(content); err != nil {
 		return "", fmt.Errorf("writing temp file: %w", err)
 	}
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		return "", fmt.Errorf("flushing temp file: %w", err)
+	}
 
 	c := exec.Command(editor, tmpFile.Name())
 	c.Stdin = os.Stdin
