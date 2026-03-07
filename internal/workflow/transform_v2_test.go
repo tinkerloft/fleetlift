@@ -152,6 +152,63 @@ func TestTransformV2_HappyPath(t *testing.T) {
 	assert.Equal(t, "https://github.com/org/svc/pull/1", result.Repositories[0].PullRequest.PRURL)
 }
 
+func TestTransformV2_EnrichPrompt_EnrichesManifest(t *testing.T) {
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestWorkflowEnvironment()
+
+	task := model.Task{
+		Version: 1,
+		ID:      "enrich-test",
+		Title:   "Enrich Test",
+		Mode:    model.TaskModeTransform,
+		Repositories: []model.Repository{
+			{URL: "https://github.com/org/svc.git", Branch: "main", Name: "svc"},
+		},
+		Execution: model.Execution{
+			Agentic: &model.AgenticExecution{Prompt: "Fix the bug"},
+		},
+	}
+
+	sandboxInfo := &model.SandboxInfo{ContainerID: "container-enrich", WorkspacePath: "/workspace"}
+	enrichedPrompt := "Fix the bug\n\n---\n## Lessons from previous runs\n\n- [pattern] Use structured logging\n"
+
+	mockActivities := &AgentMockActivities{}
+	env.RegisterActivity(mockActivities.ProvisionAgentSandbox)
+	env.RegisterActivity(mockActivities.SubmitTaskManifest)
+	env.RegisterActivity(mockActivities.WaitForAgentPhase)
+	env.RegisterActivity(mockActivities.ReadAgentResult)
+	env.RegisterActivity(mockActivities.CleanupSandbox)
+	env.RegisterActivity(mockActivities.EnrichPrompt)
+	env.RegisterActivity(mockActivities.CaptureKnowledge)
+
+	// EnrichPrompt is called with the original prompt and returns enriched version
+	mockActivities.On("EnrichPrompt", mock.Anything, mock.MatchedBy(func(input activity.EnrichPromptInput) bool {
+		return input.OriginalPrompt == "Fix the bug"
+	})).Return(enrichedPrompt, nil)
+
+	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
+
+	// SubmitTaskManifest must receive the enriched prompt
+	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.MatchedBy(func(input activity.SubmitTaskManifestInput) bool {
+		return input.Manifest.Execution.Prompt == enrichedPrompt
+	})).Return(nil)
+
+	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.Anything).Return(
+		&agentboxproto.AgentStatus{Phase: agentboxproto.PhaseComplete}, nil,
+	)
+	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
+		&fleetproto.AgentResult{Status: agentboxproto.PhaseComplete}, nil,
+	)
+	mockActivities.On("CleanupSandbox", mock.Anything, "container-enrich").Return(nil)
+	mockActivities.On("CaptureKnowledge", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+
+	env.ExecuteWorkflow(TransformV2, task)
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	mockActivities.AssertExpectations(t)
+}
+
 func TestTransformV2_AgentFailed(t *testing.T) {
 	testSuite := &testsuite.WorkflowTestSuite{}
 	env := testSuite.NewTestWorkflowEnvironment()

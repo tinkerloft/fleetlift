@@ -152,6 +152,34 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 
 	// 2. Submit manifest
 	status = model.TaskStatusRunning
+
+	// Enrich prompt with knowledge from previous runs (non-blocking; errors use original prompt)
+	originalPrompt := ""
+	if task.Execution.Agentic != nil {
+		originalPrompt = task.Execution.Agentic.Prompt
+	}
+	if task.KnowledgeEnrichEnabled() && task.Execution.Agentic != nil {
+		enrichCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 30 * time.Second,
+			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+		})
+		enrichInput := activity.EnrichPromptInput{
+			OriginalPrompt: task.Execution.Agentic.Prompt,
+			FilterTags:     task.KnowledgeTags(),
+			MaxItems:       task.KnowledgeMaxItems(),
+		}
+		if task.UsesTransformationRepo() {
+			enrichInput.TransformationRepoPath = "/workspace"
+		}
+		var enrichedPrompt string
+		if err := workflow.ExecuteActivity(enrichCtx, activity.ActivityEnrichPrompt, enrichInput).Get(enrichCtx, &enrichedPrompt); err != nil {
+			logger.Warn("TransformV2: EnrichPrompt failed, using original prompt", "error", err)
+		} else if enrichedPrompt != "" {
+			task.Execution.Agentic.Prompt = enrichedPrompt
+		}
+	}
+	_ = originalPrompt // used in Task 3 (CaptureKnowledge)
+
 	manifest := activity.BuildManifest(task)
 
 	manifestInput := activity.SubmitTaskManifestInput{
