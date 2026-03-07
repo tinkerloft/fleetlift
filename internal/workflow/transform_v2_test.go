@@ -68,6 +68,19 @@ func (m *AgentMockActivities) NotifySlack(ctx context.Context, channel, message 
 	return args.Get(0).(*string), args.Error(1)
 }
 
+func (m *AgentMockActivities) EnrichPrompt(ctx context.Context, input activity.EnrichPromptInput) (string, error) {
+	args := m.Called(ctx, input)
+	return args.String(0), args.Error(1)
+}
+
+func (m *AgentMockActivities) CaptureKnowledge(ctx context.Context, input activity.CaptureKnowledgeInput) ([]model.KnowledgeItem, error) {
+	args := m.Called(ctx, input)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.KnowledgeItem), args.Error(1)
+}
+
 func TestTransformV2_HappyPath(t *testing.T) {
 	testSuite := &testsuite.WorkflowTestSuite{}
 	env := testSuite.NewTestWorkflowEnvironment()
@@ -96,6 +109,8 @@ func TestTransformV2_HappyPath(t *testing.T) {
 	env.RegisterActivity(mockActivities.WaitForAgentPhase)
 	env.RegisterActivity(mockActivities.ReadAgentResult)
 	env.RegisterActivity(mockActivities.CleanupSandbox)
+	env.RegisterActivity(mockActivities.EnrichPrompt)
+	env.RegisterActivity(mockActivities.CaptureKnowledge)
 
 	// Set up expectations
 	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
@@ -117,6 +132,8 @@ func TestTransformV2_HappyPath(t *testing.T) {
 		}, nil,
 	)
 	mockActivities.On("CleanupSandbox", mock.Anything, "container-123").Return(nil)
+	mockActivities.On("EnrichPrompt", mock.Anything, mock.Anything).Return("", nil).Maybe()
+	mockActivities.On("CaptureKnowledge", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	env.ExecuteWorkflow(TransformV2, task)
 
@@ -159,6 +176,8 @@ func TestTransformV2_AgentFailed(t *testing.T) {
 	env.RegisterActivity(mockActivities.WaitForAgentPhase)
 	env.RegisterActivity(mockActivities.ReadAgentResult)
 	env.RegisterActivity(mockActivities.CleanupSandbox)
+	env.RegisterActivity(mockActivities.EnrichPrompt)
+	env.RegisterActivity(mockActivities.CaptureKnowledge)
 
 	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
 	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
@@ -173,6 +192,8 @@ func TestTransformV2_AgentFailed(t *testing.T) {
 		}, nil,
 	)
 	mockActivities.On("CleanupSandbox", mock.Anything, "container-456").Return(nil)
+	mockActivities.On("EnrichPrompt", mock.Anything, mock.Anything).Return("", nil).Maybe()
+	mockActivities.On("CaptureKnowledge", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	env.ExecuteWorkflow(TransformV2, task)
 
@@ -212,6 +233,8 @@ func TestTransformV2_ReportMode(t *testing.T) {
 	env.RegisterActivity(mockActivities.WaitForAgentPhase)
 	env.RegisterActivity(mockActivities.ReadAgentResult)
 	env.RegisterActivity(mockActivities.CleanupSandbox)
+	env.RegisterActivity(mockActivities.EnrichPrompt)
+	env.RegisterActivity(mockActivities.CaptureKnowledge)
 
 	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
 	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
@@ -235,6 +258,8 @@ func TestTransformV2_ReportMode(t *testing.T) {
 		}, nil,
 	)
 	mockActivities.On("CleanupSandbox", mock.Anything, "container-789").Return(nil)
+	mockActivities.On("EnrichPrompt", mock.Anything, mock.Anything).Return("", nil).Maybe()
+	mockActivities.On("CaptureKnowledge", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	env.ExecuteWorkflow(TransformV2, task)
 
@@ -278,9 +303,13 @@ func TestTransformV2_SteeringLoop_Approve(t *testing.T) {
 	env.RegisterActivity(mockActivities.ReadAgentResult)
 	env.RegisterActivity(mockActivities.SubmitSteeringAction)
 	env.RegisterActivity(mockActivities.CleanupSandbox)
+	env.RegisterActivity(mockActivities.EnrichPrompt)
+	env.RegisterActivity(mockActivities.CaptureKnowledge)
 
 	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
 	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
+	mockActivities.On("EnrichPrompt", mock.Anything, mock.Anything).Return("", nil).Maybe()
+	mockActivities.On("CaptureKnowledge", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	// First wait returns awaiting_input
 	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.MatchedBy(func(input activity.WaitForAgentPhaseInput) bool {
@@ -393,6 +422,8 @@ func TestTransformV2_SteeringLoop_Reject(t *testing.T) {
 	env.RegisterActivity(mockActivities.ReadAgentResult)
 	env.RegisterActivity(mockActivities.SubmitSteeringAction)
 	env.RegisterActivity(mockActivities.CleanupSandbox)
+	env.RegisterActivity(mockActivities.EnrichPrompt)
+	env.RegisterActivity(mockActivities.CaptureKnowledge)
 
 	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
 	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
@@ -407,6 +438,8 @@ func TestTransformV2_SteeringLoop_Reject(t *testing.T) {
 	)
 	mockActivities.On("SubmitSteeringAction", mock.Anything, mock.Anything).Return(nil)
 	mockActivities.On("CleanupSandbox", mock.Anything, "container-reject").Return(nil)
+	mockActivities.On("EnrichPrompt", mock.Anything, mock.Anything).Return("", nil).Maybe()
+	mockActivities.On("CaptureKnowledge", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(SignalReject, nil)
@@ -449,6 +482,8 @@ func TestTransformV2_SteeringLoop_Cancel(t *testing.T) {
 	env.RegisterActivity(mockActivities.ReadAgentResult)
 	env.RegisterActivity(mockActivities.SubmitSteeringAction)
 	env.RegisterActivity(mockActivities.CleanupSandbox)
+	env.RegisterActivity(mockActivities.EnrichPrompt)
+	env.RegisterActivity(mockActivities.CaptureKnowledge)
 
 	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
 	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
@@ -463,6 +498,8 @@ func TestTransformV2_SteeringLoop_Cancel(t *testing.T) {
 	)
 	mockActivities.On("SubmitSteeringAction", mock.Anything, mock.Anything).Return(nil)
 	mockActivities.On("CleanupSandbox", mock.Anything, "container-cancel").Return(nil)
+	mockActivities.On("EnrichPrompt", mock.Anything, mock.Anything).Return("", nil).Maybe()
+	mockActivities.On("CaptureKnowledge", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(SignalCancel, nil)
