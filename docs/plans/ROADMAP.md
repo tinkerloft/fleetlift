@@ -41,13 +41,11 @@ Production-grade security for K8s deployments.
 
 Enable humans to curate auto-captured knowledge before sharing team-wide.
 
-**Prerequisite status:** Phase 10a workflow wiring is now complete (EnrichPrompt + CaptureKnowledge called from TransformV2).
+**Prerequisite status:** Phase 10a + 10b workflow wiring complete. Knowledge review and commit commands implemented.
 
-**Prerequisite**: Phase 10a complete — `CaptureKnowledge`, `EnrichPrompt` activities, `knowledge list/show` CLI, workflow wiring (EnrichPrompt + CaptureKnowledge called from TransformV2).
-
-- [ ] `fleetlift knowledge review [--task-id ID]` — interactive TUI; approve/edit/delete items before promotion to Tier 3
-- [ ] `fleetlift knowledge commit [--repo PATH]` — copy approved items into `.fleetlift/knowledge/` in a transformation repo
-- [ ] Post-approval CLI log: "N knowledge items captured. Run `fleetlift knowledge review` to curate."
+- [x] `fleetlift knowledge review [--task-id ID]` — interactive TUI; approve/edit/delete items before promotion to Tier 3
+- [x] `fleetlift knowledge commit [--repo PATH]` — copy approved items into `.fleetlift/knowledge/` in a transformation repo
+- [x] Post-capture workflow log: when items are captured, logs "N knowledge items captured — run 'fleetlift knowledge review' to curate" (visible in Temporal worker logs)
 - [ ] Grouped execution wiring: single-group path done; multi-group path needs knowledge capture per-group contributing to shared pool
 - [ ] Efficacy tracking: add `times_used`, `success_rate` fields to `KnowledgeItem`; `fleetlift knowledge stats` command; auto-deprecate items with low confidence after N uses with no improvement
 

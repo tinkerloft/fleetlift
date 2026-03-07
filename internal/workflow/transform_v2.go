@@ -369,8 +369,14 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 			VerifiersPassed: true,
 			RepoNames:       repoNames,
 		}
-		if err := workflow.ExecuteActivity(captureCtx, activity.ActivityCaptureKnowledge, captureInput).Get(captureCtx, nil); err != nil {
+		var capturedItems []model.KnowledgeItem
+		if err := workflow.ExecuteActivity(captureCtx, activity.ActivityCaptureKnowledge, captureInput).Get(captureCtx, &capturedItems); err != nil {
 			logger.Warn("TransformV2: CaptureKnowledge failed (non-blocking)", "error", err)
+		} else if len(capturedItems) > 0 {
+			logger.Info("TransformV2: knowledge captured â run 'fleetlift knowledge review' to curate",
+				"count", len(capturedItems),
+				"task_id", task.ID,
+			)
 		}
 	}
 
