@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -570,6 +571,168 @@ func TestTransformV2_SteeringLoop_Cancel(t *testing.T) {
 	var result model.TaskResult
 	require.NoError(t, env.GetWorkflowResult(&result))
 	assert.Equal(t, model.TaskStatusCancelled, result.Status)
+}
+
+func TestTransformV2_CaptureKnowledge_CalledAfterSteering(t *testing.T) {
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestWorkflowEnvironment()
+
+	task := model.Task{
+		Version: 1,
+		ID:      "capture-test",
+		Title:   "Capture Test",
+		Mode:    model.TaskModeTransform,
+		Repositories: []model.Repository{
+			{URL: "https://github.com/org/svc.git", Branch: "main", Name: "svc"},
+		},
+		Execution: model.Execution{
+			Agentic: &model.AgenticExecution{Prompt: "Fix the bug"},
+		},
+		RequireApproval: true,
+	}
+
+	sandboxInfo := &model.SandboxInfo{ContainerID: "container-capture", WorkspacePath: "/workspace"}
+
+	mockActivities := &AgentMockActivities{}
+	env.RegisterActivity(mockActivities.ProvisionAgentSandbox)
+	env.RegisterActivity(mockActivities.SubmitTaskManifest)
+	env.RegisterActivity(mockActivities.WaitForAgentPhase)
+	env.RegisterActivity(mockActivities.ReadAgentResult)
+	env.RegisterActivity(mockActivities.SubmitSteeringAction)
+	env.RegisterActivity(mockActivities.CleanupSandbox)
+	env.RegisterActivity(mockActivities.EnrichPrompt)
+	env.RegisterActivity(mockActivities.CaptureKnowledge)
+
+	mockActivities.On("EnrichPrompt", mock.Anything, mock.Anything).Return("", nil)
+	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
+	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
+
+	// First wait: awaiting input
+	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.MatchedBy(func(i activity.WaitForAgentPhaseInput) bool {
+		for _, p := range i.TargetPhases {
+			if p == string(agentboxproto.PhaseAwaitingInput) {
+				return true
+			}
+		}
+		return false
+	})).Return(&agentboxproto.AgentStatus{Phase: agentboxproto.PhaseAwaitingInput}, nil).Once()
+
+	// After steer: awaiting input again
+	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.MatchedBy(func(i activity.WaitForAgentPhaseInput) bool {
+		for _, p := range i.TargetPhases {
+			if p == string(agentboxproto.PhaseAwaitingInput) {
+				return true
+			}
+		}
+		return false
+	})).Return(&agentboxproto.AgentStatus{Phase: agentboxproto.PhaseAwaitingInput}, nil).Once()
+
+	// After approve: complete
+	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.MatchedBy(func(i activity.WaitForAgentPhaseInput) bool {
+		for _, p := range i.TargetPhases {
+			if p == string(agentboxproto.PhaseComplete) {
+				return true
+			}
+		}
+		return false
+	})).Return(&agentboxproto.AgentStatus{Phase: agentboxproto.PhaseComplete}, nil).Once()
+
+	agentResult := &fleetproto.AgentResult{
+		Status: agentboxproto.PhaseAwaitingInput,
+		Repositories: []fleetproto.RepoResult{
+			{Name: "svc", Status: "success", FilesModified: []string{"main.go"}},
+		},
+	}
+	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(agentResult, nil)
+	mockActivities.On("SubmitSteeringAction", mock.Anything, mock.Anything).Return(nil)
+	mockActivities.On("CleanupSandbox", mock.Anything, "container-capture").Return(nil)
+
+	// CaptureKnowledge MUST be called with steering history
+	mockActivities.On("CaptureKnowledge", mock.Anything, mock.MatchedBy(func(input activity.CaptureKnowledgeInput) bool {
+		return input.TaskID == "capture-test" &&
+			len(input.SteeringHistory) == 1 &&
+			input.SteeringHistory[0].Prompt == "Also fix tests"
+	})).Return(nil, nil).Once()
+
+	// Send steer first; approve arrives after steer loop iteration completes (non-zero delay
+	// ensures steer is processed before approve arrives, since AwaitWithTimeout advances
+	// simulated time when waiting).
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(SignalSteer, model.SteeringSignalPayload{Prompt: "Also fix tests"})
+	}, 0)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(SignalApprove, nil)
+	}, time.Hour)
+
+	env.ExecuteWorkflow(TransformV2, task)
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	mockActivities.AssertExpectations(t)
+}
+
+func TestTransformV2_CaptureKnowledge_SkippedWithoutSteering(t *testing.T) {
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestWorkflowEnvironment()
+
+	task := model.Task{
+		Version: 1,
+		ID:      "no-capture-test",
+		Mode:    model.TaskModeTransform,
+		Repositories: []model.Repository{
+			{URL: "https://github.com/org/svc.git", Branch: "main", Name: "svc"},
+		},
+		Execution:       model.Execution{Agentic: &model.AgenticExecution{Prompt: "Fix it"}},
+		RequireApproval: true,
+	}
+
+	sandboxInfo := &model.SandboxInfo{ContainerID: "container-no-cap", WorkspacePath: "/workspace"}
+
+	mockActivities := &AgentMockActivities{}
+	env.RegisterActivity(mockActivities.ProvisionAgentSandbox)
+	env.RegisterActivity(mockActivities.SubmitTaskManifest)
+	env.RegisterActivity(mockActivities.WaitForAgentPhase)
+	env.RegisterActivity(mockActivities.ReadAgentResult)
+	env.RegisterActivity(mockActivities.SubmitSteeringAction)
+	env.RegisterActivity(mockActivities.CleanupSandbox)
+	env.RegisterActivity(mockActivities.EnrichPrompt)
+	env.RegisterActivity(mockActivities.CaptureKnowledge)
+
+	mockActivities.On("EnrichPrompt", mock.Anything, mock.Anything).Return("", nil)
+	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
+	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
+	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.MatchedBy(func(i activity.WaitForAgentPhaseInput) bool {
+		for _, p := range i.TargetPhases {
+			if p == string(agentboxproto.PhaseAwaitingInput) {
+				return true
+			}
+		}
+		return false
+	})).Return(&agentboxproto.AgentStatus{Phase: agentboxproto.PhaseAwaitingInput}, nil).Once()
+	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.MatchedBy(func(i activity.WaitForAgentPhaseInput) bool {
+		for _, p := range i.TargetPhases {
+			if p == string(agentboxproto.PhaseComplete) {
+				return true
+			}
+		}
+		return false
+	})).Return(&agentboxproto.AgentStatus{Phase: agentboxproto.PhaseComplete}, nil).Once()
+	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
+		&fleetproto.AgentResult{Status: agentboxproto.PhaseComplete}, nil,
+	)
+	mockActivities.On("SubmitSteeringAction", mock.Anything, mock.Anything).Return(nil)
+	mockActivities.On("CleanupSandbox", mock.Anything, "container-no-cap").Return(nil)
+	// CaptureKnowledge must NOT be called (no .On registration)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(SignalApprove, nil)
+	}, 0)
+
+	env.ExecuteWorkflow(TransformV2, task)
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	mockActivities.AssertNotCalled(t, "CaptureKnowledge", mock.Anything, mock.Anything)
 }
 
 func TestBuildTaskResultFromAgent(t *testing.T) {

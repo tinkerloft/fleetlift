@@ -178,7 +178,6 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 			task.Execution.Agentic.Prompt = enrichedPrompt
 		}
 	}
-	_ = originalPrompt // used in Task 3 (CaptureKnowledge)
 
 	manifest := activity.BuildManifest(task)
 
@@ -349,6 +348,29 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 				steerRequested = false
 				steeringPrompt = ""
 			}
+		}
+	}
+
+	// Capture knowledge from steering corrections (non-blocking; only when steering occurred)
+	if task.KnowledgeCaptureEnabled() && len(steeringState.History) > 0 {
+		captureCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 30 * time.Second,
+			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+		})
+		repoNames := make([]string, 0, len(task.GetEffectiveRepositories()))
+		for _, r := range task.GetEffectiveRepositories() {
+			repoNames = append(repoNames, r.Name)
+		}
+		captureInput := activity.CaptureKnowledgeInput{
+			TaskID:          task.ID,
+			OriginalPrompt:  originalPrompt,
+			SteeringHistory: steeringState.History,
+			DiffSummary:     buildDiffSummary(cachedDiffs),
+			VerifiersPassed: true,
+			RepoNames:       repoNames,
+		}
+		if err := workflow.ExecuteActivity(captureCtx, activity.ActivityCaptureKnowledge, captureInput).Get(captureCtx, nil); err != nil {
+			logger.Warn("TransformV2: CaptureKnowledge failed (non-blocking)", "error", err)
 		}
 	}
 
