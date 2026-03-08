@@ -43,7 +43,7 @@ func TransformGroup(ctx workflow.Context, input GroupTransformInput) (*GroupTran
 
 	// Invoke TransformV2 as a child workflow
 	childCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
-		WorkflowID: groupTask.ID,
+		WorkflowID: groupTask.ID + "-exec",
 	})
 
 	var taskResult model.TaskResult
