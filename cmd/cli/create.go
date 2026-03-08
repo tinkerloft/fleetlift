@@ -125,7 +125,10 @@ Examples:
     --output tracing-task.yaml --run
 
   # Preview without saving:
-  fleetlift create --describe "Security audit of auth module" --dry-run`,
+  fleetlift create --describe "Security audit of auth module" --dry-run
+
+  # Interactive multi-turn session:
+  fleetlift create --interactive --output task.yaml`,
 	RunE: runCreate,
 }
 
@@ -135,6 +138,7 @@ func init() {
 	createCmd.Flags().String("output", "", "Save generated YAML to this file path")
 	createCmd.Flags().Bool("dry-run", false, "Print generated YAML without prompting to save")
 	createCmd.Flags().Bool("run", false, "Immediately execute after saving (requires --output)")
+	createCmd.Flags().BoolP("interactive", "i", false, "Start a multi-turn conversation with Claude to build the task")
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
@@ -146,6 +150,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	if runAfter && outputPath == "" {
 		return fmt.Errorf("--run requires --output to specify where to save the task file")
+	}
+
+	interactive, _ := cmd.Flags().GetBool("interactive")
+	if interactive {
+		return runInteractiveCreate(cmd, outputPath, runAfter)
 	}
 
 	if description == "" {
