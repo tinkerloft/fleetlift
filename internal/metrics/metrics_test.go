@@ -32,10 +32,10 @@ func TestRegister(t *testing.T) {
 	for _, mf := range mfs {
 		names[mf.GetName()] = true
 	}
-	assert.True(t, names["fleetlift_activity_duration_seconds"])
-	assert.True(t, names["fleetlift_activity_total"])
+	assert.True(t, names["agentbox_activity_duration_seconds"])
+	assert.True(t, names["agentbox_activity_total"])
 	assert.True(t, names["fleetlift_prs_created_total"])
-	assert.True(t, names["fleetlift_sandbox_provision_seconds"])
+	assert.True(t, names["agentbox_sandbox_provision_seconds"])
 }
 
 func TestInterceptor_RecordsSuccessMetrics(t *testing.T) {
@@ -64,7 +64,7 @@ func TestInterceptor_RecordsSuccessMetrics(t *testing.T) {
 
 	mfs, err := reg.Gather()
 	require.NoError(t, err)
-	total := findCounter(mfs, "fleetlift_activity_total", "activity_name", "TestActivity", "result", "success")
+	total := findCounter(mfs, "agentbox_activity_total", "activity_name", "TestActivity", "result", "success")
 	assert.Equal(t, float64(1), total)
 }
 
@@ -88,7 +88,7 @@ func TestInterceptor_RecordsFailureMetrics(t *testing.T) {
 
 	mfs, err := reg.Gather()
 	require.NoError(t, err)
-	total := findCounter(mfs, "fleetlift_activity_total", "activity_name", "FailActivity", "result", "failure")
+	total := findCounter(mfs, "agentbox_activity_total", "activity_name", "FailActivity", "result", "failure")
 	assert.Equal(t, float64(1), total)
 }
 

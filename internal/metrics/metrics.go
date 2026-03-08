@@ -49,7 +49,7 @@ func New() *Metrics {
 	return &Metrics{
 		ActivityDuration: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
-				Name:    "fleetlift_activity_duration_seconds",
+				Name:    "agentbox_activity_duration_seconds",
 				Help:    "Duration of each Temporal activity execution in seconds.",
 				Buckets: []float64{1, 5, 10, 30, 60, 120, 300, 600},
 			},
@@ -57,7 +57,7 @@ func New() *Metrics {
 		),
 		ActivityTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "fleetlift_activity_total",
+				Name: "agentbox_activity_total",
 				Help: "Total number of Temporal activity executions by name and result.",
 			},
 			[]string{"activity_name", "result"},
@@ -67,7 +67,7 @@ func New() *Metrics {
 			Help: "Total number of pull requests successfully created.",
 		}),
 		SandboxProvisionDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name:    "fleetlift_sandbox_provision_seconds",
+			Name:    "agentbox_sandbox_provision_seconds",
 			Help:    "Duration of sandbox provisioning in seconds.",
 			Buckets: []float64{1, 5, 10, 30, 60, 120, 300},
 		}),

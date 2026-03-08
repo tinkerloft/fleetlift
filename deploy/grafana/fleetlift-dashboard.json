@@ -11,7 +11,7 @@
       "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
       "targets": [
         {
-          "expr": "sum(rate(fleetlift_activity_total[1m])) by (activity_name)",
+          "expr": "sum(rate(agentbox_activity_total[1m])) by (activity_name)",
           "legendFormat": "{{activity_name}}"
         }
       ]
@@ -23,7 +23,7 @@
       "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
       "targets": [
         {
-          "expr": "sum(rate(fleetlift_activity_total{result=\"success\"}[5m])) / sum(rate(fleetlift_activity_total[5m]))",
+          "expr": "sum(rate(agentbox_activity_total{result=\"success\"}[5m])) / sum(rate(agentbox_activity_total[5m]))",
           "legendFormat": "Success Rate"
         }
       ],
@@ -41,7 +41,7 @@
       "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(fleetlift_activity_duration_seconds_bucket[5m])) by (le, activity_name))",
+          "expr": "histogram_quantile(0.95, sum(rate(agentbox_activity_duration_seconds_bucket[5m])) by (le, activity_name))",
           "legendFormat": "p95 {{activity_name}}"
         }
       ]
@@ -53,7 +53,7 @@
       "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, rate(fleetlift_sandbox_provision_seconds_bucket[10m]))",
+          "expr": "histogram_quantile(0.95, rate(agentbox_sandbox_provision_seconds_bucket[10m]))",
           "legendFormat": "p95"
         }
       ],

@@ -1,6 +1,6 @@
 # Code Transformation Platform - Technical Design
 
-> **Implementation Status (2026-02-08)**: This design document describes both implemented and planned
+> **Implementation Status (2026-03-06)**: This design document describes both implemented and planned
 > features. Key differences from the implementation:
 >
 > - **Campaign → Grouped Execution**: The separate "Campaign" concept was replaced by grouped
@@ -8,10 +8,16 @@
 >   groups, failure thresholds, pause/continue/retry directly.
 > - **CRD/Controller → Direct Job Management**: The Kubernetes Sandbox Controller and CRD pattern
 >   described here was replaced by direct Job creation from the worker. See [SIDECAR_AGENT.md](./SIDECAR_AGENT.md).
-> - **Knowledge System (Phase 10)** and **NL Task Creation (Phase 11)**: Not yet implemented.
-> - **Kubernetes Provider (Phase 6b)**: Not yet implemented. Only Docker provider exists.
+> - **Agentbox split**: Sandbox, protocol, agent primitives, and Temporal activity helpers now live in
+>   `github.com/tinkerloft/agentbox`. Fleetlift imports agentbox; `internal/sandbox/` and
+>   `internal/agent/protocol/` have been deleted.
+> - **Kubernetes Provider (Phase 6b)**: Implemented — Docker + K8s providers in `agentbox/sandbox/`.
+>   OpenSandbox adapter also available (`agentbox/sandbox/opensandbox/`).
+> - **Knowledge System (Phase 10a)**: Implemented — `CaptureKnowledge` + `EnrichPrompt` activities,
+>   three-tier storage, `knowledge list/show` CLI. Phase 10b (curation, `review`/`commit` commands) outstanding.
+> - **NL Task Creation (Phase 11)**: Not yet implemented.
 >
-> See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for current status.
+> See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for full history and [ROADMAP.md](./ROADMAP.md) for outstanding work.
 
 ## Overview
 
