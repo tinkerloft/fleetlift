@@ -282,6 +282,76 @@ func sendConversationMessage(
 	return history, reply, nil
 }
 
+func runInteractiveCreate(cmd *cobra.Command, outputPath string, runAfter bool) error {
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		return fmt.Errorf("ANTHROPIC_API_KEY environment variable is not set")
+	}
+
+	systemPrompt := buildInteractiveSystemPrompt()
+	apiClient := anthropic.NewClient()
+	history := []anthropic.MessageParam{}
+	scanner := bufio.NewScanner(os.Stdin)
+
+	// Trigger Claude's opening question with a hidden seed message.
+	var err error
+	var response string
+	history, response, err = sendConversationMessage(
+		cmd.Context(), &apiClient, systemPrompt, history,
+		"Hello! I'd like to create a Fleetlift task.",
+	)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("\nClaude: %s\n", response)
+
+	for {
+		fmt.Print("\nYou: ")
+		if !scanner.Scan() {
+			fmt.Println("\nSession ended.")
+			return nil
+		}
+		userInput := strings.TrimSpace(scanner.Text())
+		if userInput == "" {
+			continue
+		}
+
+		history, response, err = sendConversationMessage(
+			cmd.Context(), &apiClient, systemPrompt, history, userInput,
+		)
+		if err != nil {
+			return err
+		}
+
+		if hasGenerationMarker(response) {
+			// Print any prose before the marker.
+			before, _, _ := strings.Cut(response, generationMarker)
+			if msg := strings.TrimSpace(before); msg != "" {
+				fmt.Printf("\nClaude: %s\n", msg)
+			}
+
+			yamlStr := extractYAMLFromMarker(response)
+			if _, valErr := validateTaskYAML(yamlStr); valErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: generated YAML may have issues: %v\n", valErr)
+			}
+
+			fmt.Println("\n---")
+			fmt.Print(yamlStr)
+			fmt.Println("---")
+
+			if runAfter {
+				if err := os.WriteFile(outputPath, []byte(yamlStr), 0o644); err != nil {
+					return fmt.Errorf("writing file: %w", err)
+				}
+				fmt.Printf("Saved to %s\n", outputPath)
+				return startRunFromFile(cmd.Context(), outputPath)
+			}
+			return confirmAndSave(yamlStr, outputPath)
+		}
+
+		fmt.Printf("\nClaude: %s\n", response)
+	}
+}
+
 func startRunFromFile(ctx context.Context, filePath string) error {
 	task, err := config.LoadTaskFile(filePath)
 	if err != nil {
