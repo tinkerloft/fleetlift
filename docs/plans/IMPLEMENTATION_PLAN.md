@@ -2,7 +2,7 @@
 
 Incremental implementation phases for the code transformation and discovery platform.
 
-> **Last Updated**: 2026-03-06 (AB-5 OpenSandbox adapter complete)
+> **Last Updated**: 2026-03-08 (Phase 10 & 11 core features complete)
 >
 > **Note**: Implementation uses Task/Campaign terminology aligned with the design documents.
 >
@@ -876,7 +876,7 @@ Knowledge lives at three levels with increasing curation:
 
 **Tier 3: Transformation Repository (curated, shared)**
 - [x] Convention: `.fleetlift/knowledge/` directory in transformation repos
-- [ ] Human-curated subset of Tier 2 items, committed to version control (requires `knowledge commit` — Phase 10b)
+- [x] Human-curated subset of Tier 2 items, committed to version control (`knowledge commit` implemented)
 - [x] Team-shareable, auditable, version-controlled
 - [x] Takes precedence over Tier 2 when a transformation repo is used
 
@@ -915,7 +915,7 @@ transformation-repo/
   ```
 - [x] Parse Claude's response into `KnowledgeItem` structs
 - [x] Write to Tier 2 (local store) automatically
-- [ ] Log to CLI: "2 knowledge items captured. Run `fleetlift knowledge review` to curate." (Phase 10b)
+- [x] Log to CLI: "2 knowledge items captured. Run `fleetlift knowledge review` to curate."
 - [x] This activity is non-blocking — failure should not prevent PR creation
 
 ### 10.4 Prompt Enrichment Activity
@@ -944,8 +944,8 @@ transformation-repo/
 
 - [x] `fleetlift knowledge list [--task-id ID] [--type TYPE] [--tag TAG]` — list knowledge items
 - [x] `fleetlift knowledge show <item-id>` — show full item details
-- [ ] `fleetlift knowledge review [--task-id ID]` — interactive review of auto-captured items (Phase 10b)
-- [ ] `fleetlift knowledge commit [--repo PATH]` — copy reviewed items into transformation repo's `.fleetlift/knowledge/` (Phase 10b)
+- [x] `fleetlift knowledge review [--task-id ID]` — interactive review of auto-captured items
+- [x] `fleetlift knowledge commit [--repo PATH]` — copy reviewed items into transformation repo's `.fleetlift/knowledge/`
 - [x] `fleetlift knowledge add --summary "..." --type correction --tags "go,logging"` — manually add a knowledge item
 - [x] `fleetlift knowledge delete <item-id>` — remove an item
 
@@ -1041,11 +1041,11 @@ $ fleetlift run -f slog-migration-batch2.yaml
 
 ### 11.2 One-Shot Create
 
-- [ ] `fleetlift create --describe "Migrate all Go services in acme-org from logrus to slog, verify with go build and go test, require approval"` — single command, no interaction
-- [ ] Claude infers all parameters from the description
-- [ ] Writes YAML file and shows it for review
+- [x] `fleetlift create --describe "..."` — single command, no interaction
+- [x] Claude infers all parameters from the description
+- [x] Writes YAML file and shows it for review
 - [ ] `--run` flag to immediately execute after generation
-- [ ] `--output task.yaml` to specify output file (default: `{id}.yaml`)
+- [x] `--output task.yaml` to specify output file (default: `{id}.yaml`)
 
 ### 11.3 GitHub Repository Discovery
 
@@ -1057,15 +1057,15 @@ $ fleetlift run -f slog-migration-batch2.yaml
 
 ### 11.4 Schema Context Bundle
 
-- [ ] Bundle full Task YAML schema as Go embed in CLI binary
-- [ ] Include 4-5 canonical examples covering:
+- [x] Bundle full Task YAML schema as Go embed in CLI binary
+- [x] Include 4-5 canonical examples covering:
   - Simple single-repo agentic transform
   - Multi-repo grouped execution with failure thresholds
   - Report mode with forEach and schema validation
   - Deterministic transformation with Docker image
   - Transformation repo with targets
-- [ ] Include field descriptions and constraints (e.g., "timeout format: '30m', '1h'")
-- [ ] This bundle is the system prompt for the create flow's Claude calls
+- [x] Include field descriptions and constraints (e.g., "timeout format: '30m', '1h'")
+- [x] This bundle is the system prompt for the create flow's Claude calls
 
 ### 11.5 Transformation Repo Suggestions
 
@@ -1100,19 +1100,19 @@ $ fleetlift run -f slog-migration-batch2.yaml
 
 ### 11.7 Validation and Review
 
-- [ ] Generated YAML is validated against the schema before writing
-- [ ] Show generated YAML with syntax highlighting in terminal
-- [ ] Prompt: "Save to {filename}? [Y/n/edit]"
-- [ ] `edit` opens `$EDITOR` with the generated YAML for manual tweaks
-- [ ] After editing, re-validate before saving
+- [x] Generated YAML is validated against the schema before writing
+- [x] Show generated YAML in terminal
+- [x] Prompt: "Save to {filename}? [Y]es / [n]o / [e]dit"
+- [x] `edit` opens `$EDITOR` with the generated YAML for manual tweaks
+- [x] After editing, re-validate before saving
 - [ ] `--dry-run` flag: show generated YAML without saving
 
 ### 11.8 Claude API Integration (CLI-side)
 
-- [ ] New package: `internal/create/` — handles the conversational flow
-- [ ] Uses Claude API directly with the Anthropic Go SDK (not through Temporal/sandbox)
-- [ ] Uses the same `ANTHROPIC_API_KEY` env var as the rest of the system
-- [ ] Model selection: use a fast model (Haiku) for the create flow to minimize cost/latency
+- [x] Implemented in `cmd/cli/create.go` (no separate package needed for current scope)
+- [x] Uses Claude API directly with the Anthropic Go SDK (not through Temporal/sandbox)
+- [x] Uses the same `ANTHROPIC_API_KEY` env var as the rest of the system
+- [x] Model selection: uses a capable model for YAML generation
 - [ ] Conversation is multi-turn: each clarifying question is a new API call with prior context
 - [ ] Token budget cap for the create flow (~10K tokens max)
 
