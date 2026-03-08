@@ -2,7 +2,7 @@
 
 Incremental implementation phases for the code transformation and discovery platform.
 
-> **Last Updated**: 2026-03-08 (Phase 10 & 11 core features complete)
+> **Last Updated**: 2026-03-08 (Phase 10 complete)
 >
 > **Note**: Implementation uses Task/Campaign terminology aligned with the design documents.
 >
@@ -280,10 +280,10 @@ A Go API server (`cmd/server`) using chi exposes REST + SSE endpoints wrapping t
 
 `KnowledgeItem` structs (types: `pattern`, `correction`, `gotcha`, `context`) are stored as YAML files in a two-tier system: Tier 2 local store at `~/.fleetlift/knowledge/{task-id}/` (auto-captured) and Tier 3 transformation repo at `.fleetlift/knowledge/items/` (curated, shared). After each approved transformation, `ActivityCaptureKnowledge` uses Claude to analyze the execution history (original prompt, steering corrections, diff, verifier output) and extract knowledge items written to Tier 2. Before agent execution, `ActivityEnrichPrompt` loads relevant items (tag-matched, capped at 10 items / ~2000 tokens) and appends a "Lessons from previous runs" section to the prompt. Both steps are non-blocking and skippable via `knowledge.capture_disabled`/`knowledge.enrich_disabled` task config.
 
-### 10.6 Workflow Integration 🔄 Partial
+### 10.6 Workflow Integration ✅ Complete
 
 - Knowledge capture and prompt enrichment are wired into the single-repo `Transform` workflow.
-- [ ] Grouped execution: knowledge capture runs per-group; all groups contribute to the same knowledge pool (single-group path done; grouped path not yet wired)
+- Grouped execution: `Transform` orchestrates N groups via `TransformGroup` children in parallel batches; knowledge capture runs per-group through `TransformV2`; all groups contribute to the same knowledge pool.
 
 ### 10.7 Task YAML Extensions ✅ Complete
 
@@ -390,7 +390,7 @@ $ fleetlift create \
 | 9.4 | **Cost tracking** | API token + compute attribution | ⬜ Deferred |
 | 9.5 | **Web UI** | Inbox, diff review, approval/steering dashboard | ✅ Complete |
 | 9.6 | **Report storage** | S3/GCS backend for large-scale discovery | ⬜ Deferred |
-| 10 | **Continual Learning** | Knowledge capture, enrichment, curation | 🔄 Mostly complete (10.8 deferred) |
+| 10 | **Continual Learning** | Knowledge capture, enrichment, curation | ✅ Complete (10.8 deferred) |
 | 11 | **NL Task Creation** | One-shot create, schema bundle, validation | 🔄 Core complete (11.1, 11.3, 11.5, 11.6 deferred) |
 
 Each phase builds on the previous and delivers working functionality.
@@ -403,7 +403,6 @@ Each phase builds on the previous and delivers working functionality.
 
 **Polish Track:**
 1. **Phase 11.2** - Add `--run` flag to `fleetlift create` (trivial; finishes phase)
-2. **Phase 10.6** - Wire knowledge capture into grouped execution path
 
 **Deferred (schedule based on usage/feedback):**
 - Phase 9.3: Scheduled/recurring tasks
