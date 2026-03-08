@@ -139,6 +139,7 @@ func init() {
 	createCmd.Flags().Bool("dry-run", false, "Print generated YAML without prompting to save")
 	createCmd.Flags().Bool("run", false, "Immediately execute after saving (requires --output)")
 	createCmd.Flags().BoolP("interactive", "i", false, "Start a multi-turn conversation with Claude to build the task")
+	createCmd.Flags().String("template", "", "Start from a named template (use 'fleetlift templates list' to see options)")
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
@@ -155,6 +156,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	interactive, _ := cmd.Flags().GetBool("interactive")
 	if interactive {
 		return runInteractiveCreate(cmd, outputPath, runAfter)
+	}
+
+	templateName, _ := cmd.Flags().GetString("template")
+	if templateName != "" {
+		return runCreateFromTemplate(cmd, templateName, outputPath, repos, dryRun, runAfter)
 	}
 
 	if description == "" {
@@ -187,6 +193,68 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	if runAfter {
+		if err := os.WriteFile(outputPath, []byte(yamlStr), 0o644); err != nil {
+			return fmt.Errorf("writing file: %w", err)
+		}
+		fmt.Printf("Saved to %s\n", outputPath)
+		return startRunFromFile(cmd.Context(), outputPath)
+	}
+
+	return confirmAndSave(yamlStr, outputPath)
+}
+
+// applyRepoOverrides replaces the repositories list in a task YAML string
+// with the provided repo URLs. If repos is empty, returns content unchanged.
+func applyRepoOverrides(content string, repos []string) (string, error) {
+	if len(repos) == 0 {
+		return content, nil
+	}
+
+	var task model.Task
+	if err := yaml.Unmarshal([]byte(content), &task); err != nil {
+		return "", fmt.Errorf("parsing template YAML: %w", err)
+	}
+
+	task.Repositories = nil
+	for _, u := range repos {
+		task.Repositories = append(task.Repositories, model.NewRepository(u, "main", ""))
+	}
+
+	out, err := yaml.Marshal(&task)
+	if err != nil {
+		return "", fmt.Errorf("marshalling YAML: %w", err)
+	}
+	return string(out), nil
+}
+
+func runCreateFromTemplate(cmd *cobra.Command, templateName, outputPath string, repos []string, dryRun, runAfter bool) error {
+	tmpl, err := findTemplate(templateName)
+	if err != nil {
+		return err
+	}
+
+	yamlStr, err := applyRepoOverrides(tmpl.Content, repos)
+	if err != nil {
+		return fmt.Errorf("applying repo overrides: %w", err)
+	}
+
+	if _, valErr := validateTaskYAML(yamlStr); valErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: template YAML may have issues: %v\n", valErr)
+	}
+
+	fmt.Printf("Template: %s\n", tmpl.Name)
+	fmt.Println("---")
+	fmt.Print(yamlStr)
+	fmt.Println("---")
+
+	if dryRun {
+		return nil
+	}
+
+	if runAfter {
+		if outputPath == "" {
+			return fmt.Errorf("--run requires --output")
+		}
 		if err := os.WriteFile(outputPath, []byte(yamlStr), 0o644); err != nil {
 			return fmt.Errorf("writing file: %w", err)
 		}

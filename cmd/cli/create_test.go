@@ -147,3 +147,25 @@ func TestBuildInteractiveSystemPrompt_ContainsMarkerInstruction(t *testing.T) {
 	// Also inherits schema from buildSystemPrompt
 	assert.Contains(t, prompt, "version: 1")
 }
+
+func TestApplyRepoOverrides_ReplacesRepositories(t *testing.T) {
+	yamlStr := `version: 1
+title: "Test"
+repositories:
+  - url: https://github.com/your-org/your-repo.git
+execution:
+  agentic:
+    prompt: "do it"
+`
+	result, err := applyRepoOverrides(yamlStr, []string{"https://github.com/acme/svc.git"})
+	require.NoError(t, err)
+	assert.Contains(t, result, "acme/svc.git")
+	assert.NotContains(t, result, "your-org")
+}
+
+func TestApplyRepoOverrides_NoRepos_ReturnsUnchanged(t *testing.T) {
+	yamlStr := "version: 1\ntitle: T\nrepositories:\n  - url: https://github.com/x/y.git\nexecution:\n  agentic:\n    prompt: p\n"
+	result, err := applyRepoOverrides(yamlStr, nil)
+	require.NoError(t, err)
+	assert.Equal(t, yamlStr, result)
+}
