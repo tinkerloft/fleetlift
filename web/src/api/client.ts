@@ -1,6 +1,7 @@
 import type {
   TaskSummary, DiffOutput, VerifierOutput,
   SteeringState, ExecutionProgress, TaskResult, AppConfig,
+  Template,
 } from './types'
 
 const BASE = '/api/v1'
@@ -39,6 +40,16 @@ export const api = {
   getResult:   (id: string) => get<TaskResult>(`/tasks/${id}/result`),
   getConfig:   () => get<AppConfig>('/config'),
 
+  // Create & Templates
+  submitTask: (yaml: string) =>
+    post<{ workflow_id: string }>('/tasks', { yaml }),
+  validateYAML: (yaml: string) =>
+    post<{ valid: boolean; error?: string }>('/create/validate', { yaml }),
+  listTemplates: () =>
+    get<{ templates: Template[] }>('/templates'),
+  getTemplate: (name: string) =>
+    get<Template>(`/templates/${name}`),
+
   approve: (id: string) => post<{ status: string }>(`/tasks/${id}/approve`),
   reject:  (id: string) => post<{ status: string }>(`/tasks/${id}/reject`),
   cancel:  (id: string) => post<{ status: string }>(`/tasks/${id}/cancel`),
@@ -46,6 +57,67 @@ export const api = {
     post<{ status: string }>(`/tasks/${id}/steer`, { prompt }),
   continue: (id: string, skipRemaining: boolean) =>
     post<{ status: string }>(`/tasks/${id}/continue`, { skip_remaining: skipRemaining }),
+}
+
+/** Stream a chat message for AI-assisted task creation via SSE. */
+export async function streamChat(
+  message: string,
+  conversationId: string | null,
+  onConversation: (id: string) => void,
+  onDelta: (text: string) => void,
+  onDone: (data: { done: boolean; yaml?: string; yaml_warning?: string }) => void,
+  onError: (error: string) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`${BASE}/create/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversation_id: conversationId ?? '', message }),
+    signal,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    onError(err.error ?? res.statusText)
+    return
+  }
+
+  const reader = res.body?.getReader()
+  if (!reader) {
+    onError('No response body')
+    return
+  }
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    let eventType = ''
+    for (const line of lines) {
+      if (line.startsWith('event: ')) {
+        eventType = line.slice(7).trim()
+      } else if (line.startsWith('data: ')) {
+        const data = JSON.parse(line.slice(6))
+        switch (eventType) {
+          case 'conversation':
+            onConversation(data.id)
+            break
+          case 'delta':
+            onDelta(data.text)
+            break
+          case 'done':
+            onDone(data)
+            break
+          case 'error':
+            onError(data.error)
+            break
+        }
+      }
+    }
+  }
 }
 
 /** Subscribe to live status updates via SSE. Returns an unsubscribe function. */

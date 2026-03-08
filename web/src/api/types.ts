@@ -110,3 +110,16 @@ export interface TaskResult {
 export interface AppConfig {
   temporal_ui_url: string
 }
+
+// AI Chat / Create types
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface Template {
+  name: string
+  description: string
+  content?: string
+}

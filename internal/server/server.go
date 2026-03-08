@@ -6,12 +6,15 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/tinkerloft/fleetlift/internal/create"
 )
 
 // Server is the HTTP API server.
@@ -21,6 +24,7 @@ type Server struct {
 	staticFS       fs.FS // pre-subbed FS rooted at index.html; nil in tests
 	gatherer       prometheus.Gatherer
 	allowedOrigins []string
+	conversations  *create.ConversationStore
 }
 
 // New creates a new Server. staticFS may be nil (disables static serving).
@@ -30,7 +34,13 @@ func New(client TemporalClient, staticFS fs.FS, gatherer prometheus.Gatherer, al
 	if len(allowedOrigins) == 0 {
 		allowedOrigins = []string{"*"}
 	}
-	s := &Server{client: client, staticFS: staticFS, gatherer: gatherer, allowedOrigins: allowedOrigins}
+	s := &Server{
+		client:         client,
+		staticFS:       staticFS,
+		gatherer:       gatherer,
+		allowedOrigins: allowedOrigins,
+		conversations:  create.NewConversationStore(30 * time.Minute),
+	}
 	s.router = s.buildRouter()
 	return s
 }
@@ -52,6 +62,14 @@ func (s *Server) buildRouter() chi.Router {
 
 	r.Get("/api/v1/health", s.handleHealth)
 	r.Get("/api/v1/config", s.handleGetConfig)
+
+	// Task creation & templates
+	r.Post("/api/v1/create/chat", s.handleChatStream)
+	r.Post("/api/v1/create/validate", s.handleValidateYAML)
+	r.Post("/api/v1/tasks", s.handleSubmitTask)
+	r.Get("/api/v1/templates", s.handleListTemplates)
+	r.Get("/api/v1/templates/{name}", s.handleGetTemplate)
+	r.Post("/api/v1/templates/{name}/apply", s.handleApplyTemplate)
 
 	// Task routes
 	r.Get("/api/v1/tasks", s.handleListTasks)

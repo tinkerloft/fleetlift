@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import {
-  LayoutDashboard, Inbox, List, ExternalLink,
+  LayoutDashboard, Inbox, List, ExternalLink, Plus,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -53,6 +53,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/'
+    // Don't match /create for /tasks prefix
+    if (href === '/tasks' && pathname === '/create') return false
     return pathname.startsWith(href)
   }
 
@@ -66,6 +68,22 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <span className="text-xs font-bold text-background">FL</span>
           </div>
           <span className="text-sm font-semibold tracking-tight">Fleetlift</span>
+        </div>
+
+        {/* New Task button */}
+        <div className="px-3 pt-3">
+          <Link
+            to="/create"
+            className={cn(
+              'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+              pathname === '/create'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-primary/10 text-primary hover:bg-primary/20',
+            )}
+          >
+            <Plus className="h-4 w-4" />
+            New Task
+          </Link>
         </div>
 
         {/* Nav */}

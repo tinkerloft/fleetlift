@@ -31,6 +31,12 @@ type mockClient struct {
 	err                error
 }
 
+func (m *mockClient) StartTransform(_ context.Context, _ model.Task) (string, error) {
+	if m.err != nil {
+		return "", m.err
+	}
+	return "transform-test-123", nil
+}
 func (m *mockClient) ListWorkflows(_ context.Context, statusFilter string, _ int) ([]flclient.WorkflowInfo, error) {
 	if statusFilter == "Completed" {
 		return m.completedWorkflows, m.err
@@ -154,7 +160,7 @@ func TestSSEEndpoint(t *testing.T) {
 }
 
 func TestGetConfig(t *testing.T) {
-	s := server.New(&mockClient{}, nil, nil)
+	s := server.New(&mockClient{}, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
@@ -169,7 +175,7 @@ func TestGetResult(t *testing.T) {
 		Mode:   model.TaskModeTransform,
 	}
 	mc := &mockClient{result: result}
-	s := server.New(mc, nil, nil)
+	s := server.New(mc, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks/transform-abc-123/result", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
@@ -179,6 +185,68 @@ func TestGetResult(t *testing.T) {
 	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, "test-task", resp.TaskID)
 	assert.Equal(t, model.TaskStatusCompleted, resp.Status)
+}
+
+func TestListTemplates(t *testing.T) {
+	s := server.New(&mockClient{}, nil, nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/templates", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	templates := resp["templates"].([]any)
+	assert.GreaterOrEqual(t, len(templates), 4)
+}
+
+func TestGetTemplate(t *testing.T) {
+	s := server.New(&mockClient{}, nil, nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/templates/dependency-upgrade", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "dependency-upgrade")
+}
+
+func TestGetTemplate_NotFound(t *testing.T) {
+	s := server.New(&mockClient{}, nil, nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/templates/nonexistent", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestSubmitTask(t *testing.T) {
+	mc := &mockClient{}
+	s := server.New(mc, nil, nil, nil)
+	yamlBody := `{"yaml": "version: 1\ntitle: Test\nexecution:\n  agentic:\n    prompt: do stuff\nrepositories:\n  - url: https://github.com/org/repo.git\n"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", strings.NewReader(yamlBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "workflow_id")
+}
+
+func TestSubmitTask_InvalidYAML(t *testing.T) {
+	s := server.New(&mockClient{}, nil, nil, nil)
+	body := `{"yaml": "title: missing execution"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestValidateYAML(t *testing.T) {
+	s := server.New(&mockClient{}, nil, nil, nil)
+	body := `{"yaml": "version: 1\ntitle: Test\nexecution:\n  agentic:\n    prompt: do stuff\nrepositories:\n  - url: https://github.com/org/repo.git\n"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/create/validate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"valid":true`)
 }
 
 func TestMetricsEndpoint(t *testing.T) {
