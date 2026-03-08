@@ -74,3 +74,4 @@ docker/fleetlift-agent
 # Git worktrees
 .worktrees/
 /cli
+.worktrees/
