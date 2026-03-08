@@ -24,19 +24,5 @@ execution:
       # Security Audit
 
       For each finding, describe: location, severity, issue, recommendation.
-    output:
-      schema:
-        type: object
-        required: [risk]
-        properties:
-          risk:
-            type: string
-            enum: [low, medium, high, critical]
-          vulnerability_count:
-            type: integer
-          categories:
-            type: array
-            items:
-              type: string
 
 timeout: 20m
