@@ -2,7 +2,7 @@
 
 Incremental implementation phases for the code transformation and discovery platform.
 
-> **Last Updated**: 2026-03-08 (Phase 10 complete)
+> **Last Updated**: 2026-03-08 (Phase 11 complete)
 >
 > **Note**: Implementation uses Task/Campaign terminology aligned with the design documents.
 >
@@ -321,7 +321,7 @@ $ fleetlift run -f slog-migration-batch2.yaml
 
 ---
 
-## Phase 11: Natural Language Task Creation 🔄 Core Complete
+## Phase 11: Natural Language Task Creation ✅ Complete
 
 **Goal**: Let users create task YAML files through natural language conversation, lowering the barrier to entry.
 
@@ -331,10 +331,7 @@ $ fleetlift run -f slog-migration-batch2.yaml
 
 ### 11.2 One-Shot Create ✅ Complete
 
-`fleetlift create --describe "..."` sends the description to Claude with the full task YAML schema and canonical examples as context, generates valid YAML, validates it, shows it for review, and writes the file. `--output task.yaml` controls the filename. `$EDITOR` is opened if the user selects "edit" at the review prompt.
-
-- [ ] `--run` flag to immediately execute after generation
-- [ ] `--dry-run` flag: show generated YAML without saving
+`fleetlift create --describe "..."` sends the description to Claude with the full task YAML schema and canonical examples as context, generates valid YAML, validates it, shows it for review, and writes the file. `--output task.yaml` controls the filename. `$EDITOR` is opened if the user selects "edit" at the review prompt. `--dry-run` prints without saving. `--run` saves and immediately executes (requires `--output`).
 
 ### 11.3 GitHub Repository Discovery
 
@@ -391,7 +388,7 @@ $ fleetlift create \
 | 9.5 | **Web UI** | Inbox, diff review, approval/steering dashboard | ✅ Complete |
 | 9.6 | **Report storage** | S3/GCS backend for large-scale discovery | ⬜ Deferred |
 | 10 | **Continual Learning** | Knowledge capture, enrichment, curation | ✅ Complete (10.8 deferred) |
-| 11 | **NL Task Creation** | One-shot create, schema bundle, validation | 🔄 Core complete (11.1, 11.3, 11.5, 11.6 deferred) |
+| 11 | **NL Task Creation** | One-shot create, schema bundle, validation | ✅ Complete (11.1, 11.3, 11.5, 11.6 deferred) |
 
 Each phase builds on the previous and delivers working functionality.
 
@@ -402,13 +399,14 @@ Each phase builds on the previous and delivers working functionality.
 2. **Phase 8.5** - Backpressure config (Temporal `MaxConcurrentActivityExecutionSize`)
 
 **Polish Track:**
-1. **Phase 11.2** - Add `--run` flag to `fleetlift create` (trivial; finishes phase)
+- ~~Phase 11.1~~ - Interactive multi-turn `create --interactive` conversation loop
+- ~~Phase 11.2~~ - `--run` flag added; Phase 11 complete
 
 **Deferred (schedule based on usage/feedback):**
 - Phase 9.3: Scheduled/recurring tasks
 - Phase 9.4: Cost tracking
 - Phase 10.8: Knowledge efficacy tracking
-- Phase 11.1/11.3/11.5/11.6: Full interactive create, repo discovery, templates
+- Phase 11.3/11.5/11.6: Repo discovery, templates
 
 > **Status Note**: Core platform capabilities are complete. All product features (agentic/deterministic
 > transforms, report mode, grouped execution, failure handling, retry, HITL iterative steering, sidecar
