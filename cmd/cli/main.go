@@ -211,6 +211,7 @@ func init() {
 	rootCmd.AddCommand(retryCmd)
 	rootCmd.AddCommand(knowledgeCmd)
 	rootCmd.AddCommand(createCmd)
+	rootCmd.AddCommand(templatesCmd)
 }
 
 // getWorkflowID returns the workflow ID from the flag or falls back to the last workflow.

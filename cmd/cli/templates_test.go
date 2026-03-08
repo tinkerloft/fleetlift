@@ -53,3 +53,15 @@ func TestExtractTemplateDescription_Missing(t *testing.T) {
 	desc := extractTemplateDescription("version: 1\ntitle: T\n")
 	assert.Equal(t, "", desc)
 }
+
+func TestAllTemplates_ContainsBuiltins(t *testing.T) {
+	all := allTemplates()
+	names := make([]string, len(all))
+	for i, tmpl := range all {
+		names[i] = tmpl.Name
+	}
+	assert.Contains(t, names, "dependency-upgrade")
+	assert.Contains(t, names, "api-migration")
+	assert.Contains(t, names, "security-audit")
+	assert.Contains(t, names, "framework-upgrade")
+}
