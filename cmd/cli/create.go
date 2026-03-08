@@ -12,7 +12,10 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/tinkerloft/fleetlift/internal/client"
+	"github.com/tinkerloft/fleetlift/internal/config"
 	"github.com/tinkerloft/fleetlift/internal/model"
+	"github.com/tinkerloft/fleetlift/internal/state"
 )
 
 // extractYAML strips markdown code fences from an LLM response, returning only the YAML content.
@@ -32,6 +35,23 @@ func extractYAML(response string) string {
 	return response
 }
 
+const generationMarker = "---YAML---"
+
+// hasGenerationMarker reports whether a Claude response contains the YAML generation signal.
+func hasGenerationMarker(response string) bool {
+	return strings.Contains(response, generationMarker)
+}
+
+// extractYAMLFromMarker extracts and returns the YAML portion after the generation marker.
+// Returns empty string if the marker is not present.
+func extractYAMLFromMarker(response string) string {
+	_, after, found := strings.Cut(response, generationMarker)
+	if !found {
+		return ""
+	}
+	return extractYAML(strings.TrimLeft(after, "\n"))
+}
+
 // validateTaskYAML parses and validates the required fields of a Fleetlift task YAML string.
 func validateTaskYAML(yamlStr string) (model.Task, error) {
 	var task model.Task
@@ -49,6 +69,25 @@ func validateTaskYAML(yamlStr string) (model.Task, error) {
 		return model.Task{}, fmt.Errorf("task is missing required field: repositories (at least one repo)")
 	}
 	return task, nil
+}
+
+// buildInteractiveSystemPrompt builds the system prompt for interactive multi-turn mode.
+// Claude asks clarifying questions one at a time and signals completion with the generation marker.
+func buildInteractiveSystemPrompt() string {
+	return strings.Join([]string{
+		"You are an expert at writing Fleetlift task YAML files.",
+		"In interactive mode, ask the user clarifying questions one at a time to gather all required information.",
+		"When you have enough information, output " + generationMarker + " on its own line, followed immediately by the complete YAML — no markdown fences, no explanations.",
+		"",
+		"# Task YAML Schema",
+		taskSchema,
+		"",
+		"# Example: Transform Task",
+		exampleTransform,
+		"",
+		"# Example: Report Task",
+		exampleReport,
+	}, "\n")
 }
 
 // buildSystemPrompt builds the system prompt for the LLM that generates task YAML.
@@ -80,6 +119,11 @@ Examples:
     --repo https://github.com/acme/api.git \
     --output tracing-task.yaml
 
+  # Generate, save, and immediately run:
+  fleetlift create --describe "Add OpenTelemetry tracing to all Go services" \
+    --repo https://github.com/acme/api.git \
+    --output tracing-task.yaml --run
+
   # Preview without saving:
   fleetlift create --describe "Security audit of auth module" --dry-run`,
 	RunE: runCreate,
@@ -90,6 +134,7 @@ func init() {
 	createCmd.Flags().StringArray("repo", nil, "Repository URL to include (repeatable)")
 	createCmd.Flags().String("output", "", "Save generated YAML to this file path")
 	createCmd.Flags().Bool("dry-run", false, "Print generated YAML without prompting to save")
+	createCmd.Flags().Bool("run", false, "Immediately execute after saving (requires --output)")
 }
 
 func runCreate(cmd *cobra.Command, args []string) error {
@@ -97,6 +142,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	repos, _ := cmd.Flags().GetStringArray("repo")
 	outputPath, _ := cmd.Flags().GetString("output")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	runAfter, _ := cmd.Flags().GetBool("run")
+
+	if runAfter && outputPath == "" {
+		return fmt.Errorf("--run requires --output to specify where to save the task file")
+	}
 
 	if description == "" {
 		fmt.Print("Describe what you want the agent to do: ")
@@ -125,6 +175,14 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	if dryRun {
 		return nil
+	}
+
+	if runAfter {
+		if err := os.WriteFile(outputPath, []byte(yamlStr), 0o644); err != nil {
+			return fmt.Errorf("writing file: %w", err)
+		}
+		fmt.Printf("Saved to %s\n", outputPath)
+		return startRunFromFile(cmd.Context(), outputPath)
 	}
 
 	return confirmAndSave(yamlStr, outputPath)
@@ -179,6 +237,26 @@ func generateTaskYAML(ctx context.Context, description string, repos []string) (
 	}
 
 	return extractYAML(raw), nil
+}
+
+func startRunFromFile(ctx context.Context, filePath string) error {
+	task, err := config.LoadTaskFile(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to load task file: %w", err)
+	}
+
+	workflowID, err := client.StartTransform(ctx, *task)
+	if err != nil {
+		return fmt.Errorf("failed to start workflow: %w", err)
+	}
+
+	if saveErr := state.SaveLastWorkflow(workflowID); saveErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to save last workflow: %v\n", saveErr)
+	}
+
+	fmt.Printf("Workflow started: %s\n", workflowID)
+	fmt.Printf("View at: http://localhost:8233/namespaces/default/workflows/%s\n", workflowID)
+	return nil
 }
 
 func confirmAndSave(yamlStr, outputPath string) error {

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -99,4 +100,50 @@ func TestBuildSystemPrompt_ContainsSchema(t *testing.T) {
 	prompt := buildSystemPrompt()
 	assert.Contains(t, prompt, "version: 1")
 	assert.True(t, strings.Contains(prompt, "example-transform") || strings.Contains(prompt, "mode: transform"))
+}
+
+func TestRunCreate_RunFlagRequiresOutput(t *testing.T) {
+	// Create a fresh command to avoid modifying global flag state.
+	cmd := &cobra.Command{}
+	cmd.Flags().String("describe", "test task", "")
+	cmd.Flags().StringArray("repo", nil, "")
+	cmd.Flags().String("output", "", "")
+	cmd.Flags().Bool("dry-run", false, "")
+	cmd.Flags().Bool("run", true, "")
+
+	err := runCreate(cmd, nil)
+	require.ErrorContains(t, err, "--run requires --output")
+}
+
+func TestHasGenerationMarker_Present(t *testing.T) {
+	assert.True(t, hasGenerationMarker("Here is the task:\n---YAML---\nversion: 1\n"))
+}
+
+func TestHasGenerationMarker_Absent(t *testing.T) {
+	assert.False(t, hasGenerationMarker("Just a question, no YAML yet."))
+}
+
+func TestExtractYAMLFromMarker_Basic(t *testing.T) {
+	response := "I have enough info.\n---YAML---\nversion: 1\ntitle: Test\n"
+	result := extractYAMLFromMarker(response)
+	assert.Equal(t, "version: 1\ntitle: Test\n", result)
+}
+
+func TestExtractYAMLFromMarker_StripsFences(t *testing.T) {
+	response := "Ready.\n---YAML---\n```yaml\nversion: 1\ntitle: Test\n```\n"
+	result := extractYAMLFromMarker(response)
+	assert.Equal(t, "version: 1\ntitle: Test\n", result)
+}
+
+func TestExtractYAMLFromMarker_NoMarker(t *testing.T) {
+	result := extractYAMLFromMarker("no marker here")
+	assert.Equal(t, "", result)
+}
+
+func TestBuildInteractiveSystemPrompt_ContainsMarkerInstruction(t *testing.T) {
+	prompt := buildInteractiveSystemPrompt()
+	assert.Contains(t, prompt, "---YAML---")
+	assert.Contains(t, prompt, "one at a time")
+	// Also inherits schema from buildSystemPrompt
+	assert.Contains(t, prompt, "version: 1")
 }
