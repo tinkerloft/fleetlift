@@ -146,7 +146,7 @@ The `status` command only works for **running** workflows. Use `result` for comp
 
 1. **Check sandbox image exists:**
    ```bash
-   docker images | grep claude-sandbox
+   docker images | grep claude-code-sandbox
    ```
 
 2. **Build sandbox image:**
@@ -156,7 +156,7 @@ The `status` command only works for **running** workflows. Use `result` for comp
 
 3. **Test sandbox locally:**
    ```bash
-   docker run -it claude-sandbox:latest /bin/bash
+   docker run -it claude-code-sandbox:latest /bin/bash
    ```
 
 4. **Check logs in Temporal UI:**
@@ -297,8 +297,7 @@ The `status` command only works for **running** workflows. Use `result` for comp
 
 3. **Check field types:**
    ```yaml
-   timeout: "30m"      # Wrong (string)
-   timeout: 30m        # Correct (duration)
+   timeout: 30m        # Correct (Go duration string: "30m", "1h", "90s")
    ```
 
 ### "Invalid mode" error
@@ -335,9 +334,11 @@ mode: transform  # Correct
    ```
 
 3. **Enable parallel execution:**
-   ```yaml
-   parallel: true  # Process repos simultaneously
+   ```bash
+   # Use --parallel flag to auto-generate one group per repo
+   ./bin/fleetlift run -f task.yaml --parallel
    ```
+   Or use explicit groups with `max_parallel` in your task YAML.
 
 4. **Simplify the prompt:**
    - Break into smaller tasks
@@ -353,7 +354,7 @@ mode: transform  # Correct
 
 1. **Reduce parallelism:**
    ```yaml
-   parallel: false  # Sequential execution
+   max_parallel: 1  # Sequential execution
    ```
 
 2. **Add delays between repos:**

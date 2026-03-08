@@ -88,11 +88,9 @@ Orchestrates Tasks across many repositories with:
 | **Human approval** | Before PR creation | Not applicable |
 | **Examples** | Migrations, upgrades, fixes | Audits, inventories, assessments |
 
-### Continual Learning (Knowledge Items) — *Planned (Phase 10)*
+### Continual Learning (Knowledge Items)
 
-> **Not yet implemented.** This describes the planned design for future development.
-
-The platform will capture knowledge from successful transformations and reuse it to improve future runs. Knowledge will flow through three tiers:
+The platform captures knowledge from successful transformations and reuses it to improve future runs. Knowledge flows through three tiers:
 
 | Tier | Storage | Lifecycle |
 |------|---------|-----------|
@@ -100,18 +98,26 @@ The platform will capture knowledge from successful transformations and reuse it
 | Local knowledge store | `~/.fleetlift/knowledge/` | Auto-captured after approval |
 | Transformation repo | `.fleetlift/knowledge/` in repo | Human-curated, version-controlled |
 
-Knowledge items will be typed (`pattern`, `correction`, `gotcha`, `context`) and tagged for relevance matching. The most valuable source is **steering corrections** — when a human corrects the agent during iterative steering, that correction can be captured and injected into future prompts automatically.
+Knowledge items are typed (`pattern`, `correction`, `gotcha`, `context`) and tagged for relevance matching. The most valuable source is **steering corrections** — when a human corrects the agent during iterative steering, that correction is captured and injected into future prompts automatically.
 
-### Natural Language Task Creation — *Planned (Phase 11)*
+CLI commands for knowledge management:
+- `fleetlift knowledge list` — list captured knowledge items
+- `fleetlift knowledge show <id>` — view item details
+- `fleetlift knowledge add` — manually add a knowledge item
+- `fleetlift knowledge delete <id>` — remove a knowledge item
+- `fleetlift knowledge review` — interactively curate auto-captured items
+- `fleetlift knowledge commit --repo <path>` — promote items to a transformation repo (Tier 3)
 
-> **Not yet implemented.** This describes the planned design for future development.
+### Natural Language Task Creation
 
-Users will be able to create Task YAML files through conversation instead of writing YAML by hand:
+Users can create Task YAML files through conversation instead of writing YAML by hand:
 
-- `fleetlift create` — interactive guided flow
+- `fleetlift create -i` — interactive guided flow
 - `fleetlift create --describe "..."` — one-shot generation
+- `fleetlift create --template <name>` — start from a built-in template
+- `fleetlift templates list` — list available templates
 
-The create flow will discover repositories via GitHub API, suggest matching transformation repos from a local registry, and inject relevant knowledge items into the generated prompt. The output is always a YAML file — inspectable, editable, and version-controllable.
+The create flow uses the Anthropic SDK (claude-sonnet-4-6) to determine mode, execution type, and prompt from a natural language description. The output is always a YAML file — inspectable, editable, and version-controllable.
 
 ---
 
@@ -211,25 +217,19 @@ fleetlift run \
   --verifier "test:go test ./..."
 ```
 
-### Production (Kubernetes) — *Planned (Phase 6b)*
+### Production (OpenSandbox / Kubernetes)
 
-> **Not yet implemented.** Kubernetes provider is planned but not started.
-
-Will scale to hundreds of repositories:
+Scales to hundreds of repositories:
 - Temporal server (self-hosted or Temporal Cloud)
-- Sandboxes as Kubernetes Jobs (no CRD/controller needed)
-- Worker creates Jobs directly with `fleetlift.io/task-id` labels
+- **OpenSandbox** provider is the active in-tree provider (`internal/sandbox/opensandbox/`), configured via `OPENSANDBOX_DOMAIN` and `OPENSANDBOX_API_KEY` environment variables
+- **Kubernetes** and **Docker** providers live in `github.com/tinkerloft/agentbox` and can also be registered
 - Agent binary injected via init container
 - Optional: gVisor for enhanced isolation
 
 ```yaml
-# Planned configuration
+# Sandbox image override in task YAML
 sandbox:
-  provider: kubernetes
-  namespace: sandbox-isolated
-  image: your-org/claude-sandbox:latest
-  nodeSelector:
-    workload-type: sandbox
+  image: your-org/claude-code-sandbox:latest
 ```
 
 ---
@@ -241,10 +241,23 @@ sandbox:
 | `fleetlift run --file task.yaml` | Submit a Task from file |
 | `fleetlift run --repo <url> --prompt <prompt>` | Submit an agentic Task |
 | `fleetlift run --repo <url> --image <image>` | Submit a deterministic Task |
-| `fleetlift status <workflow-id>` | Check Task status |
-| `fleetlift approve <workflow-id>` | Approve changes and create PRs |
-| `fleetlift reject <workflow-id>` | Reject changes |
+| `fleetlift status [workflow-id]` | Check Task status |
+| `fleetlift result [workflow-id]` | Get Task result |
+| `fleetlift approve [workflow-id]` | Approve changes and create PRs |
+| `fleetlift reject [workflow-id]` | Reject changes |
+| `fleetlift cancel [workflow-id]` | Cancel a Task |
 | `fleetlift list` | List all Tasks |
+| `fleetlift diff [workflow-id]` | View current diffs |
+| `fleetlift logs [workflow-id]` | View verifier logs |
+| `fleetlift steer [workflow-id] --prompt <prompt>` | Send steering feedback |
+| `fleetlift continue [workflow-id]` | Continue after pause |
+| `fleetlift retry [workflow-id]` | Retry failed groups |
+| `fleetlift reports [workflow-id]` | View report output |
+| `fleetlift create --describe "..."` | Generate Task YAML from description |
+| `fleetlift create -i` | Interactive Task creation |
+| `fleetlift templates list` | List available templates |
+| `fleetlift knowledge list` | List knowledge items |
+| `fleetlift knowledge review` | Curate auto-captured items |
 
 ### Common Flags
 

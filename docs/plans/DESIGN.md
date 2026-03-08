@@ -1,6 +1,6 @@
 # Code Transformation Platform - Technical Design
 
-> **Implementation Status (2026-03-06)**: This design document describes both implemented and planned
+> **Implementation Status (2026-03-08)**: This design document describes both implemented and planned
 > features. Key differences from the implementation:
 >
 > - **Campaign → Grouped Execution**: The separate "Campaign" concept was replaced by grouped
@@ -8,14 +8,16 @@
 >   groups, failure thresholds, pause/continue/retry directly.
 > - **CRD/Controller → Direct Job Management**: The Kubernetes Sandbox Controller and CRD pattern
 >   described here was replaced by direct Job creation from the worker. See [SIDECAR_AGENT.md](./SIDECAR_AGENT.md).
-> - **Agentbox split**: Sandbox, protocol, agent primitives, and Temporal activity helpers now live in
->   `github.com/tinkerloft/agentbox`. Fleetlift imports agentbox; `internal/sandbox/` and
->   `internal/agent/protocol/` have been deleted.
-> - **Kubernetes Provider (Phase 6b)**: Implemented — Docker + K8s providers in `agentbox/sandbox/`.
->   OpenSandbox adapter also available (`agentbox/sandbox/opensandbox/`).
-> - **Knowledge System (Phase 10a)**: Implemented — `CaptureKnowledge` + `EnrichPrompt` activities,
->   three-tier storage, `knowledge list/show` CLI. Phase 10b (curation, `review`/`commit` commands) outstanding.
-> - **NL Task Creation (Phase 11)**: Not yet implemented.
+> - **Agentbox split**: Core sandbox primitives, protocol types, and Temporal activity helpers live in
+>   `github.com/tinkerloft/agentbox`. Fleetlift imports agentbox. The `internal/agent/protocol/` shim
+>   has been deleted; protocol types are now in `internal/agent/fleetproto/`. The `internal/sandbox/`
+>   package still exists with the OpenSandbox provider (`internal/sandbox/opensandbox/`).
+> - **Sandbox Providers**: Docker + K8s providers live in `agentbox/sandbox/`. The active in-tree
+>   provider is OpenSandbox (`internal/sandbox/opensandbox/`), selected via `OPENSANDBOX_DOMAIN` env var.
+> - **Knowledge System (Phase 10)**: Fully implemented — `CaptureKnowledge` + `EnrichPrompt` activities,
+>   three-tier storage, `knowledge list/show/add/delete` CLI, curation via `knowledge review/commit`.
+> - **NL Task Creation (Phase 11)**: Implemented — `fleetlift create --describe "..."` (one-shot),
+>   `fleetlift create -i` (interactive), `fleetlift create --template` flag, `fleetlift templates list`.
 >
 > See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for full history and [ROADMAP.md](./ROADMAP.md) for outstanding work.
 
@@ -194,8 +196,8 @@ The create flow:
 │   ┌─────────────────────────────────────────────────────────────────────┐   │
 │   │                      Sandbox Provider                                │   │
 │   │                                                                      │   │
-│   │   Local:      Docker containers (implemented)                       │   │
-│   │   Production: Kubernetes Jobs (planned, Phase 6b)                  │   │
+│   │   Local:      Docker containers (in agentbox)                      │   │
+│   │   Production: OpenSandbox (in-tree), K8s Jobs (in agentbox)       │   │
 │   │                                                                      │   │
 │   │   ┌─────────────────────────────────────────────────────────────┐   │   │
 │   │   │  Production Flow (planned):                                  │   │   │
@@ -1012,16 +1014,16 @@ For production workloads, the Kubernetes provider creates Jobs directly — no C
 
 #### Provider Selection
 
+Providers are registered via `init()` functions and selected through a factory:
+
 ```go
-func NewProvider() (Provider, error) {
-    switch os.Getenv("SANDBOX_PROVIDER") {
-    case "kubernetes":
-        return kubernetes.NewProvider()
-    default:
-        return docker.NewProvider()
-    }
-}
+// internal/sandbox/factory.go — providers self-register via init()
+// The active in-tree provider is OpenSandbox (internal/sandbox/opensandbox/).
+// Docker and Kubernetes providers live in agentbox and can also be registered.
+provider, err := sandbox.NewProvider(providerName)
 ```
+
+The OpenSandbox provider requires `OPENSANDBOX_DOMAIN` and `OPENSANDBOX_API_KEY` environment variables.
 
 #### Worker RBAC
 
@@ -1343,11 +1345,9 @@ func CampaignWorkflow(ctx workflow.Context, campaign Campaign) (*CampaignResult,
 | Many fail (≥threshold) | Pause and ask human: abort / continue / retry |
 | Critical failure | Halt immediately, notify human |
 
-### Knowledge Capture & Enrichment — *Planned (Phase 10)*
+### Knowledge Capture & Enrichment (Phase 10)
 
-> **Not yet implemented.** This describes the planned design.
-
-Knowledge capture and prompt enrichment will be integrated into the Task workflow as optional steps:
+Knowledge capture and prompt enrichment are integrated into the Task workflow as optional steps:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -1810,8 +1810,13 @@ fleetlift/
 │   │   └── main.go
 │   ├── agent/               # Sidecar agent binary
 │   │   └── main.go
-│   └── cli/                 # CLI tool
-│       └── main.go
+│   ├── server/              # HTTP API server
+│   │   └── main.go
+│   └── cli/                 # CLI tool (fleetlift)
+│       ├── main.go
+│       ├── create.go        # fleetlift create (Anthropic SDK)
+│       ├── knowledge.go     # fleetlift knowledge subcommands
+│       └── templates.go     # fleetlift templates list
 ├── internal/
 │   ├── model/               # Data models
 │   │   ├── task.go          # Task types
@@ -1826,13 +1831,15 @@ fleetlift/
 │   │   ├── git.go           # Clone, branch, push
 │   │   └── github.go        # PR creation
 │   ├── agent/               # Sidecar agent implementation
-│   │   └── protocol/        # File-based protocol types
-│   ├── sandbox/             # Sandbox abstraction
-│   │   ├── provider.go      # Interface
-│   │   ├── docker/          # Docker implementation
-│   │   └── kubernetes/      # K8s implementation (direct Jobs)
-│   ├── knowledge/           # Continual learning system (Phase 10)
-│   ├── create/              # Natural language task creation (Phase 11)
+│   │   └── fleetproto/      # File-based protocol types (Phase, SteeringAction, TaskManifest, etc.)
+│   ├── sandbox/             # Sandbox provider interfaces + factory
+│   │   ├── provider.go      # Provider + AgentProvider interfaces
+│   │   ├── factory.go       # ProviderFactory registration, NewProvider
+│   │   └── opensandbox/     # OpenSandbox provider (active in-tree provider)
+│   ├── knowledge/           # Local knowledge store (~/.fleetlift/knowledge/)
+│   ├── server/              # HTTP API server (Chi router, SSE, task endpoints)
+│   ├── metrics/             # Prometheus metrics + Temporal interceptor
+│   ├── logging/             # slog → Temporal log adapter
 │   └── config/              # Configuration loading
 ├── config/
 │   ├── local.yaml
@@ -1874,7 +1881,7 @@ fleetlift/
    • Audit trail
    ```
 
-6. **Campaign as first-class**: Campaigns orchestrate Tasks at scale with batch execution and failure thresholds. This is core functionality, not a future capability.
+6. **Grouped execution as first-class**: The `Transform` workflow handles groups, failure thresholds, pause/continue, and retry directly — no separate Campaign workflow needed. This is core functionality.
 
 7. **Report mode integrated**: Report mode (discovery, audits) is a core mode alongside transform mode, not an afterthought.
 

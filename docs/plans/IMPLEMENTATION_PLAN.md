@@ -370,7 +370,7 @@ $ fleetlift create \
 
 | Phase | Focus | Key Deliverable | Status |
 |-------|-------|-----------------|--------|
-| 1 | Local MVP | Single-repo agentic task with Docker | ✅ Complete |
+| 1 | Local MVP | Single-repo agentic task with OpenSandbox | ✅ Complete |
 | 2 | PR Creation | Multi-repo with GitHub PRs | ✅ Complete |
 | 3 | Deterministic | Docker-based transformations | ✅ Complete |
 | 4 | Report Mode | Discovery and analysis (no PRs) | ✅ Complete |
@@ -378,7 +378,7 @@ $ fleetlift create \
 | 4c | Transformation Repo | Reusable skills, recipe/targets separation | ✅ Complete |
 | 5 | **Grouped Execution** | Failure thresholds, pause/continue, retry | ✅ Complete |
 | 6a | **Sidecar Agent** | Agent binary + file-based protocol + TransformV2 workflow | ✅ Complete |
-| 6b | **Kubernetes Provider** | K8s Jobs, RBAC, NetworkPolicy | ✅ Complete |
+| 6b | **Sandbox Provider** | OpenSandbox provider (Docker/K8s in agentbox) | ✅ Complete |
 | 7 | **Observability** | Metrics, logging, dashboards | ✅ Complete |
 | 8 | **Security** | Orphaned sandbox reaper + backpressure config (infra delegated to agentbox) | 🔄 Partial |
 | 9.1 | **HITL (Basic)** | Approve/reject signals, Slack notifications | ✅ Complete |
@@ -406,7 +406,7 @@ Each phase builds on the previous and delivers working functionality.
 - Phase 9.3: Scheduled/recurring tasks
 - Phase 9.4: Cost tracking
 - Phase 10.8: Knowledge efficacy tracking
-- Phase 11.3/11.5/11.6: Repo discovery, templates
+- Phase 11.3/11.5: Repo discovery, transformation repo registry
 
 > **Status Note**: Core platform capabilities are complete. All product features (agentic/deterministic
 > transforms, report mode, grouped execution, failure handling, retry, HITL iterative steering, sidecar

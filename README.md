@@ -68,16 +68,22 @@ This is a working prototype with the core functionality implemented.
 | **Pause/Continue** | ✅ | Human intervention when failures exceed threshold |
 | **Retry Failed Groups** | ✅ | Retry only the groups that failed |
 | **Sidecar Agent** | ✅ | Autonomous agent binary with file-based protocol (TransformV2) |
+| **Knowledge Capture** | ✅ | Auto-extract lessons from steering corrections |
+| **Knowledge Enrichment** | ✅ | Inject relevant knowledge into prompts |
+| **Knowledge CLI** | ✅ | List, show, add, delete, review, commit knowledge items |
+| **NL Task Creation** | ✅ | AI-powered task YAML generation (`fleetlift create`) |
+| **Template Library** | ✅ | Built-in + user-defined task templates |
+| **Web UI** | ✅ | SPA with live SSE updates |
+| **Prometheus Metrics** | ✅ | Activity duration, PR counts, sandbox provisioning |
 
 ### 🔜 What's Coming
 
 | Feature | Phase | Description |
 |---------|:-----:|-------------|
-| **Kubernetes Sandbox** | 6b | Production-grade isolated execution via K8s Jobs |
-| **Observability** | 7 | Metrics, dashboards, and alerting |
-| **Security Hardening** | 8 | RBAC, network policies, secret management |
+| **GitHub Repo Discovery** | 11.3 | Auto-discover repositories from GitHub orgs |
 | **Scheduled Tasks** | 9.3 | Recurring transformations via Temporal schedules |
-| **Continual Learning** | 10 | Knowledge capture from steering corrections |
+| **Cost/Token Tracking** | 9.4 | Track AI usage and costs per task |
+| **Knowledge Efficacy** | 10.8 | Measure knowledge item effectiveness |
 
 See [IMPLEMENTATION_PLAN.md](docs/plans/IMPLEMENTATION_PLAN.md) for the full roadmap.
 
@@ -482,9 +488,9 @@ make run-worker       # Terminal 2: Start worker
 │   ├── workflow/     # Temporal workflows (Transform, TransformV2)
 │   ├── model/        # Data models (Task, Result, etc.)
 │   ├── agent/        # Sidecar agent pipeline (clone, transform, verify, collect, PR)
-│   │   └── protocol/ # File-based protocol types (manifest, status, result, steering)
+│   │   └── fleetproto/ # File-based protocol types (manifest, status, result, steering)
 │   ├── sandbox/      # Sandbox provider interfaces
-│   │   └── docker/   # Docker provider implementation
+│   │   └── opensandbox/ # OpenSandbox provider implementation
 │   └── client/       # Temporal client wrapper
 ├── examples/         # Example task files
 └── docs/

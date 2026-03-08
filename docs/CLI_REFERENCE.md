@@ -368,13 +368,103 @@ cat results.json | jq '.[] | .frontmatter'
 ./bin/fleetlift reports --target users-api -o json
 ```
 
-## Global Flags
+## AI-Powered Task Creation
 
+### Create Task YAML
+
+Generate a task YAML file using natural language:
+
+```bash
+# One-shot: describe what you want
+./bin/fleetlift create --describe "Upgrade all Go services to use slog" \
+  --repo https://github.com/org/service-a.git \
+  --output task.yaml
+
+# Dry run: preview without saving
+./bin/fleetlift create --describe "Fix auth bugs" --dry-run
+
+# Create and immediately run
+./bin/fleetlift create --describe "Add input validation" \
+  --repo https://github.com/org/api.git \
+  --output task.yaml --run
+
+# Interactive multi-turn mode
+./bin/fleetlift create -i
+
+# Start from a built-in template
+./bin/fleetlift create --template dependency-upgrade \
+  --repo https://github.com/org/service.git \
+  --output task.yaml
 ```
---temporal-address string   Temporal server address (default "localhost:7233")
---namespace string          Temporal namespace (default "default")
---help                      Show help
---version                   Show version
+
+### List Templates
+
+```bash
+# List available built-in templates
+./bin/fleetlift templates list
+```
+
+Built-in templates: `dependency-upgrade`, `api-migration`, `security-audit`, `framework-upgrade`.
+User-defined templates can be placed in `~/.fleetlift/templates/`.
+
+## Knowledge Management
+
+### List Knowledge Items
+
+```bash
+# List all knowledge items
+./bin/fleetlift knowledge list
+
+# Filter by task
+./bin/fleetlift knowledge list --task-id my-task
+
+# Filter by type
+./bin/fleetlift knowledge list --type pattern
+
+# Filter by tag
+./bin/fleetlift knowledge list --tag go
+```
+
+### Show Knowledge Item
+
+```bash
+./bin/fleetlift knowledge show <item-id>
+```
+
+### Add Knowledge Item
+
+```bash
+./bin/fleetlift knowledge add \
+  --summary "Always run go mod tidy after dependency changes" \
+  --type pattern \
+  --details "Detailed explanation..." \
+  --tags go,dependencies
+```
+
+### Delete Knowledge Item
+
+```bash
+./bin/fleetlift knowledge delete <item-id>
+```
+
+### Review Knowledge Items
+
+Interactive curation of knowledge items:
+
+```bash
+# Review all items
+./bin/fleetlift knowledge review
+
+# Review items from a specific task
+./bin/fleetlift knowledge review --task-id my-task
+```
+
+### Commit Knowledge to Repo
+
+Copy approved knowledge items into a repository:
+
+```bash
+./bin/fleetlift knowledge commit --repo https://github.com/org/repo.git
 ```
 
 ## Environment Variables
@@ -397,10 +487,6 @@ export TEMPORAL_NAMESPACE=production
 
 - `0` - Success
 - `1` - General error
-- `2` - Invalid arguments
-- `3` - Workflow not found
-- `4` - Workflow failed
-- `5` - Approval timeout/rejected
 
 ## Tips
 

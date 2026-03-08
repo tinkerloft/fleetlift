@@ -124,7 +124,6 @@ When using forEach, Claude Code creates separate report files:
 The prompt template supports:
 - `{{.Name}}` - The target name (e.g., "users-api")
 - `{{.Context}}` - The target context field
-- Any custom fields you add to the target object
 
 ## Key Features Demonstrated
 

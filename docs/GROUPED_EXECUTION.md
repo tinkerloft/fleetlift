@@ -43,11 +43,14 @@ failure:
 
 ### Execution Flow
 
-1. **Groups launch in parallel** (up to `max_parallel`)
-2. **Track progress incrementally** as each group completes
-3. **Check failure threshold** after each completion
+The `Transform` workflow routes multi-group tasks through `transformGrouped`, which spawns `TransformGroup` child workflows (each delegating to `TransformV2`):
+
+1. **Groups are batched** up to `max_parallel` concurrency
+2. **Each batch**: `TransformGroup` child workflows run in parallel
+3. **After each batch**: check failure threshold against completed results
 4. **Pause if threshold exceeded** (when `action: pause`)
 5. **Wait for human decision**: continue, skip remaining, or cancel
+6. **Aggregate results** from all groups
 
 ### Pause Behavior
 
@@ -188,13 +191,11 @@ Previously, we planned a separate `Campaign` type for fleet-wide operations. The
 
 ## Query API
 
-The workflow exposes real-time progress via queries:
+The workflow exposes real-time progress via the Temporal `progress` query handler:
 
 ```go
-// Get execution progress
-progress, _ := client.GetExecutionProgress(ctx, workflowID)
-
-// Returns:
+// Query the workflow for execution progress
+// Query name: "progress" (defined in workflow/transform.go)
 type ExecutionProgress struct {
     TotalGroups      int      // Total number of groups
     CompletedGroups  int      // Groups that finished
@@ -206,7 +207,9 @@ type ExecutionProgress struct {
 }
 ```
 
-This enables building dashboards and monitoring tools on top of the workflow.
+Other available queries: `status`, `diff`, `verifier_output` (alias: `logs`), `steering_state`.
+
+This enables building dashboards and monitoring tools on top of the workflow. The HTTP API server (`internal/server/`) exposes these queries as REST endpoints with SSE live updates.
 
 ## Benefits
 

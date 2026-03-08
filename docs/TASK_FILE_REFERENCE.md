@@ -32,19 +32,21 @@ execution:
 version: 1  # Always 1 (schema version)
 ```
 
-### id
-```yaml
-id: unique-task-id  # Unique identifier, alphanumeric with hyphens
-```
-
-Becomes workflow ID: `transform-unique-task-id`
-
 ### title
 ```yaml
 title: "Human-readable task description"
 ```
 
 Displayed in UI and workflow listings.
+
+## Optional Fields
+
+### id
+```yaml
+id: unique-task-id  # Optional. Alphanumeric with hyphens. Auto-generated if omitted.
+```
+
+Becomes workflow ID: `transform-unique-task-id`
 
 ## Mode Selection
 
@@ -141,10 +143,6 @@ execution:
       - name: lint
         command: [golangci-lint, run]
 
-    limits:                   # Optional resource limits
-      max_iterations: 50      # Max Claude Code iterations
-      max_tokens: 200000      # Max tokens per execution
-
     output:                   # For report mode
       schema:                 # JSON Schema for validation
         type: object
@@ -157,10 +155,6 @@ execution:
 - Run after Claude Code completes
 - Must exit with code 0 (success)
 - Workflow fails if any verifier fails
-
-**Limits:**
-- Prevents runaway executions
-- Defaults are usually sufficient
 
 **Output Schema (Report Mode):**
 - Validates YAML frontmatter
@@ -203,24 +197,20 @@ repositories:
 for_each:
   - name: target-1
     context: "Context about target 1"
-    custom_field: "value"
 
   - name: target-2
     context: "Context about target 2"
-    custom_field: "other"
 
 execution:
   agentic:
     prompt: |
       Analyze {{.Name}}.
       Context: {{.Context}}
-      Custom: {{.CustomField}}
 ```
 
 **Template Variables:**
 - `{{.Name}}` - Target name
 - `{{.Context}}` - Target context
-- `{{.FieldName}}` - Any custom field (PascalCase)
 
 **Report Files:**
 - Creates `REPORT-{name}.md` for each target
@@ -261,8 +251,6 @@ pull_request:
   reviewers:
     - alice
     - bob
-  team_reviewers:
-    - platform-team
 ```
 
 **Branch Naming:**
@@ -450,10 +438,35 @@ Controls how many rounds of iterative steering are allowed during the approval p
 description: "Detailed description of this task"
 ticket_url: "https://jira.example.com/PROJ-123"
 slack_channel: "#deployments"
-owner: "platform-team"
+requester: "platform-team"
 ```
 
 Metadata is stored with the workflow but doesn't affect execution.
+
+## Sandbox Configuration
+
+```yaml
+sandbox:
+  image: custom-image:latest  # Override default sandbox image
+```
+
+## Credentials
+
+```yaml
+credentials:
+  github_token: "..."           # Usually from env (GITHUB_TOKEN)
+  anthropic_api_key: "..."      # Usually from env (ANTHROPIC_API_KEY)
+```
+
+## Knowledge Configuration
+
+```yaml
+knowledge:
+  capture_disabled: false    # Disable auto-capture of knowledge items
+  enrich_disabled: false     # Disable knowledge injection into prompts
+  max_items: 10              # Max knowledge items to capture
+  tags: ["go", "logging"]   # Tags for captured knowledge
+```
 
 ## Complete Example
 
@@ -490,10 +503,6 @@ execution:
       - name: mod-tidy
         command: [go, mod, tidy]
 
-    limits:
-      max_iterations: 30
-      max_tokens: 100000
-
 pull_request:
   branch_prefix: "deps/"
   title: "chore: upgrade dependencies to latest patch versions"
@@ -517,7 +526,7 @@ max_parallel: 5
 
 # Metadata
 ticket_url: "https://jira.example.com/SEC-456"
-owner: "security-team"
+requester: "security-team"
 slack_channel: "#security-updates"
 ```
 
@@ -527,7 +536,7 @@ The CLI validates task files before starting workflows:
 
 ```bash
 ./bin/fleetlift run -f task.yaml
-# Error: missing required field 'id'
+# Error: missing required field 'title'
 # Error: invalid mode 'transforms' (must be 'transform' or 'report')
 # Error: timeout must be a valid duration (e.g., '30m', '2h')
 ```

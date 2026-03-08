@@ -26,7 +26,7 @@ If the worker dies, Temporal reschedules on another worker which resumes polling
 
 The Temporal worker. Runs in the `fleetlift-system` namespace. Contains:
 - Temporal worker (activities + workflows)
-- Provider implementation (Docker or Kubernetes)
+- Provider implementation (OpenSandbox in-tree; Docker/K8s via agentbox)
 - `TransformV2` workflow logic
 
 The worker only:
@@ -408,19 +408,17 @@ spec:
 
 ---
 
-## Docker Provider (Local Development)
+## Sandbox Providers
 
-The same protocol works with Docker. The Docker provider implements the same `sandbox.Provider` interface using `docker cp` (CopyTo/CopyFrom) instead of `kubectl exec`.
+The same file-based protocol works across all sandbox providers. Each implements the `sandbox.Provider` interface with provider-specific file I/O:
 
-```
-Docker Provider:
-  SubmitManifest  → docker cp manifest.json container:/workspace/.fleetlift/
-  PollStatus      → docker cp container:/workspace/.fleetlift/status.json (tar extract)
-  ReadResult      → docker cp container:/workspace/.fleetlift/result.json (tar extract)
-  SubmitSteering  → docker cp steering.json container:/workspace/.fleetlift/
-```
+| Provider | Location | File I/O Method | Selection |
+|----------|----------|----------------|-----------|
+| **OpenSandbox** | `internal/sandbox/opensandbox/` | execd API | `OPENSANDBOX_DOMAIN` env var (active in-tree provider) |
+| **Docker** | `agentbox/sandbox/docker/` | `docker cp` (CopyTo/CopyFrom) | Registered via agentbox |
+| **Kubernetes** | `agentbox/sandbox/kubernetes/` | `kubectl exec` | Registered via agentbox |
 
-The worker selects provider based on `SANDBOX_PROVIDER` env var (default: `docker`).
+Providers self-register via `init()` functions and are selected through `sandbox.NewProvider()` factory.
 
 ---
 
@@ -442,7 +440,7 @@ The worker selects provider based on `SANDBOX_PROVIDER` env var (default: `docke
 
 | File | Purpose |
 |------|---------|
-| `internal/agent/protocol/types.go` | Shared protocol types (manifest, status, result, steering) |
+| `internal/agent/fleetproto/types.go` | Shared protocol types (Phase, SteeringAction, TaskManifest, AgentResult, paths) |
 | `internal/agent/pipeline.go` | Agent main loop: watch manifest → execute → poll steering |
 | `internal/agent/clone.go` | Git clone, credentials, setup commands |
 | `internal/agent/transform.go` | Claude Code / deterministic execution |
@@ -451,7 +449,8 @@ The worker selects provider based on `SANDBOX_PROVIDER` env var (default: `docke
 | `internal/agent/pr.go` | Create pull requests (git branch, commit, push, gh pr) |
 | `cmd/agent/main.go` | Binary entrypoint: `fleetlift-agent serve` |
 | `internal/activity/agent.go` | Temporal activities: SubmitManifest, WaitForPhase, ReadResult, SubmitSteering |
-| `internal/activity/manifest.go` | Convert `model.Task` → `protocol.TaskManifest` |
+| `internal/activity/manifest.go` | Convert `model.Task` → `fleetproto.TaskManifest` |
 | `internal/workflow/transform_v2.go` | TransformV2 workflow (agent-mode) |
-| `internal/sandbox/provider.go` | Provider interface (extended with task ops) |
-| `internal/sandbox/docker/provider.go` | Docker provider (implements task ops via CopyTo/CopyFrom) |
+| `internal/sandbox/provider.go` | Provider + AgentProvider interfaces |
+| `internal/sandbox/factory.go` | ProviderFactory registration, NewProvider |
+| `internal/sandbox/opensandbox/provider.go` | OpenSandbox provider (active in-tree provider) |
