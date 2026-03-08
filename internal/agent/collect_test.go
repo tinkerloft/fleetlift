@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 )
 
 func TestParseNumstat_Standard(t *testing.T) {
@@ -173,12 +173,12 @@ func TestCollectResults_ReportMode_ForEach(t *testing.T) {
 	fs.files["/workspace/svc/REPORT-users-api.md"] = []byte("---\nscore: 8\n---\nGood")
 	fs.files["/workspace/svc/REPORT-orders-api.md"] = []byte("---\nscore: 5\n---\nNeeds work")
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		Mode: "report",
-		Repositories: []protocol.ManifestRepo{
+		Repositories: []fleetproto.ManifestRepo{
 			{Name: "svc"},
 		},
-		ForEach: []protocol.ForEachTarget{
+		ForEach: []fleetproto.ForEachTarget{
 			{Name: "users-api", Context: "GET /users"},
 			{Name: "orders-api", Context: "GET /orders"},
 		},

@@ -17,12 +17,11 @@ import (
 	"go.temporal.io/sdk/worker"
 
 	"github.com/tinkerloft/fleetlift/internal/activity"
+	"github.com/tinkerloft/fleetlift/internal/sandbox"
+	_ "github.com/tinkerloft/fleetlift/internal/sandbox/opensandbox" // register opensandbox provider
 	internalclient "github.com/tinkerloft/fleetlift/internal/client"
 	"github.com/tinkerloft/fleetlift/internal/logging"
 	"github.com/tinkerloft/fleetlift/internal/metrics"
-	"github.com/tinkerloft/fleetlift/internal/sandbox"
-	_ "github.com/tinkerloft/fleetlift/internal/sandbox/docker" // register docker provider
-	_ "github.com/tinkerloft/fleetlift/internal/sandbox/k8s"    // register k8s provider
 	"github.com/tinkerloft/fleetlift/internal/workflow"
 )
 
@@ -92,13 +91,12 @@ func main() {
 	log.Printf("Task queue: %s", internalclient.TaskQueue)
 
 	// Create sandbox provider
-	providerName := os.Getenv("SANDBOX_PROVIDER")
 	cfg := sandbox.ProviderConfig{
-		Namespace:      getEnvOrDefault("SANDBOX_NAMESPACE", "sandbox-isolated"),
-		AgentImage:     getEnvOrDefault("AGENT_IMAGE", "fleetlift-agent:latest"),
-		KubeconfigPath: os.Getenv("KUBECONFIG"),
+		OpenSandboxDomain:         getEnvOrDefault("OPEN_SANDBOX_DOMAIN", "http://localhost:8080"),
+		OpenSandboxAPIKey:         os.Getenv("OPEN_SANDBOX_API_KEY"),
+		OpenSandboxUseServerProxy: os.Getenv("OPEN_SANDBOX_USE_SERVER_PROXY") == "true",
 	}
-	provider, err := sandbox.NewProvider(providerName, cfg)
+	provider, err := sandbox.NewProvider(cfg)
 	if err != nil {
 		log.Fatalf("Failed to create sandbox provider: %v", err)
 	}
@@ -106,12 +104,9 @@ func main() {
 
 	// Create activities
 	sandboxActivities := activity.NewSandboxActivities(provider)
-	claudeActivities := activity.NewClaudeCodeActivities(provider)
-	deterministicActivities := activity.NewDeterministicActivities(provider)
 	githubActivities := activity.NewGitHubActivities(provider)
 	slackActivities := activity.NewSlackActivities()
 	reportActivities := activity.NewReportActivities(provider)
-	steeringActivities := activity.NewSteeringActivities(provider)
 	agentActivities := activity.NewAgentActivities(provider)
 	knowledgeActivities := activity.NewKnowledgeActivities()
 
@@ -127,17 +122,11 @@ func main() {
 
 	// Register activities with explicit names to match workflow constants
 	w.RegisterActivityWithOptions(sandboxActivities.ProvisionSandbox, temporalactivity.RegisterOptions{Name: activity.ActivityProvisionSandbox})
-	w.RegisterActivityWithOptions(sandboxActivities.CloneRepositories, temporalactivity.RegisterOptions{Name: activity.ActivityCloneRepositories})
 	w.RegisterActivityWithOptions(sandboxActivities.CleanupSandbox, temporalactivity.RegisterOptions{Name: activity.ActivityCleanupSandbox})
 	w.RegisterActivityWithOptions(sandboxActivities.RunVerifiers, temporalactivity.RegisterOptions{Name: activity.ActivityRunVerifiers})
-	w.RegisterActivityWithOptions(claudeActivities.RunClaudeCode, temporalactivity.RegisterOptions{Name: activity.ActivityRunClaudeCode})
-	w.RegisterActivityWithOptions(deterministicActivities.ExecuteDeterministic, temporalactivity.RegisterOptions{Name: activity.ActivityExecuteDeterministic})
 	w.RegisterActivityWithOptions(githubActivities.CreatePullRequest, temporalactivity.RegisterOptions{Name: activity.ActivityCreatePullRequest})
 	w.RegisterActivityWithOptions(slackActivities.NotifySlack, temporalactivity.RegisterOptions{Name: activity.ActivityNotifySlack})
-	w.RegisterActivityWithOptions(reportActivities.CollectReport, temporalactivity.RegisterOptions{Name: activity.ActivityCollectReport})
 	w.RegisterActivityWithOptions(reportActivities.ValidateSchema, temporalactivity.RegisterOptions{Name: activity.ActivityValidateSchema})
-	w.RegisterActivityWithOptions(steeringActivities.GetDiff, temporalactivity.RegisterOptions{Name: activity.ActivityGetDiff})
-	w.RegisterActivityWithOptions(steeringActivities.GetVerifierOutput, temporalactivity.RegisterOptions{Name: activity.ActivityGetVerifierOutput})
 	w.RegisterActivityWithOptions(sandboxActivities.ProvisionAgentSandbox, temporalactivity.RegisterOptions{Name: activity.ActivityProvisionAgentSandbox})
 	w.RegisterActivityWithOptions(agentActivities.SubmitTaskManifest, temporalactivity.RegisterOptions{Name: activity.ActivitySubmitTaskManifest})
 	w.RegisterActivityWithOptions(agentActivities.WaitForAgentPhase, temporalactivity.RegisterOptions{Name: activity.ActivityWaitForAgentPhase})

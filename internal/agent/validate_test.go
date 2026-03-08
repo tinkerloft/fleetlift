@@ -6,14 +6,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 )
 
 func TestValidateManifest_Valid(t *testing.T) {
-	m := &protocol.TaskManifest{
+	m := &fleetproto.TaskManifest{
 		TaskID: "task-1",
 		Mode:   "transform",
-		Repositories: []protocol.ManifestRepo{
+		Repositories: []fleetproto.ManifestRepo{
 			{Name: "svc", URL: "https://github.com/org/svc.git"},
 		},
 	}
@@ -21,61 +21,61 @@ func TestValidateManifest_Valid(t *testing.T) {
 }
 
 func TestValidateManifest_MissingTaskID(t *testing.T) {
-	m := &protocol.TaskManifest{Mode: "transform", Repositories: []protocol.ManifestRepo{{Name: "svc"}}}
+	m := &fleetproto.TaskManifest{Mode: "transform", Repositories: []fleetproto.ManifestRepo{{Name: "svc"}}}
 	assert.ErrorContains(t, ValidateManifest(m), "task_id is required")
 }
 
 func TestValidateManifest_MissingMode(t *testing.T) {
-	m := &protocol.TaskManifest{TaskID: "t", Repositories: []protocol.ManifestRepo{{Name: "svc"}}}
+	m := &fleetproto.TaskManifest{TaskID: "t", Repositories: []fleetproto.ManifestRepo{{Name: "svc"}}}
 	assert.ErrorContains(t, ValidateManifest(m), "mode is required")
 }
 
 func TestValidateManifest_InvalidMode(t *testing.T) {
-	m := &protocol.TaskManifest{TaskID: "t", Mode: "invalid", Repositories: []protocol.ManifestRepo{{Name: "svc"}}}
+	m := &fleetproto.TaskManifest{TaskID: "t", Mode: "invalid", Repositories: []fleetproto.ManifestRepo{{Name: "svc"}}}
 	assert.ErrorContains(t, ValidateManifest(m), "mode must be")
 }
 
 func TestValidateManifest_PathTraversal_Slash(t *testing.T) {
-	m := &protocol.TaskManifest{
+	m := &fleetproto.TaskManifest{
 		TaskID:       "t",
 		Mode:         "transform",
-		Repositories: []protocol.ManifestRepo{{Name: "../etc/passwd"}},
+		Repositories: []fleetproto.ManifestRepo{{Name: "../etc/passwd"}},
 	}
 	assert.ErrorContains(t, ValidateManifest(m), "must not contain '/'")
 }
 
 func TestValidateManifest_PathTraversal_DotDot(t *testing.T) {
-	m := &protocol.TaskManifest{
+	m := &fleetproto.TaskManifest{
 		TaskID:       "t",
 		Mode:         "transform",
-		Repositories: []protocol.ManifestRepo{{Name: "svc/../../escape"}},
+		Repositories: []fleetproto.ManifestRepo{{Name: "svc/../../escape"}},
 	}
 	assert.ErrorContains(t, ValidateManifest(m), "must not contain '/'")
 }
 
 func TestValidateManifest_ControlChars(t *testing.T) {
-	m := &protocol.TaskManifest{
+	m := &fleetproto.TaskManifest{
 		TaskID:       "t",
 		Mode:         "transform",
-		Repositories: []protocol.ManifestRepo{{Name: "svc\x00evil"}},
+		Repositories: []fleetproto.ManifestRepo{{Name: "svc\x00evil"}},
 	}
 	assert.ErrorContains(t, ValidateManifest(m), "control characters")
 }
 
 func TestValidateManifest_EmptyRepoName(t *testing.T) {
-	m := &protocol.TaskManifest{
+	m := &fleetproto.TaskManifest{
 		TaskID:       "t",
 		Mode:         "transform",
-		Repositories: []protocol.ManifestRepo{{Name: ""}},
+		Repositories: []fleetproto.ManifestRepo{{Name: ""}},
 	}
 	assert.ErrorContains(t, ValidateManifest(m), "name is required")
 }
 
 func TestValidateManifest_Targets(t *testing.T) {
-	m := &protocol.TaskManifest{
+	m := &fleetproto.TaskManifest{
 		TaskID: "t",
 		Mode:   "transform",
-		Targets: []protocol.ManifestRepo{
+		Targets: []fleetproto.ManifestRepo{
 			{Name: "target/../escape"},
 		},
 	}
@@ -83,19 +83,19 @@ func TestValidateManifest_Targets(t *testing.T) {
 }
 
 func TestValidateManifest_TransformationRepo(t *testing.T) {
-	m := &protocol.TaskManifest{
+	m := &fleetproto.TaskManifest{
 		TaskID:         "t",
 		Mode:           "transform",
-		Transformation: &protocol.ManifestRepo{Name: "tools/../../bad"},
+		Transformation: &fleetproto.ManifestRepo{Name: "tools/../../bad"},
 	}
 	assert.ErrorContains(t, ValidateManifest(m), "must not contain '/'")
 }
 
 func TestValidateManifest_ForEach(t *testing.T) {
-	m := &protocol.TaskManifest{
+	m := &fleetproto.TaskManifest{
 		TaskID:  "t",
 		Mode:    "report",
-		ForEach: []protocol.ForEachTarget{{Name: "../escape", Context: "ctx"}},
+		ForEach: []fleetproto.ForEachTarget{{Name: "../escape", Context: "ctx"}},
 	}
 	assert.ErrorContains(t, ValidateManifest(m), "must not contain '/'")
 }

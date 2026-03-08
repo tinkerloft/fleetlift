@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 )
 
 // blockedEnvVars are environment variable names that manifest env overrides cannot set.
@@ -34,7 +34,7 @@ func filterEnv(env []string, blockKeys map[string]bool) []string {
 }
 
 // runTransformation executes the transformation (agentic or deterministic).
-func (p *Pipeline) runTransformation(ctx context.Context, manifest *protocol.TaskManifest) (string, error) {
+func (p *Pipeline) runTransformation(ctx context.Context, manifest *fleetproto.TaskManifest) (string, error) {
 	switch manifest.Execution.Type {
 	case "agentic":
 		return p.runAgenticTransformation(ctx, manifest)
@@ -50,7 +50,7 @@ func (p *Pipeline) runTransformation(ctx context.Context, manifest *protocol.Tas
 
 // runAgenticTransformation runs Claude Code with the manifest prompt.
 // C1 fix: pass prompt directly to -p flag — exec.CommandContext uses execve, no shell involved.
-func (p *Pipeline) runAgenticTransformation(ctx context.Context, manifest *protocol.TaskManifest) (string, error) {
+func (p *Pipeline) runAgenticTransformation(ctx context.Context, manifest *fleetproto.TaskManifest) (string, error) {
 	prompt := p.buildTransformPrompt(manifest)
 
 	args := []string{
@@ -67,7 +67,7 @@ func (p *Pipeline) runAgenticTransformation(ctx context.Context, manifest *proto
 	result, err := p.exec.Run(ctx, CommandOpts{
 		Name: "claude",
 		Args: args,
-		Dir:  protocol.WorkspacePath,
+		Dir:  fleetproto.WorkspacePath,
 		Env:  claudeEnv,
 	})
 	if err != nil {
@@ -82,7 +82,7 @@ func (p *Pipeline) runAgenticTransformation(ctx context.Context, manifest *proto
 }
 
 // runDeterministicTransformation runs the command specified in the manifest directly in the sandbox.
-func (p *Pipeline) runDeterministicTransformation(ctx context.Context, manifest *protocol.TaskManifest) (string, error) {
+func (p *Pipeline) runDeterministicTransformation(ctx context.Context, manifest *fleetproto.TaskManifest) (string, error) {
 	if len(manifest.Execution.Command) == 0 {
 		return "", fmt.Errorf("deterministic execution requires command")
 	}
@@ -114,7 +114,7 @@ func (p *Pipeline) runDeterministicTransformation(ctx context.Context, manifest 
 	result, err := p.exec.Run(ctx, CommandOpts{
 		Name: manifest.Execution.Command[0],
 		Args: args,
-		Dir:  protocol.WorkspacePath,
+		Dir:  fleetproto.WorkspacePath,
 		Env:  env,
 	})
 	if err != nil {
@@ -130,7 +130,7 @@ func (p *Pipeline) runDeterministicTransformation(ctx context.Context, manifest 
 
 // runSteeringTransformation runs Claude Code with a steering prompt that includes prior context.
 // C1 fix: pass prompt directly — no base64 encoding needed.
-func (p *Pipeline) runSteeringTransformation(ctx context.Context, manifest *protocol.TaskManifest, steeringPrompt string, iteration int, previousOutput string) (string, error) {
+func (p *Pipeline) runSteeringTransformation(ctx context.Context, manifest *fleetproto.TaskManifest, steeringPrompt string, iteration int, previousOutput string) (string, error) {
 	prompt := p.buildSteeringPrompt(manifest, steeringPrompt, iteration, previousOutput)
 
 	args := []string{
@@ -147,7 +147,7 @@ func (p *Pipeline) runSteeringTransformation(ctx context.Context, manifest *prot
 	result, err := p.exec.Run(ctx, CommandOpts{
 		Name: "claude",
 		Args: args,
-		Dir:  protocol.WorkspacePath,
+		Dir:  fleetproto.WorkspacePath,
 		Env:  claudeEnv,
 	})
 	if err != nil {
@@ -161,7 +161,7 @@ func (p *Pipeline) runSteeringTransformation(ctx context.Context, manifest *prot
 	return result.Stdout + result.Stderr, nil
 }
 
-func (p *Pipeline) buildTransformPrompt(manifest *protocol.TaskManifest) string {
+func (p *Pipeline) buildTransformPrompt(manifest *fleetproto.TaskManifest) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("Task: %s\n\n", manifest.Title))
@@ -207,7 +207,7 @@ func (p *Pipeline) buildTransformPrompt(manifest *protocol.TaskManifest) string 
 	return sb.String()
 }
 
-func (p *Pipeline) buildSteeringPrompt(manifest *protocol.TaskManifest, steeringPrompt string, iteration int, previousOutput string) string {
+func (p *Pipeline) buildSteeringPrompt(manifest *fleetproto.TaskManifest, steeringPrompt string, iteration int, previousOutput string) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("Task: %s\n\n", manifest.Title))

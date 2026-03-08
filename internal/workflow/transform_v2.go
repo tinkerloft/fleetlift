@@ -8,7 +8,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/tinkerloft/fleetlift/internal/activity"
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 	"github.com/tinkerloft/fleetlift/internal/model"
 )
 
@@ -150,6 +150,33 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 
 	// 2. Submit manifest
 	status = model.TaskStatusRunning
+
+	// Enrich prompt with knowledge from previous runs (non-blocking; errors use original prompt)
+	originalPrompt := ""
+	if task.Execution.Agentic != nil {
+		originalPrompt = task.Execution.Agentic.Prompt
+	}
+	if task.KnowledgeEnrichEnabled() && task.Execution.Agentic != nil {
+		enrichCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 30 * time.Second,
+			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+		})
+		enrichInput := activity.EnrichPromptInput{
+			OriginalPrompt: task.Execution.Agentic.Prompt,
+			FilterTags:     task.KnowledgeTags(),
+			MaxItems:       task.KnowledgeMaxItems(),
+		}
+		if task.UsesTransformationRepo() {
+			enrichInput.TransformationRepoPath = "/workspace"
+		}
+		var enrichedPrompt string
+		if err := workflow.ExecuteActivity(enrichCtx, activity.ActivityEnrichPrompt, enrichInput).Get(enrichCtx, &enrichedPrompt); err != nil {
+			logger.Warn("TransformV2: EnrichPrompt failed, using original prompt", "error", err)
+		} else if enrichedPrompt != "" {
+			task.Execution.Agentic.Prompt = enrichedPrompt
+		}
+	}
+
 	manifest := activity.BuildManifest(task)
 
 	manifestInput := activity.SubmitTaskManifestInput{
@@ -172,21 +199,21 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 
 	waitInput := activity.WaitForAgentPhaseInput{
 		SandboxID:    sandboxInfo.ContainerID,
-		TargetPhases: []string{string(protocol.PhaseAwaitingInput), string(protocol.PhaseComplete), string(protocol.PhaseFailed)},
+		TargetPhases: []string{string(fleetproto.PhaseAwaitingInput), string(fleetproto.PhaseComplete), string(fleetproto.PhaseFailed)},
 	}
-	var agentStatus *protocol.AgentStatus
+	var agentStatus *fleetproto.AgentStatus
 	if err := workflow.ExecuteActivity(longCtx, activity.ActivityWaitForAgentPhase, waitInput).Get(longCtx, &agentStatus); err != nil {
 		return failedResult(fmt.Sprintf("wait for agent failed: %v", err)), nil
 	}
 
 	// 4. Read result
 	resultInput := activity.ReadAgentResultInput{SandboxID: sandboxInfo.ContainerID}
-	var agentResult *protocol.AgentResult
+	var agentResult *fleetproto.AgentResult
 	if err := workflow.ExecuteActivity(shortCtx, activity.ActivityReadAgentResult, resultInput).Get(shortCtx, &agentResult); err != nil {
 		return failedResult(fmt.Sprintf("read result failed: %v", err)), nil
 	}
 
-	if agentStatus.Phase == protocol.PhaseFailed {
+	if agentStatus.Phase == fleetproto.PhaseFailed {
 		errMsg := "Agent execution failed"
 		if agentResult != nil && agentResult.Error != nil {
 			errMsg = *agentResult.Error
@@ -195,7 +222,7 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 	}
 
 	// For report mode or non-approval transform, we may already be complete
-	if agentStatus.Phase == protocol.PhaseComplete {
+	if agentStatus.Phase == fleetproto.PhaseComplete {
 		return buildTaskResultFromAgent(task, agentResult, startTime, workflow.Now(ctx), signalDone), nil
 	}
 
@@ -223,7 +250,7 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 				// Tell agent to cancel
 				cancelInput := activity.SubmitSteeringActionInput{
 					SandboxID: sandboxInfo.ContainerID,
-					Action:    string(protocol.SteeringActionCancel),
+					Action:    string(fleetproto.SteeringActionCancel),
 				}
 				_ = workflow.ExecuteActivity(shortCtx, activity.ActivitySubmitSteeringAction, cancelInput).Get(shortCtx, nil)
 				return cancelledResult(), nil
@@ -232,7 +259,7 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 			if approved != nil && !*approved {
 				rejectInput := activity.SubmitSteeringActionInput{
 					SandboxID: sandboxInfo.ContainerID,
-					Action:    string(protocol.SteeringActionReject),
+					Action:    string(fleetproto.SteeringActionReject),
 				}
 				_ = workflow.ExecuteActivity(shortCtx, activity.ActivitySubmitSteeringAction, rejectInput).Get(shortCtx, nil)
 				return cancelledResult(), nil
@@ -242,14 +269,14 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 				// Approve → agent creates PRs
 				approveInput := activity.SubmitSteeringActionInput{
 					SandboxID: sandboxInfo.ContainerID,
-					Action:    string(protocol.SteeringActionApprove),
+					Action:    string(fleetproto.SteeringActionApprove),
 				}
 				if err := workflow.ExecuteActivity(shortCtx, activity.ActivitySubmitSteeringAction, approveInput).Get(shortCtx, nil); err != nil {
 					return failedResult(fmt.Sprintf("submit approve failed: %v", err)), nil
 				}
 
 				// Wait for completion
-				waitInput.TargetPhases = []string{string(protocol.PhaseComplete), string(protocol.PhaseFailed)}
+				waitInput.TargetPhases = []string{string(fleetproto.PhaseComplete), string(fleetproto.PhaseFailed)}
 				if err := workflow.ExecuteActivity(longCtx, activity.ActivityWaitForAgentPhase, waitInput).Get(longCtx, &agentStatus); err != nil {
 					return failedResult(fmt.Sprintf("wait for completion failed: %v", err)), nil
 				}
@@ -276,7 +303,7 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 				// Submit steer action to agent
 				steerInput := activity.SubmitSteeringActionInput{
 					SandboxID: sandboxInfo.ContainerID,
-					Action:    string(protocol.SteeringActionSteer),
+					Action:    string(fleetproto.SteeringActionSteer),
 					Prompt:    steeringPrompt,
 					Iteration: steeringState.CurrentIteration,
 				}
@@ -288,7 +315,7 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 				}
 
 				// Wait for agent to finish steering iteration
-				waitInput.TargetPhases = []string{string(protocol.PhaseAwaitingInput), string(protocol.PhaseFailed)}
+				waitInput.TargetPhases = []string{string(fleetproto.PhaseAwaitingInput), string(fleetproto.PhaseFailed)}
 				if err := workflow.ExecuteActivity(longCtx, activity.ActivityWaitForAgentPhase, waitInput).Get(longCtx, &agentStatus); err != nil {
 					logger.Error("Wait for steering result failed", "error", err)
 				}
@@ -322,11 +349,40 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 		}
 	}
 
+	// Capture knowledge from steering corrections (non-blocking; only when steering occurred)
+	if task.KnowledgeCaptureEnabled() && len(steeringState.History) > 0 {
+		captureCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 30 * time.Second,
+			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+		})
+		repoNames := make([]string, 0, len(task.GetEffectiveRepositories()))
+		for _, r := range task.GetEffectiveRepositories() {
+			repoNames = append(repoNames, r.Name)
+		}
+		captureInput := activity.CaptureKnowledgeInput{
+			TaskID:          task.ID,
+			OriginalPrompt:  originalPrompt,
+			SteeringHistory: steeringState.History,
+			DiffSummary:     buildDiffSummary(cachedDiffs),
+			VerifiersPassed: true,
+			RepoNames:       repoNames,
+		}
+		var capturedItems []model.KnowledgeItem
+		if err := workflow.ExecuteActivity(captureCtx, activity.ActivityCaptureKnowledge, captureInput).Get(captureCtx, &capturedItems); err != nil {
+			logger.Warn("TransformV2: CaptureKnowledge failed (non-blocking)", "error", err)
+		} else if len(capturedItems) > 0 {
+			logger.Info("TransformV2: knowledge captured - run 'fleetlift knowledge review' to curate",
+				"count", len(capturedItems),
+				"task_id", task.ID,
+			)
+		}
+	}
+
 	return buildTaskResultFromAgent(task, agentResult, startTime, workflow.Now(ctx), signalDone), nil
 }
 
 // buildTaskResultFromAgent converts an AgentResult to a model.TaskResult.
-func buildTaskResultFromAgent(task model.Task, ar *protocol.AgentResult, startTime, endTime time.Time, signalDone func()) *model.TaskResult {
+func buildTaskResultFromAgent(task model.Task, ar *fleetproto.AgentResult, startTime, endTime time.Time, signalDone func()) *model.TaskResult {
 	signalDone()
 	duration := endTime.Sub(startTime).Seconds()
 
@@ -341,7 +397,7 @@ func buildTaskResultFromAgent(task model.Task, ar *protocol.AgentResult, startTi
 		return &taskResult
 	}
 
-	if ar.Status == protocol.PhaseFailed {
+	if ar.Status == fleetproto.PhaseFailed {
 		taskResult.Status = model.TaskStatusFailed
 		taskResult.Error = ar.Error
 	}
@@ -407,7 +463,7 @@ func buildTaskResultFromAgent(task model.Task, ar *protocol.AgentResult, startTi
 }
 
 // extractDiffsFromAgent converts agent result diffs to model.DiffOutput for query handlers.
-func extractDiffsFromAgent(ar *protocol.AgentResult) []model.DiffOutput {
+func extractDiffsFromAgent(ar *fleetproto.AgentResult) []model.DiffOutput {
 	if ar == nil {
 		return nil
 	}

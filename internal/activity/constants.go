@@ -15,16 +15,9 @@ const AgentStaleThreshold = 5 * time.Minute
 // Activity name constants to prevent typos and improve maintainability (SIMP-003)
 const (
 	// Sandbox activities
-	ActivityProvisionSandbox  = "ProvisionSandbox"
-	ActivityCloneRepositories = "CloneRepositories"
-	ActivityRunVerifiers      = "RunVerifiers"
-	ActivityCleanupSandbox    = "CleanupSandbox"
-
-	// Claude Code activities
-	ActivityRunClaudeCode = "RunClaudeCode"
-
-	// Deterministic transformation activities
-	ActivityExecuteDeterministic = "ExecuteDeterministic"
+	ActivityProvisionSandbox = "ProvisionSandbox"
+	ActivityRunVerifiers     = "RunVerifiers"
+	ActivityCleanupSandbox   = "CleanupSandbox"
 
 	// GitHub activities
 	ActivityCreatePullRequest = "CreatePullRequest"
@@ -33,12 +26,7 @@ const (
 	ActivityNotifySlack = "NotifySlack"
 
 	// Report activities
-	ActivityCollectReport  = "CollectReport"
 	ActivityValidateSchema = "ValidateSchema"
-
-	// Steering activities
-	ActivityGetDiff           = "GetDiff"
-	ActivityGetVerifierOutput = "GetVerifierOutput"
 
 	// Agent-mode activities (sidecar agent pattern)
 	ActivityProvisionAgentSandbox = "ProvisionAgentSandbox"

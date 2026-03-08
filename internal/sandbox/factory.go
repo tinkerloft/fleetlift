@@ -1,45 +1,41 @@
 package sandbox
 
-import (
-	"fmt"
-)
+import "fmt"
 
-// ProviderConfig contains configuration for provider construction.
+// ProviderConfig contains configuration for the OpenSandbox provider.
 type ProviderConfig struct {
-	Namespace      string // K8s namespace (default: sandbox-isolated)
-	AgentImage     string // K8s agent init container image
-	KubeconfigPath string // K8s kubeconfig path (empty = in-cluster)
+	// OpenSandboxDomain is the lifecycle server URL (e.g. "http://localhost:8080").
+	OpenSandboxDomain string
+	// OpenSandboxAPIKey is the OPEN-SANDBOX-API-KEY.
+	OpenSandboxAPIKey string
+	// OpenSandboxUseServerProxy routes execd calls through the lifecycle server.
+	// Set true when the worker cannot reach sandbox containers directly.
+	OpenSandboxUseServerProxy bool
+	// OpenSandboxDefaultTimeout is the sandbox TTL in seconds (60–86400). Default: 3600.
+	OpenSandboxDefaultTimeout int
+	// OpenSandboxExecdAccessToken is sent as X-EXECD-ACCESS-TOKEN to execd.
+	// Leave empty if execd runs without authentication (the default).
+	OpenSandboxExecdAccessToken string
 }
 
-// ProviderFactory is a function that creates an AgentProvider.
-// This allows the factory to be extended without import cycles.
+// ProviderFactory is a function that creates an AgentProvider from config.
 type ProviderFactory func(cfg ProviderConfig) (AgentProvider, error)
 
-// providerFactories maps provider names to their factory functions.
-var providerFactories = map[string]ProviderFactory{}
+var providerFactory ProviderFactory
 
-// RegisterProvider registers a provider factory by name.
-func RegisterProvider(name string, factory ProviderFactory) {
-	providerFactories[name] = factory
+// RegisterProvider registers the single provider factory.
+// Called by internal/sandbox/opensandbox init().
+func RegisterProvider(_ string, factory ProviderFactory) {
+	providerFactory = factory
 }
 
-// NewProvider creates an AgentProvider based on the provider name.
-// Empty string or "docker" selects the Docker provider.
-// "kubernetes" or "k8s" selects the Kubernetes provider.
-func NewProvider(providerName string, cfg ProviderConfig) (AgentProvider, error) {
-	var registryKey string
-	switch providerName {
-	case "", "docker":
-		registryKey = "docker"
-	case "kubernetes", "k8s":
-		registryKey = "kubernetes"
-	default:
-		return nil, fmt.Errorf("unknown sandbox provider: %q", providerName)
+// NewProvider creates the AgentProvider from config.
+func NewProvider(cfg ProviderConfig) (AgentProvider, error) {
+	if cfg.OpenSandboxDomain == "" {
+		return nil, fmt.Errorf("OpenSandboxDomain is required")
 	}
-
-	factory, ok := providerFactories[registryKey]
-	if !ok {
-		return nil, fmt.Errorf("%s provider not registered", registryKey)
+	if providerFactory == nil {
+		return nil, fmt.Errorf("no provider registered (import _ \"github.com/tinkerloft/fleetlift/internal/sandbox/opensandbox\")")
 	}
-	return factory(cfg)
+	return providerFactory(cfg)
 }

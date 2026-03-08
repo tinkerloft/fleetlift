@@ -8,11 +8,11 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 )
 
 // cloneRepos clones all repositories defined in the manifest.
-func (p *Pipeline) cloneRepos(ctx context.Context, manifest *protocol.TaskManifest) error {
+func (p *Pipeline) cloneRepos(ctx context.Context, manifest *fleetproto.TaskManifest) error {
 	// Configure git identity
 	if err := p.configureGit(ctx, manifest.GitConfig); err != nil {
 		return fmt.Errorf("git config failed: %w", err)
@@ -27,12 +27,12 @@ func (p *Pipeline) cloneRepos(ctx context.Context, manifest *protocol.TaskManife
 
 	// Clone transformation repo at /workspace if set
 	if manifest.Transformation != nil {
-		if err := p.cloneRepo(ctx, manifest.Transformation, protocol.WorkspacePath, manifest.GitConfig.CloneDepth); err != nil {
+		if err := p.cloneRepo(ctx, manifest.Transformation, fleetproto.WorkspacePath, manifest.GitConfig.CloneDepth); err != nil {
 			return fmt.Errorf("clone transformation repo: %w", err)
 		}
 		// Run setup commands
 		for _, cmd := range manifest.Transformation.Setup {
-			if err := p.runShell(ctx, protocol.WorkspacePath, cmd); err != nil {
+			if err := p.runShell(ctx, fleetproto.WorkspacePath, cmd); err != nil {
 				return fmt.Errorf("transformation setup %q: %w", cmd, err)
 			}
 		}
@@ -64,14 +64,14 @@ func (p *Pipeline) cloneRepos(ctx context.Context, manifest *protocol.TaskManife
 
 	// Write AGENTS.md
 	agentsMD := generateAgentsMD(manifest)
-	if err := p.fs.WriteFile(filepath.Join(protocol.WorkspacePath, "AGENTS.md"), []byte(agentsMD), 0644); err != nil {
+	if err := p.fs.WriteFile(filepath.Join(fleetproto.WorkspacePath, "AGENTS.md"), []byte(agentsMD), 0644); err != nil {
 		p.logger.Warn("Failed to write AGENTS.md", "error", err)
 	}
 
 	return nil
 }
 
-func (p *Pipeline) cloneRepo(ctx context.Context, repo *protocol.ManifestRepo, destPath string, depth int) error {
+func (p *Pipeline) cloneRepo(ctx context.Context, repo *fleetproto.ManifestRepo, destPath string, depth int) error {
 	branch := repo.Branch
 	if branch == "" {
 		branch = "main"
@@ -89,7 +89,7 @@ func (p *Pipeline) cloneRepo(ctx context.Context, repo *protocol.ManifestRepo, d
 	return err
 }
 
-func (p *Pipeline) configureGit(ctx context.Context, cfg protocol.ManifestGitConfig) error {
+func (p *Pipeline) configureGit(ctx context.Context, cfg fleetproto.ManifestGitConfig) error {
 	commands := [][]string{
 		{"git", "config", "--global", "user.email", cfg.UserEmail},
 		{"git", "config", "--global", "user.name", cfg.UserName},
@@ -138,7 +138,7 @@ func (p *Pipeline) runShell(ctx context.Context, dir string, command string) err
 	return err
 }
 
-func generateAgentsMD(manifest *protocol.TaskManifest) string {
+func generateAgentsMD(manifest *fleetproto.TaskManifest) string {
 	var sb strings.Builder
 	sb.WriteString("# Agent Instructions\n\n")
 	sb.WriteString(fmt.Sprintf("## Task: %s\n\n", manifest.Title))

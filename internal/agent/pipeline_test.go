@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 )
 
 func TestWaitForManifest_Polling(t *testing.T) {
@@ -19,10 +19,10 @@ func TestWaitForManifest_Polling(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		TaskID: "task-1",
 		Mode:   "transform",
-		Repositories: []protocol.ManifestRepo{
+		Repositories: []fleetproto.ManifestRepo{
 			{Name: "svc"},
 		},
 	}
@@ -59,8 +59,8 @@ func TestWaitForSteering_AtomicRename(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	instruction := &protocol.SteeringInstruction{
-		Action: protocol.SteeringActionApprove,
+	instruction := &fleetproto.SteeringInstruction{
+		Action: fleetproto.SteeringActionApprove,
 	}
 	data, _ := json.Marshal(instruction)
 
@@ -72,7 +72,7 @@ func TestWaitForSteering_AtomicRename(t *testing.T) {
 
 	got, err := p.waitForSteering(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, protocol.SteeringActionApprove, got.Action)
+	assert.Equal(t, fleetproto.SteeringActionApprove, got.Action)
 
 	// Verify the original file was removed (renamed then deleted)
 	_, err = fs.ReadFile("/tmp/test-fleetlift/steering.json")
@@ -89,8 +89,8 @@ func TestWaitForSteering_RenameFailsNoFile(t *testing.T) {
 	// Write steering file after a delay to test that rename failure is handled
 	go func() {
 		time.Sleep(50 * time.Millisecond)
-		instruction := &protocol.SteeringInstruction{
-			Action: protocol.SteeringActionSteer,
+		instruction := &fleetproto.SteeringInstruction{
+			Action: fleetproto.SteeringActionSteer,
 			Prompt: "fix tests",
 		}
 		data, _ := json.Marshal(instruction)
@@ -102,7 +102,7 @@ func TestWaitForSteering_RenameFailsNoFile(t *testing.T) {
 
 	got, err := p.waitForSteering(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, protocol.SteeringActionSteer, got.Action)
+	assert.Equal(t, fleetproto.SteeringActionSteer, got.Action)
 	assert.Equal(t, "fix tests", got.Prompt)
 }
 
@@ -111,17 +111,17 @@ func TestWriteStatus(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	p.writeStatus(protocol.AgentStatus{
-		Phase:   protocol.PhaseExecuting,
+	p.writeStatus(fleetproto.AgentStatus{
+		Phase:   fleetproto.PhaseExecuting,
 		Message: "Running...",
 	})
 
 	data, err := fs.ReadFile("/tmp/test-fleetlift/status.json")
 	require.NoError(t, err)
 
-	var status protocol.AgentStatus
+	var status fleetproto.AgentStatus
 	require.NoError(t, json.Unmarshal(data, &status))
-	assert.Equal(t, protocol.PhaseExecuting, status.Phase)
+	assert.Equal(t, fleetproto.PhaseExecuting, status.Phase)
 	assert.Equal(t, "Running...", status.Message)
 }
 
@@ -130,9 +130,9 @@ func TestWriteResult_Success(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	result := &protocol.AgentResult{
-		Status: protocol.PhaseComplete,
-		Repositories: []protocol.RepoResult{
+	result := &fleetproto.AgentResult{
+		Status: fleetproto.PhaseComplete,
+		Repositories: []fleetproto.RepoResult{
 			{Name: "svc", Status: "success"},
 		},
 	}
@@ -143,9 +143,9 @@ func TestWriteResult_Success(t *testing.T) {
 	data, err := fs.ReadFile("/tmp/test-fleetlift/result.json")
 	require.NoError(t, err)
 
-	var decoded protocol.AgentResult
+	var decoded fleetproto.AgentResult
 	require.NoError(t, json.Unmarshal(data, &decoded))
-	assert.Equal(t, protocol.PhaseComplete, decoded.Status)
+	assert.Equal(t, fleetproto.PhaseComplete, decoded.Status)
 }
 
 func TestWriteResult_Error(t *testing.T) {
@@ -156,7 +156,7 @@ func TestWriteResult_Error(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	err := p.writeResult(&protocol.AgentResult{Status: protocol.PhaseComplete})
+	err := p.writeResult(&fleetproto.AgentResult{Status: fleetproto.PhaseComplete})
 	assert.ErrorContains(t, err, "disk full")
 }
 
@@ -168,18 +168,18 @@ func TestExecute_HappyPath(t *testing.T) {
 	}
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		TaskID: "task-1",
 		Mode:   "transform",
 		Title:  "Fix bug",
-		Repositories: []protocol.ManifestRepo{
+		Repositories: []fleetproto.ManifestRepo{
 			{Name: "svc", URL: "https://github.com/org/svc.git"},
 		},
-		Execution: protocol.ManifestExecution{
+		Execution: fleetproto.ManifestExecution{
 			Type:   "agentic",
 			Prompt: "Fix it",
 		},
-		GitConfig: protocol.ManifestGitConfig{
+		GitConfig: fleetproto.ManifestGitConfig{
 			UserEmail: "bot@test.com",
 			UserName:  "Bot",
 		},
@@ -187,16 +187,16 @@ func TestExecute_HappyPath(t *testing.T) {
 
 	t.Setenv("GITHUB_TOKEN", "")
 
-	err := p.execute(context.Background(), manifest)
+	err := p.Execute(context.Background(), manifest)
 	require.NoError(t, err)
 
 	// Verify final result was written
 	data, err := fs.ReadFile("/tmp/test-fleetlift/result.json")
 	require.NoError(t, err)
 
-	var result protocol.AgentResult
+	var result fleetproto.AgentResult
 	require.NoError(t, json.Unmarshal(data, &result))
-	assert.Equal(t, protocol.PhaseComplete, result.Status)
+	assert.Equal(t, fleetproto.PhaseComplete, result.Status)
 	assert.NotNil(t, result.CompletedAt)
 }
 
@@ -211,19 +211,19 @@ func TestExecute_CloneFailure(t *testing.T) {
 	}
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		TaskID: "task-1",
 		Mode:   "transform",
-		Repositories: []protocol.ManifestRepo{
+		Repositories: []fleetproto.ManifestRepo{
 			{Name: "svc", URL: "https://github.com/org/svc.git"},
 		},
-		Execution: protocol.ManifestExecution{Type: "agentic", Prompt: "Fix it"},
-		GitConfig: protocol.ManifestGitConfig{UserEmail: "bot@test.com", UserName: "Bot"},
+		Execution: fleetproto.ManifestExecution{Type: "agentic", Prompt: "Fix it"},
+		GitConfig: fleetproto.ManifestGitConfig{UserEmail: "bot@test.com", UserName: "Bot"},
 	}
 
 	t.Setenv("GITHUB_TOKEN", "")
 
-	err := p.execute(context.Background(), manifest)
+	err := p.Execute(context.Background(), manifest)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "clone failed")
 
@@ -231,8 +231,8 @@ func TestExecute_CloneFailure(t *testing.T) {
 	data, err := fs.ReadFile("/tmp/test-fleetlift/result.json")
 	require.NoError(t, err)
 
-	var result protocol.AgentResult
+	var result fleetproto.AgentResult
 	require.NoError(t, json.Unmarshal(data, &result))
-	assert.Equal(t, protocol.PhaseFailed, result.Status)
+	assert.Equal(t, fleetproto.PhaseFailed, result.Status)
 	assert.NotNil(t, result.Error)
 }

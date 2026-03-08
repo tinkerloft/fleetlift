@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 )
 
 func TestCreatePR_BranchNaming(t *testing.T) {
@@ -21,14 +21,14 @@ func TestCreatePR_BranchNaming(t *testing.T) {
 	}
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		TaskID: "migration-123",
-		PullRequest: &protocol.ManifestPRConfig{
+		PullRequest: &fleetproto.ManifestPRConfig{
 			Title: "Fix bug",
 			Body:  "Fixes #42",
 		},
 	}
-	repo := &protocol.ManifestRepo{Name: "svc"}
+	repo := &fleetproto.ManifestRepo{Name: "svc"}
 
 	pr, err := p.createPR(context.Background(), manifest, repo, "/workspace/svc")
 	require.NoError(t, err)
@@ -49,14 +49,14 @@ func TestCreatePR_CustomBranchPrefix(t *testing.T) {
 	}
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		TaskID: "task-1",
-		PullRequest: &protocol.ManifestPRConfig{
+		PullRequest: &fleetproto.ManifestPRConfig{
 			BranchPrefix: "feat/slog",
 			Title:        "Slog migration",
 		},
 	}
-	repo := &protocol.ManifestRepo{Name: "svc"}
+	repo := &fleetproto.ManifestRepo{Name: "svc"}
 
 	pr, err := p.createPR(context.Background(), manifest, repo, "/workspace/svc")
 	require.NoError(t, err)
@@ -75,11 +75,11 @@ func TestCreatePR_GitIgnoreInjection(t *testing.T) {
 	}
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		TaskID:      "task-1",
-		PullRequest: &protocol.ManifestPRConfig{Title: "Fix"},
+		PullRequest: &fleetproto.ManifestPRConfig{Title: "Fix"},
 	}
-	repo := &protocol.ManifestRepo{Name: "svc"}
+	repo := &fleetproto.ManifestRepo{Name: "svc"}
 
 	_, err := p.createPR(context.Background(), manifest, repo, "/workspace/svc")
 	require.NoError(t, err)
@@ -104,11 +104,11 @@ func TestCreatePR_GitIgnorePreservesExisting(t *testing.T) {
 	existingContent := "node_modules/\nbuild/\n*.log\n"
 	_ = fs.WriteFile("/workspace/svc/.gitignore", []byte(existingContent), 0644)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		TaskID:      "task-1",
-		PullRequest: &protocol.ManifestPRConfig{Title: "Fix"},
+		PullRequest: &fleetproto.ManifestPRConfig{Title: "Fix"},
 	}
-	repo := &protocol.ManifestRepo{Name: "svc"}
+	repo := &fleetproto.ManifestRepo{Name: "svc"}
 
 	_, err := p.createPR(context.Background(), manifest, repo, "/workspace/svc")
 	require.NoError(t, err)
@@ -135,11 +135,11 @@ func TestCreatePR_GitCommands(t *testing.T) {
 	}
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		TaskID:      "task-1",
-		PullRequest: &protocol.ManifestPRConfig{Title: "Fix bug"},
+		PullRequest: &fleetproto.ManifestPRConfig{Title: "Fix bug"},
 	}
-	repo := &protocol.ManifestRepo{Name: "svc"}
+	repo := &fleetproto.ManifestRepo{Name: "svc"}
 
 	_, err := p.createPR(context.Background(), manifest, repo, "/workspace/svc")
 	require.NoError(t, err)
@@ -163,13 +163,13 @@ func TestCreatePullRequests_SkipsNoChanges(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		TaskID:       "task-1",
-		Repositories: []protocol.ManifestRepo{{Name: "svc"}},
-		PullRequest:  &protocol.ManifestPRConfig{Title: "Fix"},
+		Repositories: []fleetproto.ManifestRepo{{Name: "svc"}},
+		PullRequest:  &fleetproto.ManifestPRConfig{Title: "Fix"},
 	}
 
-	results := []protocol.RepoResult{
+	results := []fleetproto.RepoResult{
 		{Name: "svc", Status: "success", FilesModified: nil},
 	}
 
@@ -190,15 +190,15 @@ func TestCreatePR_Labels_Reviewers(t *testing.T) {
 	}
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		TaskID: "task-1",
-		PullRequest: &protocol.ManifestPRConfig{
+		PullRequest: &fleetproto.ManifestPRConfig{
 			Title:     "Fix",
 			Labels:    []string{"automated", "review-needed"},
 			Reviewers: []string{"alice", "bob"},
 		},
 	}
-	repo := &protocol.ManifestRepo{Name: "svc"}
+	repo := &fleetproto.ManifestRepo{Name: "svc"}
 
 	_, err := p.createPR(context.Background(), manifest, repo, "/workspace/svc")
 	require.NoError(t, err)

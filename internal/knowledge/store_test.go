@@ -120,3 +120,47 @@ func TestLoadFromRepo_MissingDir(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, items)
 }
+
+func TestStore_Update_Status(t *testing.T) {
+	dir := t.TempDir()
+	store := knowledge.NewStore(dir)
+
+	item := model.KnowledgeItem{
+		ID:        "upd-01",
+		Type:      model.KnowledgeTypePattern,
+		Summary:   "original",
+		Source:    model.KnowledgeSourceManual,
+		CreatedAt: time.Now(),
+	}
+	require.NoError(t, store.Write("task-x", item))
+
+	item.Status = model.KnowledgeStatusApproved
+	require.NoError(t, store.Update(item))
+
+	items, err := store.List("task-x")
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.Equal(t, model.KnowledgeStatusApproved, items[0].Status)
+}
+
+func TestStore_Update_NotFound(t *testing.T) {
+	store := knowledge.NewStore(t.TempDir())
+	err := store.Update(model.KnowledgeItem{ID: "missing"})
+	assert.ErrorContains(t, err, "not found")
+}
+
+func TestStore_ListApproved(t *testing.T) {
+	dir := t.TempDir()
+	store := knowledge.NewStore(dir)
+
+	pending := model.KnowledgeItem{ID: "p1", Type: model.KnowledgeTypePattern, Summary: "p", Source: model.KnowledgeSourceManual, CreatedAt: time.Now()}
+	approved := model.KnowledgeItem{ID: "a1", Type: model.KnowledgeTypePattern, Summary: "a", Source: model.KnowledgeSourceManual, Status: model.KnowledgeStatusApproved, CreatedAt: time.Now()}
+
+	require.NoError(t, store.Write("t1", pending))
+	require.NoError(t, store.Write("t1", approved))
+
+	results, err := store.ListApproved()
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	assert.Equal(t, "a1", results[0].ID)
+}

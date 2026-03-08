@@ -8,17 +8,17 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 )
 
 // collectResults gathers diffs, modified files, and reports for each repo.
-func (p *Pipeline) collectResults(ctx context.Context, manifest *protocol.TaskManifest, verifierResults map[string][]protocol.VerifierResult) []protocol.RepoResult {
+func (p *Pipeline) collectResults(ctx context.Context, manifest *fleetproto.TaskManifest, verifierResults map[string][]fleetproto.VerifierResult) []fleetproto.RepoResult {
 	repos := manifest.EffectiveRepos()
-	var results []protocol.RepoResult
+	var results []fleetproto.RepoResult
 
 	for _, repo := range repos {
 		repoPath := manifest.RepoPath(repo.Name)
-		result := protocol.RepoResult{
+		result := fleetproto.RepoResult{
 			Name:   repo.Name,
 			Status: "success",
 		}
@@ -52,7 +52,7 @@ func (p *Pipeline) collectResults(ctx context.Context, manifest *protocol.TaskMa
 				for _, target := range manifest.ForEach {
 					reportPath := filepath.Join(repoPath, "REPORT-"+target.Name+".md")
 					report := p.readReport(reportPath)
-					result.ForEachResults = append(result.ForEachResults, protocol.ForEachResult{
+					result.ForEachResults = append(result.ForEachResults, fleetproto.ForEachResult{
 						Target: target,
 						Report: report,
 					})
@@ -100,7 +100,7 @@ func (p *Pipeline) getModifiedFiles(ctx context.Context, repoPath string) []stri
 	return files
 }
 
-func (p *Pipeline) getDiffs(ctx context.Context, repoPath string) []protocol.DiffEntry {
+func (p *Pipeline) getDiffs(ctx context.Context, repoPath string) []fleetproto.DiffEntry {
 	// Get per-file diffs
 	fullDiffResult, err := p.exec.Run(ctx, CommandOpts{
 		Name: "git",
@@ -169,7 +169,7 @@ func parseNumstat(numstat string) map[string][2]int {
 	return result
 }
 
-func parseDiffOutput(fullDiff, cachedDiff string, statMap map[string][2]int) []protocol.DiffEntry {
+func parseDiffOutput(fullDiff, cachedDiff string, statMap map[string][2]int) []fleetproto.DiffEntry {
 	combinedDiff := fullDiff
 	if cachedDiff != "" {
 		combinedDiff += "\n" + cachedDiff
@@ -179,7 +179,7 @@ func parseDiffOutput(fullDiff, cachedDiff string, statMap map[string][2]int) []p
 		return nil
 	}
 
-	var entries []protocol.DiffEntry
+	var entries []fleetproto.DiffEntry
 	// Split by "diff --git" markers
 	parts := strings.Split(combinedDiff, "diff --git ")
 	for _, part := range parts[1:] { // skip empty first element
@@ -214,11 +214,11 @@ func parseDiffOutput(fullDiff, cachedDiff string, statMap map[string][2]int) []p
 		// Truncate long diffs
 		diffContent := "diff --git " + part
 		diffLines := strings.Split(diffContent, "\n")
-		if len(diffLines) > protocol.MaxDiffLinesPerFile {
-			diffContent = strings.Join(diffLines[:protocol.MaxDiffLinesPerFile], "\n") + "\n... [truncated]"
+		if len(diffLines) > fleetproto.MaxDiffLinesPerFile {
+			diffContent = strings.Join(diffLines[:fleetproto.MaxDiffLinesPerFile], "\n") + "\n... [truncated]"
 		}
 
-		entries = append(entries, protocol.DiffEntry{
+		entries = append(entries, fleetproto.DiffEntry{
 			Path:      filePath,
 			Status:    status,
 			Additions: adds,
@@ -230,14 +230,14 @@ func parseDiffOutput(fullDiff, cachedDiff string, statMap map[string][2]int) []p
 	return entries
 }
 
-func (p *Pipeline) readReport(path string) *protocol.ReportResult {
+func (p *Pipeline) readReport(path string) *fleetproto.ReportResult {
 	data, err := p.fs.ReadFile(path)
 	if err != nil {
 		return nil
 	}
 
 	raw := string(data)
-	report := &protocol.ReportResult{Raw: raw}
+	report := &fleetproto.ReportResult{Raw: raw}
 
 	// Parse frontmatter (between --- delimiters)
 	if strings.HasPrefix(raw, "---\n") {

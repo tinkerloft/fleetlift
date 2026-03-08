@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 )
 
 func TestRunVerifiers_PerRepoPerVerifier(t *testing.T) {
@@ -17,12 +17,12 @@ func TestRunVerifiers_PerRepoPerVerifier(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
-		Repositories: []protocol.ManifestRepo{
+	manifest := &fleetproto.TaskManifest{
+		Repositories: []fleetproto.ManifestRepo{
 			{Name: "svc-a"},
 			{Name: "svc-b"},
 		},
-		Verifiers: []protocol.ManifestVerifier{
+		Verifiers: []fleetproto.ManifestVerifier{
 			{Name: "build", Command: []string{"go", "build", "./..."}},
 			{Name: "lint", Command: []string{"golangci-lint", "run"}},
 		},
@@ -44,8 +44,8 @@ func TestRunVerifiers_EmptyVerifiers(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
-		Repositories: []protocol.ManifestRepo{{Name: "svc"}},
+	manifest := &fleetproto.TaskManifest{
+		Repositories: []fleetproto.ManifestRepo{{Name: "svc"}},
 		Verifiers:    nil,
 	}
 
@@ -58,7 +58,7 @@ func TestRunVerifier_EmptyCommand(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	result := p.runVerifier(context.Background(), protocol.ManifestVerifier{
+	result := p.runVerifier(context.Background(), fleetproto.ManifestVerifier{
 		Name:    "empty",
 		Command: nil,
 	}, "/workspace/svc")
@@ -79,7 +79,7 @@ func TestRunVerifier_OutputTruncation(t *testing.T) {
 	}
 	p := testPipeline(fs, exec)
 
-	result := p.runVerifier(context.Background(), protocol.ManifestVerifier{
+	result := p.runVerifier(context.Background(), fleetproto.ManifestVerifier{
 		Name:    "verbose",
 		Command: []string{"make", "test"},
 	}, "/workspace/svc")
@@ -100,7 +100,7 @@ func TestRunVerifier_NonZeroExit(t *testing.T) {
 	}
 	p := testPipeline(fs, exec)
 
-	result := p.runVerifier(context.Background(), protocol.ManifestVerifier{
+	result := p.runVerifier(context.Background(), fleetproto.ManifestVerifier{
 		Name:    "build",
 		Command: []string{"go", "build"},
 	}, "/workspace/svc")

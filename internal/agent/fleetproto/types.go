@@ -1,28 +1,87 @@
-// Package protocol defines the file-based communication protocol between
-// the fleetlift worker and the sandbox sidecar agent.
-//
-// All communication is via JSON files in /workspace/.fleetlift/:
-//
-//	manifest.json   - Worker → Agent: task definition (written once)
-//	status.json     - Agent → Worker: lightweight phase indicator (polled frequently)
-//	result.json     - Agent → Worker: full structured results
-//	steering.json   - Worker → Agent: HITL instruction (deleted after processing)
-package protocol
+// Package fleetproto defines fleetlift-specific protocol types for the agent sidecar.
+package fleetproto
 
 import (
 	"path/filepath"
 	"time"
 )
 
-// Well-known paths inside the sandbox.
+// --- Phase ---
+
+// Phase represents the lifecycle phase of the agent.
+type Phase string
+
 const (
-	BasePath      = "/workspace/.fleetlift"
-	ManifestPath  = BasePath + "/manifest.json"
-	StatusPath    = BasePath + "/status.json"
-	ResultPath    = BasePath + "/result.json"
-	SteeringPath  = BasePath + "/steering.json"
-	WorkspacePath = "/workspace"
+	PhaseInitializing  Phase = "initializing"
+	PhaseExecuting     Phase = "executing"
+	PhaseVerifying     Phase = "verifying"
+	PhaseAwaitingInput Phase = "awaiting_input"
+	PhaseComplete      Phase = "complete"
+	PhaseFailed        Phase = "failed"
+	PhaseCancelled     Phase = "cancelled"
 )
+
+// PhaseCreatingPRs is a fleetlift-specific agent lifecycle phase.
+const PhaseCreatingPRs Phase = "creating_prs"
+
+// --- SteeringAction ---
+
+// SteeringAction represents the type of steering instruction.
+type SteeringAction string
+
+const (
+	SteeringActionApprove SteeringAction = "approve"
+	SteeringActionReject  SteeringAction = "reject"
+	SteeringActionCancel  SteeringAction = "cancel"
+	SteeringActionSteer   SteeringAction = "steer"
+)
+
+// --- AgentStatus ---
+
+// AgentStatus is the current status written by the agent to the status file.
+type AgentStatus struct {
+	Phase     Phase             `json:"phase"`
+	Step      string            `json:"step,omitempty"`
+	Message   string            `json:"message,omitempty"`
+	Progress  *StatusProgress   `json:"progress,omitempty"`
+	Iteration int               `json:"iteration"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
+	UpdatedAt time.Time         `json:"updated_at"`
+}
+
+// StatusProgress represents progress within a phase.
+type StatusProgress struct {
+	Current int `json:"current"`
+	Total   int `json:"total"`
+}
+
+// --- Path functions ---
+
+// ManifestPath returns the path to the manifest file under base.
+func ManifestPath(base string) string { return filepath.Join(base, "manifest.json") }
+
+// StatusPath returns the path to the status file under base.
+func StatusPath(base string) string { return filepath.Join(base, "status.json") }
+
+// ResultPath returns the path to the result file under base.
+func ResultPath(base string) string { return filepath.Join(base, "result.json") }
+
+// SteeringPath returns the path to the steering file under base.
+func SteeringPath(base string) string { return filepath.Join(base, "steering.json") }
+
+// DefaultBasePath is the base directory for fleetlift agent protocol files inside the sandbox.
+const DefaultBasePath = "/workspace/.fleetlift"
+
+// --- SteeringInstruction ---
+
+// SteeringInstruction extends the base steering instruction with a Timestamp field.
+// The worker sets Timestamp when writing the instruction for audit/tracing.
+type SteeringInstruction struct {
+	Action    SteeringAction `json:"action"`
+	Prompt    string         `json:"prompt,omitempty"`
+	Iteration int            `json:"iteration"`
+	Timestamp time.Time      `json:"timestamp"`
+}
 
 // --- Manifest (Worker → Agent) ---
 
@@ -44,7 +103,7 @@ type TaskManifest struct {
 	GitConfig             ManifestGitConfig  `json:"git_config"`
 }
 
-// EffectiveRepos returns the repos to operate on (H6 fix — single source of truth).
+// EffectiveRepos returns the repos to operate on.
 func (m *TaskManifest) EffectiveRepos() []ManifestRepo {
 	if m.Transformation != nil && len(m.Targets) > 0 {
 		return m.Targets
@@ -52,7 +111,7 @@ func (m *TaskManifest) EffectiveRepos() []ManifestRepo {
 	return m.Repositories
 }
 
-// RepoBasePath returns the base path where repos are cloned (H6 fix).
+// RepoBasePath returns the base path where repos are cloned.
 func (m *TaskManifest) RepoBasePath() string {
 	if m.Transformation != nil {
 		return filepath.Join(WorkspacePath, "targets")
@@ -60,7 +119,7 @@ func (m *TaskManifest) RepoBasePath() string {
 	return WorkspacePath
 }
 
-// RepoPath returns the full path for a named repository (H6 fix).
+// RepoPath returns the full path for a named repository.
 func (m *TaskManifest) RepoPath(repoName string) string {
 	return filepath.Join(m.RepoBasePath(), repoName)
 }
@@ -73,7 +132,7 @@ type ManifestRepo struct {
 	Setup  []string `json:"setup,omitempty"`
 }
 
-// ForEachTarget is a target for iteration within a repository (report mode).
+// ForEachTarget is a target for iteration within a repository.
 type ForEachTarget struct {
 	Name    string `json:"name"`
 	Context string `json:"context"`
@@ -83,10 +142,10 @@ type ForEachTarget struct {
 type ManifestExecution struct {
 	Type    string            `json:"type"` // "agentic" or "deterministic"
 	Prompt  string            `json:"prompt,omitempty"`
-	Image   string            `json:"image,omitempty"` // Deterministic: base image for sandbox (used by worker at provision, not by agent)
+	Image   string            `json:"image,omitempty"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
-	Command []string          `json:"command,omitempty"` // Deterministic: command to run directly in sandbox
+	Command []string          `json:"command,omitempty"`
 }
 
 // ManifestVerifier defines a verification command.
@@ -111,45 +170,11 @@ type ManifestGitConfig struct {
 	CloneDepth int    `json:"clone_depth,omitempty"`
 }
 
-// --- Status (Agent → Worker) ---
-
-// Phase is a typed string for agent status phases (M8 fix).
-type Phase string
-
-// Phase constants for agent status.
-const (
-	PhaseInitializing  Phase = "initializing"
-	PhaseExecuting     Phase = "executing"
-	PhaseVerifying     Phase = "verifying"
-	PhaseAwaitingInput Phase = "awaiting_input"
-	PhaseCreatingPRs   Phase = "creating_prs"
-	PhaseComplete      Phase = "complete"
-	PhaseFailed        Phase = "failed"
-	PhaseCancelled     Phase = "cancelled"
-)
-
-// AgentStatus is a lightweight status indicator written by the agent.
-// The worker polls this frequently to track progress.
-type AgentStatus struct {
-	Phase     Phase           `json:"phase"`
-	Step      string          `json:"step,omitempty"`
-	Message   string          `json:"message,omitempty"`
-	Progress  *StatusProgress `json:"progress,omitempty"`
-	Iteration int             `json:"iteration"`
-	UpdatedAt time.Time       `json:"updated_at"`
-}
-
-// StatusProgress tracks completion within a phase.
-type StatusProgress struct {
-	CompletedRepos int `json:"completed_repos"`
-	TotalRepos     int `json:"total_repos"`
-}
-
 // --- Result (Agent → Worker) ---
 
 // AgentResult is the full structured result written by the agent.
 type AgentResult struct {
-	Status          Phase            `json:"status"` // mirrors phase: "awaiting_input", "complete", "failed", "cancelled"
+	Status          Phase            `json:"status"`
 	Repositories    []RepoResult     `json:"repositories"`
 	AgentOutput     string           `json:"agent_output,omitempty"`
 	SteeringHistory []SteeringRecord `json:"steering_history,omitempty"`
@@ -218,27 +243,8 @@ type SteeringRecord struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// --- Steering (Worker → Agent) ---
-
-// SteeringAction is a typed string for steering actions (M8 fix).
-type SteeringAction string
-
-// SteeringAction constants.
-const (
-	SteeringActionSteer   SteeringAction = "steer"
-	SteeringActionApprove SteeringAction = "approve"
-	SteeringActionReject  SteeringAction = "reject"
-	SteeringActionCancel  SteeringAction = "cancel"
-)
-
-// SteeringInstruction is written by the worker to direct the agent.
-// The agent polls for this file and deletes it after processing.
-type SteeringInstruction struct {
-	Action    SteeringAction `json:"action"` // "steer", "approve", "reject", "cancel"
-	Prompt    string         `json:"prompt,omitempty"`
-	Iteration int            `json:"iteration"`
-	Timestamp time.Time      `json:"timestamp"`
-}
-
 // MaxDiffLinesPerFile is the default truncation limit for per-file diffs.
 const MaxDiffLinesPerFile = 1000
+
+// Well-known workspace paths used by fleetlift agents.
+const WorkspacePath = "/workspace"

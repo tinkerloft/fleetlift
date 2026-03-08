@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -10,7 +11,7 @@ import (
 	"go.temporal.io/sdk/testsuite"
 
 	"github.com/tinkerloft/fleetlift/internal/activity"
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 	"github.com/tinkerloft/fleetlift/internal/model"
 )
 
@@ -32,20 +33,20 @@ func (m *AgentMockActivities) SubmitTaskManifest(ctx context.Context, input acti
 	return args.Error(0)
 }
 
-func (m *AgentMockActivities) WaitForAgentPhase(ctx context.Context, input activity.WaitForAgentPhaseInput) (*protocol.AgentStatus, error) {
+func (m *AgentMockActivities) WaitForAgentPhase(ctx context.Context, input activity.WaitForAgentPhaseInput) (*fleetproto.AgentStatus, error) {
 	args := m.Called(ctx, input)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*protocol.AgentStatus), args.Error(1)
+	return args.Get(0).(*fleetproto.AgentStatus), args.Error(1)
 }
 
-func (m *AgentMockActivities) ReadAgentResult(ctx context.Context, input activity.ReadAgentResultInput) (*protocol.AgentResult, error) {
+func (m *AgentMockActivities) ReadAgentResult(ctx context.Context, input activity.ReadAgentResultInput) (*fleetproto.AgentResult, error) {
 	args := m.Called(ctx, input)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).(*protocol.AgentResult), args.Error(1)
+	return args.Get(0).(*fleetproto.AgentResult), args.Error(1)
 }
 
 func (m *AgentMockActivities) SubmitSteeringAction(ctx context.Context, input activity.SubmitSteeringActionInput) error {
@@ -64,6 +65,19 @@ func (m *AgentMockActivities) NotifySlack(ctx context.Context, channel, message 
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*string), args.Error(1)
+}
+
+func (m *AgentMockActivities) EnrichPrompt(ctx context.Context, input activity.EnrichPromptInput) (string, error) {
+	args := m.Called(ctx, input)
+	return args.String(0), args.Error(1)
+}
+
+func (m *AgentMockActivities) CaptureKnowledge(ctx context.Context, input activity.CaptureKnowledgeInput) ([]model.KnowledgeItem, error) {
+	args := m.Called(ctx, input)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]model.KnowledgeItem), args.Error(1)
 }
 
 func TestTransformV2_HappyPath(t *testing.T) {
@@ -94,27 +108,31 @@ func TestTransformV2_HappyPath(t *testing.T) {
 	env.RegisterActivity(mockActivities.WaitForAgentPhase)
 	env.RegisterActivity(mockActivities.ReadAgentResult)
 	env.RegisterActivity(mockActivities.CleanupSandbox)
+	env.RegisterActivity(mockActivities.EnrichPrompt)
+	env.RegisterActivity(mockActivities.CaptureKnowledge)
 
 	// Set up expectations
 	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
 	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
 	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.Anything).Return(
-		&protocol.AgentStatus{Phase: protocol.PhaseComplete, Message: "done"}, nil,
+		&fleetproto.AgentStatus{Phase: fleetproto.PhaseComplete, Message: "done"}, nil,
 	)
 	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
-		&protocol.AgentResult{
-			Status: protocol.PhaseComplete,
-			Repositories: []protocol.RepoResult{
+		&fleetproto.AgentResult{
+			Status: fleetproto.PhaseComplete,
+			Repositories: []fleetproto.RepoResult{
 				{
 					Name:          "svc",
 					Status:        "success",
 					FilesModified: []string{"main.go"},
-					PullRequest:   &protocol.PRInfo{URL: "https://github.com/org/svc/pull/1", Title: "Fix the bug"},
+					PullRequest:   &fleetproto.PRInfo{URL: "https://github.com/org/svc/pull/1", Title: "Fix the bug"},
 				},
 			},
 		}, nil,
 	)
 	mockActivities.On("CleanupSandbox", mock.Anything, "container-123").Return(nil)
+	mockActivities.On("EnrichPrompt", mock.Anything, mock.Anything).Return("", nil).Maybe()
+	mockActivities.On("CaptureKnowledge", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	env.ExecuteWorkflow(TransformV2, task)
 
@@ -131,6 +149,63 @@ func TestTransformV2_HappyPath(t *testing.T) {
 	assert.Equal(t, "success", result.Repositories[0].Status)
 	assert.NotNil(t, result.Repositories[0].PullRequest)
 	assert.Equal(t, "https://github.com/org/svc/pull/1", result.Repositories[0].PullRequest.PRURL)
+}
+
+func TestTransformV2_EnrichPrompt_EnrichesManifest(t *testing.T) {
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestWorkflowEnvironment()
+
+	task := model.Task{
+		Version: 1,
+		ID:      "enrich-test",
+		Title:   "Enrich Test",
+		Mode:    model.TaskModeTransform,
+		Repositories: []model.Repository{
+			{URL: "https://github.com/org/svc.git", Branch: "main", Name: "svc"},
+		},
+		Execution: model.Execution{
+			Agentic: &model.AgenticExecution{Prompt: "Fix the bug"},
+		},
+	}
+
+	sandboxInfo := &model.SandboxInfo{ContainerID: "container-enrich", WorkspacePath: "/workspace"}
+	enrichedPrompt := "Fix the bug\n\n---\n## Lessons from previous runs\n\n- [pattern] Use structured logging\n"
+
+	mockActivities := &AgentMockActivities{}
+	env.RegisterActivity(mockActivities.ProvisionAgentSandbox)
+	env.RegisterActivity(mockActivities.SubmitTaskManifest)
+	env.RegisterActivity(mockActivities.WaitForAgentPhase)
+	env.RegisterActivity(mockActivities.ReadAgentResult)
+	env.RegisterActivity(mockActivities.CleanupSandbox)
+	env.RegisterActivity(mockActivities.EnrichPrompt)
+	env.RegisterActivity(mockActivities.CaptureKnowledge)
+
+	// EnrichPrompt is called with the original prompt and returns enriched version
+	mockActivities.On("EnrichPrompt", mock.Anything, mock.MatchedBy(func(input activity.EnrichPromptInput) bool {
+		return input.OriginalPrompt == "Fix the bug"
+	})).Return(enrichedPrompt, nil)
+
+	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
+
+	// SubmitTaskManifest must receive the enriched prompt
+	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.MatchedBy(func(input activity.SubmitTaskManifestInput) bool {
+		return input.Manifest.Execution.Prompt == enrichedPrompt
+	})).Return(nil)
+
+	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.Anything).Return(
+		&fleetproto.AgentStatus{Phase: fleetproto.PhaseComplete}, nil,
+	)
+	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
+		&fleetproto.AgentResult{Status: fleetproto.PhaseComplete}, nil,
+	)
+	mockActivities.On("CleanupSandbox", mock.Anything, "container-enrich").Return(nil)
+	mockActivities.On("CaptureKnowledge", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+
+	env.ExecuteWorkflow(TransformV2, task)
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	mockActivities.AssertExpectations(t)
 }
 
 func TestTransformV2_AgentFailed(t *testing.T) {
@@ -157,20 +232,24 @@ func TestTransformV2_AgentFailed(t *testing.T) {
 	env.RegisterActivity(mockActivities.WaitForAgentPhase)
 	env.RegisterActivity(mockActivities.ReadAgentResult)
 	env.RegisterActivity(mockActivities.CleanupSandbox)
+	env.RegisterActivity(mockActivities.EnrichPrompt)
+	env.RegisterActivity(mockActivities.CaptureKnowledge)
 
 	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
 	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
 	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.Anything).Return(
-		&protocol.AgentStatus{Phase: protocol.PhaseFailed, Message: "claude code crashed"}, nil,
+		&fleetproto.AgentStatus{Phase: fleetproto.PhaseFailed, Message: "claude code crashed"}, nil,
 	)
 	errMsg := "claude code crashed"
 	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
-		&protocol.AgentResult{
-			Status: protocol.PhaseFailed,
+		&fleetproto.AgentResult{
+			Status: fleetproto.PhaseFailed,
 			Error:  &errMsg,
 		}, nil,
 	)
 	mockActivities.On("CleanupSandbox", mock.Anything, "container-456").Return(nil)
+	mockActivities.On("EnrichPrompt", mock.Anything, mock.Anything).Return("", nil).Maybe()
+	mockActivities.On("CaptureKnowledge", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	env.ExecuteWorkflow(TransformV2, task)
 
@@ -210,20 +289,22 @@ func TestTransformV2_ReportMode(t *testing.T) {
 	env.RegisterActivity(mockActivities.WaitForAgentPhase)
 	env.RegisterActivity(mockActivities.ReadAgentResult)
 	env.RegisterActivity(mockActivities.CleanupSandbox)
+	env.RegisterActivity(mockActivities.EnrichPrompt)
+	env.RegisterActivity(mockActivities.CaptureKnowledge)
 
 	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
 	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
 	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.Anything).Return(
-		&protocol.AgentStatus{Phase: protocol.PhaseComplete}, nil,
+		&fleetproto.AgentStatus{Phase: fleetproto.PhaseComplete}, nil,
 	)
 	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
-		&protocol.AgentResult{
-			Status: protocol.PhaseComplete,
-			Repositories: []protocol.RepoResult{
+		&fleetproto.AgentResult{
+			Status: fleetproto.PhaseComplete,
+			Repositories: []fleetproto.RepoResult{
 				{
 					Name:   "svc",
 					Status: "success",
-					Report: &protocol.ReportResult{
+					Report: &fleetproto.ReportResult{
 						Frontmatter: map[string]any{"score": 8},
 						Body:        "# Audit\nAll good.",
 						Raw:         "---\nscore: 8\n---\n# Audit\nAll good.",
@@ -233,6 +314,8 @@ func TestTransformV2_ReportMode(t *testing.T) {
 		}, nil,
 	)
 	mockActivities.On("CleanupSandbox", mock.Anything, "container-789").Return(nil)
+	mockActivities.On("EnrichPrompt", mock.Anything, mock.Anything).Return("", nil).Maybe()
+	mockActivities.On("CaptureKnowledge", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	env.ExecuteWorkflow(TransformV2, task)
 
@@ -276,44 +359,48 @@ func TestTransformV2_SteeringLoop_Approve(t *testing.T) {
 	env.RegisterActivity(mockActivities.ReadAgentResult)
 	env.RegisterActivity(mockActivities.SubmitSteeringAction)
 	env.RegisterActivity(mockActivities.CleanupSandbox)
+	env.RegisterActivity(mockActivities.EnrichPrompt)
+	env.RegisterActivity(mockActivities.CaptureKnowledge)
 
 	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
 	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
+	mockActivities.On("EnrichPrompt", mock.Anything, mock.Anything).Return("", nil).Maybe()
+	mockActivities.On("CaptureKnowledge", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	// First wait returns awaiting_input
 	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.MatchedBy(func(input activity.WaitForAgentPhaseInput) bool {
 		for _, p := range input.TargetPhases {
-			if p == string(protocol.PhaseAwaitingInput) {
+			if p == string(fleetproto.PhaseAwaitingInput) {
 				return true
 			}
 		}
 		return false
-	})).Return(&protocol.AgentStatus{Phase: protocol.PhaseAwaitingInput}, nil).Once()
+	})).Return(&fleetproto.AgentStatus{Phase: fleetproto.PhaseAwaitingInput}, nil).Once()
 
 	// Second wait (after steer) returns awaiting_input again
 	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.MatchedBy(func(input activity.WaitForAgentPhaseInput) bool {
 		for _, p := range input.TargetPhases {
-			if p == string(protocol.PhaseAwaitingInput) {
+			if p == string(fleetproto.PhaseAwaitingInput) {
 				return true
 			}
 		}
 		return false
-	})).Return(&protocol.AgentStatus{Phase: protocol.PhaseAwaitingInput}, nil).Once()
+	})).Return(&fleetproto.AgentStatus{Phase: fleetproto.PhaseAwaitingInput}, nil).Once()
 
 	// Third wait (after approve) returns complete
 	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.MatchedBy(func(input activity.WaitForAgentPhaseInput) bool {
 		for _, p := range input.TargetPhases {
-			if p == string(protocol.PhaseComplete) {
+			if p == string(fleetproto.PhaseComplete) {
 				return true
 			}
 		}
 		return false
-	})).Return(&protocol.AgentStatus{Phase: protocol.PhaseComplete}, nil).Once()
+	})).Return(&fleetproto.AgentStatus{Phase: fleetproto.PhaseComplete}, nil).Once()
 
 	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
-		&protocol.AgentResult{
-			Status: protocol.PhaseAwaitingInput,
-			Repositories: []protocol.RepoResult{
+		&fleetproto.AgentResult{
+			Status: fleetproto.PhaseAwaitingInput,
+			Repositories: []fleetproto.RepoResult{
 				{Name: "svc", Status: "success", FilesModified: []string{"main.go"}},
 			},
 		}, nil,
@@ -321,9 +408,9 @@ func TestTransformV2_SteeringLoop_Approve(t *testing.T) {
 
 	// Re-read after steer
 	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
-		&protocol.AgentResult{
-			Status: protocol.PhaseAwaitingInput,
-			Repositories: []protocol.RepoResult{
+		&fleetproto.AgentResult{
+			Status: fleetproto.PhaseAwaitingInput,
+			Repositories: []fleetproto.RepoResult{
 				{Name: "svc", Status: "success", FilesModified: []string{"main.go", "handler.go"}},
 			},
 		}, nil,
@@ -331,13 +418,13 @@ func TestTransformV2_SteeringLoop_Approve(t *testing.T) {
 
 	// Final read after approve
 	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
-		&protocol.AgentResult{
-			Status: protocol.PhaseComplete,
-			Repositories: []protocol.RepoResult{
+		&fleetproto.AgentResult{
+			Status: fleetproto.PhaseComplete,
+			Repositories: []fleetproto.RepoResult{
 				{
 					Name: "svc", Status: "success",
 					FilesModified: []string{"main.go", "handler.go"},
-					PullRequest:   &protocol.PRInfo{URL: "https://github.com/org/svc/pull/42", Title: "Fix"},
+					PullRequest:   &fleetproto.PRInfo{URL: "https://github.com/org/svc/pull/42", Title: "Fix"},
 				},
 			},
 		}, nil,
@@ -391,20 +478,24 @@ func TestTransformV2_SteeringLoop_Reject(t *testing.T) {
 	env.RegisterActivity(mockActivities.ReadAgentResult)
 	env.RegisterActivity(mockActivities.SubmitSteeringAction)
 	env.RegisterActivity(mockActivities.CleanupSandbox)
+	env.RegisterActivity(mockActivities.EnrichPrompt)
+	env.RegisterActivity(mockActivities.CaptureKnowledge)
 
 	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
 	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
 	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.Anything).Return(
-		&protocol.AgentStatus{Phase: protocol.PhaseAwaitingInput}, nil,
+		&fleetproto.AgentStatus{Phase: fleetproto.PhaseAwaitingInput}, nil,
 	)
 	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
-		&protocol.AgentResult{
-			Status:       protocol.PhaseAwaitingInput,
-			Repositories: []protocol.RepoResult{{Name: "svc", Status: "success"}},
+		&fleetproto.AgentResult{
+			Status:       fleetproto.PhaseAwaitingInput,
+			Repositories: []fleetproto.RepoResult{{Name: "svc", Status: "success"}},
 		}, nil,
 	)
 	mockActivities.On("SubmitSteeringAction", mock.Anything, mock.Anything).Return(nil)
 	mockActivities.On("CleanupSandbox", mock.Anything, "container-reject").Return(nil)
+	mockActivities.On("EnrichPrompt", mock.Anything, mock.Anything).Return("", nil).Maybe()
+	mockActivities.On("CaptureKnowledge", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(SignalReject, nil)
@@ -447,20 +538,24 @@ func TestTransformV2_SteeringLoop_Cancel(t *testing.T) {
 	env.RegisterActivity(mockActivities.ReadAgentResult)
 	env.RegisterActivity(mockActivities.SubmitSteeringAction)
 	env.RegisterActivity(mockActivities.CleanupSandbox)
+	env.RegisterActivity(mockActivities.EnrichPrompt)
+	env.RegisterActivity(mockActivities.CaptureKnowledge)
 
 	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
 	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
 	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.Anything).Return(
-		&protocol.AgentStatus{Phase: protocol.PhaseAwaitingInput}, nil,
+		&fleetproto.AgentStatus{Phase: fleetproto.PhaseAwaitingInput}, nil,
 	)
 	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
-		&protocol.AgentResult{
-			Status:       protocol.PhaseAwaitingInput,
-			Repositories: []protocol.RepoResult{{Name: "svc", Status: "success"}},
+		&fleetproto.AgentResult{
+			Status:       fleetproto.PhaseAwaitingInput,
+			Repositories: []fleetproto.RepoResult{{Name: "svc", Status: "success"}},
 		}, nil,
 	)
 	mockActivities.On("SubmitSteeringAction", mock.Anything, mock.Anything).Return(nil)
 	mockActivities.On("CleanupSandbox", mock.Anything, "container-cancel").Return(nil)
+	mockActivities.On("EnrichPrompt", mock.Anything, mock.Anything).Return("", nil).Maybe()
+	mockActivities.On("CaptureKnowledge", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(SignalCancel, nil)
@@ -476,23 +571,185 @@ func TestTransformV2_SteeringLoop_Cancel(t *testing.T) {
 	assert.Equal(t, model.TaskStatusCancelled, result.Status)
 }
 
+func TestTransformV2_CaptureKnowledge_CalledAfterSteering(t *testing.T) {
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestWorkflowEnvironment()
+
+	task := model.Task{
+		Version: 1,
+		ID:      "capture-test",
+		Title:   "Capture Test",
+		Mode:    model.TaskModeTransform,
+		Repositories: []model.Repository{
+			{URL: "https://github.com/org/svc.git", Branch: "main", Name: "svc"},
+		},
+		Execution: model.Execution{
+			Agentic: &model.AgenticExecution{Prompt: "Fix the bug"},
+		},
+		RequireApproval: true,
+	}
+
+	sandboxInfo := &model.SandboxInfo{ContainerID: "container-capture", WorkspacePath: "/workspace"}
+
+	mockActivities := &AgentMockActivities{}
+	env.RegisterActivity(mockActivities.ProvisionAgentSandbox)
+	env.RegisterActivity(mockActivities.SubmitTaskManifest)
+	env.RegisterActivity(mockActivities.WaitForAgentPhase)
+	env.RegisterActivity(mockActivities.ReadAgentResult)
+	env.RegisterActivity(mockActivities.SubmitSteeringAction)
+	env.RegisterActivity(mockActivities.CleanupSandbox)
+	env.RegisterActivity(mockActivities.EnrichPrompt)
+	env.RegisterActivity(mockActivities.CaptureKnowledge)
+
+	mockActivities.On("EnrichPrompt", mock.Anything, mock.Anything).Return("", nil)
+	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
+	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
+
+	// First wait: awaiting input
+	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.MatchedBy(func(i activity.WaitForAgentPhaseInput) bool {
+		for _, p := range i.TargetPhases {
+			if p == string(fleetproto.PhaseAwaitingInput) {
+				return true
+			}
+		}
+		return false
+	})).Return(&fleetproto.AgentStatus{Phase: fleetproto.PhaseAwaitingInput}, nil).Once()
+
+	// After steer: awaiting input again
+	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.MatchedBy(func(i activity.WaitForAgentPhaseInput) bool {
+		for _, p := range i.TargetPhases {
+			if p == string(fleetproto.PhaseAwaitingInput) {
+				return true
+			}
+		}
+		return false
+	})).Return(&fleetproto.AgentStatus{Phase: fleetproto.PhaseAwaitingInput}, nil).Once()
+
+	// After approve: complete
+	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.MatchedBy(func(i activity.WaitForAgentPhaseInput) bool {
+		for _, p := range i.TargetPhases {
+			if p == string(fleetproto.PhaseComplete) {
+				return true
+			}
+		}
+		return false
+	})).Return(&fleetproto.AgentStatus{Phase: fleetproto.PhaseComplete}, nil).Once()
+
+	agentResult := &fleetproto.AgentResult{
+		Status: fleetproto.PhaseAwaitingInput,
+		Repositories: []fleetproto.RepoResult{
+			{Name: "svc", Status: "success", FilesModified: []string{"main.go"}},
+		},
+	}
+	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(agentResult, nil)
+	mockActivities.On("SubmitSteeringAction", mock.Anything, mock.Anything).Return(nil)
+	mockActivities.On("CleanupSandbox", mock.Anything, "container-capture").Return(nil)
+
+	// CaptureKnowledge MUST be called with steering history
+	mockActivities.On("CaptureKnowledge", mock.Anything, mock.MatchedBy(func(input activity.CaptureKnowledgeInput) bool {
+		return input.TaskID == "capture-test" &&
+			len(input.SteeringHistory) == 1 &&
+			input.SteeringHistory[0].Prompt == "Also fix tests"
+	})).Return(nil, nil).Once()
+
+	// Send steer first; approve arrives after steer loop iteration completes (non-zero delay
+	// ensures steer is processed before approve arrives, since AwaitWithTimeout advances
+	// simulated time when waiting).
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(SignalSteer, model.SteeringSignalPayload{Prompt: "Also fix tests"})
+	}, 0)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(SignalApprove, nil)
+	}, time.Hour)
+
+	env.ExecuteWorkflow(TransformV2, task)
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	mockActivities.AssertExpectations(t)
+}
+
+func TestTransformV2_CaptureKnowledge_SkippedWithoutSteering(t *testing.T) {
+	testSuite := &testsuite.WorkflowTestSuite{}
+	env := testSuite.NewTestWorkflowEnvironment()
+
+	task := model.Task{
+		Version: 1,
+		ID:      "no-capture-test",
+		Mode:    model.TaskModeTransform,
+		Repositories: []model.Repository{
+			{URL: "https://github.com/org/svc.git", Branch: "main", Name: "svc"},
+		},
+		Execution:       model.Execution{Agentic: &model.AgenticExecution{Prompt: "Fix it"}},
+		RequireApproval: true,
+	}
+
+	sandboxInfo := &model.SandboxInfo{ContainerID: "container-no-cap", WorkspacePath: "/workspace"}
+
+	mockActivities := &AgentMockActivities{}
+	env.RegisterActivity(mockActivities.ProvisionAgentSandbox)
+	env.RegisterActivity(mockActivities.SubmitTaskManifest)
+	env.RegisterActivity(mockActivities.WaitForAgentPhase)
+	env.RegisterActivity(mockActivities.ReadAgentResult)
+	env.RegisterActivity(mockActivities.SubmitSteeringAction)
+	env.RegisterActivity(mockActivities.CleanupSandbox)
+	env.RegisterActivity(mockActivities.EnrichPrompt)
+	env.RegisterActivity(mockActivities.CaptureKnowledge)
+
+	mockActivities.On("EnrichPrompt", mock.Anything, mock.Anything).Return("", nil)
+	mockActivities.On("ProvisionAgentSandbox", mock.Anything, mock.Anything).Return(sandboxInfo, nil)
+	mockActivities.On("SubmitTaskManifest", mock.Anything, mock.Anything).Return(nil)
+	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.MatchedBy(func(i activity.WaitForAgentPhaseInput) bool {
+		for _, p := range i.TargetPhases {
+			if p == string(fleetproto.PhaseAwaitingInput) {
+				return true
+			}
+		}
+		return false
+	})).Return(&fleetproto.AgentStatus{Phase: fleetproto.PhaseAwaitingInput}, nil).Once()
+	mockActivities.On("WaitForAgentPhase", mock.Anything, mock.MatchedBy(func(i activity.WaitForAgentPhaseInput) bool {
+		for _, p := range i.TargetPhases {
+			if p == string(fleetproto.PhaseComplete) {
+				return true
+			}
+		}
+		return false
+	})).Return(&fleetproto.AgentStatus{Phase: fleetproto.PhaseComplete}, nil).Once()
+	mockActivities.On("ReadAgentResult", mock.Anything, mock.Anything).Return(
+		&fleetproto.AgentResult{Status: fleetproto.PhaseComplete}, nil,
+	)
+	mockActivities.On("SubmitSteeringAction", mock.Anything, mock.Anything).Return(nil)
+	mockActivities.On("CleanupSandbox", mock.Anything, "container-no-cap").Return(nil)
+	// CaptureKnowledge must NOT be called (no .On registration)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(SignalApprove, nil)
+	}, 0)
+
+	env.ExecuteWorkflow(TransformV2, task)
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	mockActivities.AssertNotCalled(t, "CaptureKnowledge", mock.Anything, mock.Anything)
+}
+
 func TestBuildTaskResultFromAgent(t *testing.T) {
 	task := model.Task{
 		ID:   "test-task",
 		Mode: model.TaskModeTransform,
 	}
 
-	agentResult := &protocol.AgentResult{
-		Status: protocol.PhaseComplete,
-		Repositories: []protocol.RepoResult{
+	agentResult := &fleetproto.AgentResult{
+		Status: fleetproto.PhaseComplete,
+		Repositories: []fleetproto.RepoResult{
 			{
 				Name:          "svc",
 				Status:        "success",
 				FilesModified: []string{"main.go", "handler.go"},
-				Diffs: []protocol.DiffEntry{
+				Diffs: []fleetproto.DiffEntry{
 					{Path: "main.go", Status: "modified", Additions: 10, Deletions: 5},
 				},
-				PullRequest: &protocol.PRInfo{
+				PullRequest: &fleetproto.PRInfo{
 					URL:        "https://github.com/org/svc/pull/42",
 					Number:     42,
 					BranchName: "auto/test-task-svc",
@@ -525,11 +782,11 @@ func TestBuildTaskResultFromAgent(t *testing.T) {
 }
 
 func TestExtractDiffsFromAgent(t *testing.T) {
-	agentResult := &protocol.AgentResult{
-		Repositories: []protocol.RepoResult{
+	agentResult := &fleetproto.AgentResult{
+		Repositories: []fleetproto.RepoResult{
 			{
 				Name: "svc",
-				Diffs: []protocol.DiffEntry{
+				Diffs: []fleetproto.DiffEntry{
 					{Path: "main.go", Status: "modified", Additions: 10, Deletions: 5, Diff: "..."},
 					{Path: "new.go", Status: "added", Additions: 20, Deletions: 0, Diff: "..."},
 				},

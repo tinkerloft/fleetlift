@@ -9,24 +9,29 @@ import (
 
 	"go.temporal.io/sdk/activity"
 
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
+)
+
+const (
+	agentStaleThreshold = 5 * time.Minute
+	pollInterval        = 500 * time.Millisecond
 )
 
 // AgentActivities contains activities for the sidecar agent workflow pattern.
 type AgentActivities struct {
-	provider sandbox.AgentProvider
+	Provider sandbox.AgentProvider
 }
 
 // NewAgentActivities creates a new AgentActivities.
 func NewAgentActivities(provider sandbox.AgentProvider) *AgentActivities {
-	return &AgentActivities{provider: provider}
+	return &AgentActivities{Provider: provider}
 }
 
 // SubmitTaskManifestInput contains the input for SubmitTaskManifest.
 type SubmitTaskManifestInput struct {
-	SandboxID string                `json:"sandbox_id"`
-	Manifest  protocol.TaskManifest `json:"manifest"`
+	SandboxID string                  `json:"sandbox_id"`
+	Manifest  fleetproto.TaskManifest `json:"manifest"`
 }
 
 // SubmitTaskManifest writes the task manifest to the sandbox for the agent to execute.
@@ -35,8 +40,7 @@ func (a *AgentActivities) SubmitTaskManifest(ctx context.Context, input SubmitTa
 	if err != nil {
 		return fmt.Errorf("failed to marshal manifest: %w", err)
 	}
-
-	return a.provider.SubmitManifest(ctx, input.SandboxID, data)
+	return a.Provider.SubmitManifest(ctx, input.SandboxID, data)
 }
 
 // WaitForAgentPhaseInput contains the input for WaitForAgentPhase.
@@ -47,38 +51,40 @@ type WaitForAgentPhaseInput struct {
 
 // WaitForAgentPhase polls the agent's status until it reaches one of the target phases.
 // Uses Temporal heartbeats for long-running polling.
-func (a *AgentActivities) WaitForAgentPhase(ctx context.Context, input WaitForAgentPhaseInput) (*protocol.AgentStatus, error) {
-	pollInterval := 500 * time.Millisecond
-
-	targetSet := make(map[protocol.Phase]bool)
-	for _, phase := range input.TargetPhases {
-		targetSet[protocol.Phase(phase)] = true
+func (a *AgentActivities) WaitForAgentPhase(ctx context.Context, input WaitForAgentPhaseInput) (*fleetproto.AgentStatus, error) {
+	targetSet := make(map[fleetproto.Phase]bool, len(input.TargetPhases)+2)
+	for _, p := range input.TargetPhases {
+		targetSet[fleetproto.Phase(p)] = true
 	}
-	// Always treat terminal phases as targets
-	targetSet[protocol.PhaseFailed] = true
-	targetSet[protocol.PhaseCancelled] = true
+	// Always include terminal phases so polling does not loop forever on a failed agent.
+	targetSet[fleetproto.PhaseFailed] = true
+	targetSet[fleetproto.PhaseCancelled] = true
 
 	for {
-		activity.RecordHeartbeat(ctx, fmt.Sprintf("polling agent status for phases: %s", strings.Join(input.TargetPhases, "|")))
+		activity.RecordHeartbeat(ctx, fmt.Sprintf("polling agent phases: %s", strings.Join(input.TargetPhases, "|")))
 
-		status, err := a.provider.PollStatus(ctx, input.SandboxID)
+		raw, err := a.Provider.PollStatus(ctx, input.SandboxID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to poll status: %w", err)
+			return nil, fmt.Errorf("poll status: %w", err)
+		}
+
+		var status fleetproto.AgentStatus
+		if err := json.Unmarshal(raw, &status); err != nil {
+			return nil, fmt.Errorf("unmarshal status: %w", err)
 		}
 
 		if targetSet[status.Phase] {
-			return status, nil
+			return &status, nil
 		}
 
-		// Staleness detection: if agent hasn't updated in a while, it may have crashed
-		// Double-check by verifying container status to avoid false positives from clock skew
-		if !status.UpdatedAt.IsZero() && time.Since(status.UpdatedAt) > AgentStaleThreshold {
-			containerStatus, err := a.provider.Status(ctx, input.SandboxID)
-			if err == nil && containerStatus.Phase != sandbox.SandboxPhaseRunning {
-				return nil, fmt.Errorf("agent stale: last update %s, phase %s, container %s",
+		// Staleness detection: agent may have crashed if it hasn't updated recently.
+		if !status.UpdatedAt.IsZero() && time.Since(status.UpdatedAt) > agentStaleThreshold {
+			containerStatus, cerr := a.Provider.Status(ctx, input.SandboxID)
+			if cerr == nil && containerStatus.Phase != sandbox.SandboxPhaseRunning {
+				return nil, fmt.Errorf("agent stale: last update %s, agent phase %s, container %s",
 					status.UpdatedAt.Format(time.RFC3339), status.Phase, containerStatus.Phase)
 			}
-			// Container is still running -- clock skew likely, continue polling
+			// Container still running — likely clock skew, continue polling.
 		}
 
 		select {
@@ -95,13 +101,13 @@ type ReadAgentResultInput struct {
 }
 
 // ReadAgentResult reads the full result from the sandbox agent.
-func (a *AgentActivities) ReadAgentResult(ctx context.Context, input ReadAgentResultInput) (*protocol.AgentResult, error) {
-	data, err := a.provider.ReadResult(ctx, input.SandboxID)
+func (a *AgentActivities) ReadAgentResult(ctx context.Context, input ReadAgentResultInput) (*fleetproto.AgentResult, error) {
+	data, err := a.Provider.ReadResult(ctx, input.SandboxID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read result: %w", err)
 	}
 
-	var result protocol.AgentResult
+	var result fleetproto.AgentResult
 	if err := json.Unmarshal(data, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse result: %w", err)
 	}
@@ -120,16 +126,16 @@ type SubmitSteeringActionInput struct {
 // SubmitSteeringAction writes a steering instruction to the sandbox for the agent to process.
 func (a *AgentActivities) SubmitSteeringAction(ctx context.Context, input SubmitSteeringActionInput) error {
 	// Validate steering action
-	action := protocol.SteeringAction(input.Action)
+	action := fleetproto.SteeringAction(input.Action)
 	switch action {
-	case protocol.SteeringActionSteer, protocol.SteeringActionApprove,
-		protocol.SteeringActionReject, protocol.SteeringActionCancel:
+	case fleetproto.SteeringActionSteer, fleetproto.SteeringActionApprove,
+		fleetproto.SteeringActionReject, fleetproto.SteeringActionCancel:
 		// valid
 	default:
 		return fmt.Errorf("invalid steering action: %q", input.Action)
 	}
 
-	instruction := protocol.SteeringInstruction{
+	instruction := fleetproto.SteeringInstruction{
 		Action:    action,
 		Prompt:    input.Prompt,
 		Iteration: input.Iteration,
@@ -141,5 +147,5 @@ func (a *AgentActivities) SubmitSteeringAction(ctx context.Context, input Submit
 		return fmt.Errorf("failed to marshal steering instruction: %w", err)
 	}
 
-	return a.provider.SubmitSteering(ctx, input.SandboxID, data)
+	return a.Provider.SubmitSteering(ctx, input.SandboxID, data)
 }

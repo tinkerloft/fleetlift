@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tinkerloft/fleetlift/internal/agent/protocol"
+	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 )
 
 func TestRunAgenticTransformation_PromptPassedDirectly(t *testing.T) {
@@ -16,14 +16,14 @@ func TestRunAgenticTransformation_PromptPassedDirectly(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		TaskID: "task-1",
 		Mode:   "transform",
 		Title:  "Fix the bug",
-		Repositories: []protocol.ManifestRepo{
+		Repositories: []fleetproto.ManifestRepo{
 			{Name: "svc", URL: "https://github.com/org/svc.git"},
 		},
-		Execution: protocol.ManifestExecution{
+		Execution: fleetproto.ManifestExecution{
 			Type:   "agentic",
 			Prompt: "Fix the bug in main.go",
 		},
@@ -51,10 +51,10 @@ func TestRunDeterministicTransformation(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		TaskID: "task-1",
 		Mode:   "transform",
-		Execution: protocol.ManifestExecution{
+		Execution: fleetproto.ManifestExecution{
 			Type:    "deterministic",
 			Command: []string{"mvn", "rewrite:run"},
 			Args:    []string{"-DactiveRecipes=org.openrewrite"},
@@ -79,8 +79,8 @@ func TestRunDeterministicTransformation_EmptyCommand(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
-		Execution: protocol.ManifestExecution{Type: "deterministic", Command: nil},
+	manifest := &fleetproto.TaskManifest{
+		Execution: fleetproto.ManifestExecution{Type: "deterministic", Command: nil},
 	}
 
 	_, err := p.runDeterministicTransformation(context.Background(), manifest)
@@ -92,15 +92,15 @@ func TestBuildTransformPrompt(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		Title: "Migrate logging",
-		Repositories: []protocol.ManifestRepo{
+		Repositories: []fleetproto.ManifestRepo{
 			{Name: "svc"},
 		},
-		Execution: protocol.ManifestExecution{
+		Execution: fleetproto.ManifestExecution{
 			Prompt: "Migrate to slog",
 		},
-		Verifiers: []protocol.ManifestVerifier{
+		Verifiers: []fleetproto.ManifestVerifier{
 			{Name: "build", Command: []string{"go", "build", "./..."}},
 		},
 	}
@@ -116,13 +116,13 @@ func TestBuildTransformPrompt_ForEachTargets(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		Title: "Classify",
-		Repositories: []protocol.ManifestRepo{
+		Repositories: []fleetproto.ManifestRepo{
 			{Name: "svc"},
 		},
-		Execution: protocol.ManifestExecution{Prompt: "Classify endpoints"},
-		ForEach: []protocol.ForEachTarget{
+		Execution: fleetproto.ManifestExecution{Prompt: "Classify endpoints"},
+		ForEach: []fleetproto.ForEachTarget{
 			{Name: "users-api", Context: "GET /users"},
 			{Name: "orders-api", Context: "GET /orders"},
 		},
@@ -139,13 +139,13 @@ func TestBuildTransformPrompt_ReportMode(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		Title: "Audit",
 		Mode:  "report",
-		Repositories: []protocol.ManifestRepo{
+		Repositories: []fleetproto.ManifestRepo{
 			{Name: "svc"},
 		},
-		Execution: protocol.ManifestExecution{Prompt: "Audit security"},
+		Execution: fleetproto.ManifestExecution{Prompt: "Audit security"},
 	}
 
 	prompt := p.buildTransformPrompt(manifest)
@@ -157,9 +157,9 @@ func TestBuildSteeringPrompt_Truncation(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		Title:     "Task",
-		Execution: protocol.ManifestExecution{Prompt: "Fix bug"},
+		Execution: fleetproto.ManifestExecution{Prompt: "Fix bug"},
 	}
 
 	longOutput := strings.Repeat("x", MaxSteeringContextChars+1000)
@@ -203,9 +203,9 @@ func TestRunDeterministicTransformation_BlockedEnvVars(t *testing.T) {
 	}
 	p := testPipeline(fs, exec)
 
-	manifest := &protocol.TaskManifest{
+	manifest := &fleetproto.TaskManifest{
 		TaskID: "task-1",
-		Execution: protocol.ManifestExecution{
+		Execution: fleetproto.ManifestExecution{
 			Type:    "deterministic",
 			Command: []string{"mvn", "test"},
 			Env: map[string]string{
@@ -246,12 +246,12 @@ func TestRunTransformation_Dispatch(t *testing.T) {
 		exec.calls = nil
 		exec.mu.Unlock()
 
-		manifest := &protocol.TaskManifest{
+		manifest := &fleetproto.TaskManifest{
 			Title: "Task",
-			Repositories: []protocol.ManifestRepo{
+			Repositories: []fleetproto.ManifestRepo{
 				{Name: "svc"},
 			},
-			Execution: protocol.ManifestExecution{
+			Execution: fleetproto.ManifestExecution{
 				Type:   tt.execType,
 				Prompt: "do stuff",
 			},
