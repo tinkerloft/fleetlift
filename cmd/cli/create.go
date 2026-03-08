@@ -239,6 +239,49 @@ func generateTaskYAML(ctx context.Context, description string, repos []string) (
 	return extractYAML(raw), nil
 }
 
+// sendConversationMessage appends a user message to the history, calls Claude, appends
+// the assistant reply, and returns the updated history and the reply text.
+func sendConversationMessage(
+	ctx context.Context,
+	c *anthropic.Client,
+	systemPrompt string,
+	history []anthropic.MessageParam,
+	userText string,
+) ([]anthropic.MessageParam, string, error) {
+	history = append(history, anthropic.MessageParam{
+		Role: anthropic.MessageParamRoleUser,
+		Content: []anthropic.ContentBlockParamUnion{
+			{OfText: &anthropic.TextBlockParam{Text: userText}},
+		},
+	})
+
+	msg, err := c.Messages.New(ctx, anthropic.MessageNewParams{
+		Model:     anthropic.ModelClaudeSonnet4_6,
+		MaxTokens: 4096,
+		System:    []anthropic.TextBlockParam{{Text: systemPrompt}},
+		Messages:  history,
+	})
+	if err != nil {
+		return history, "", fmt.Errorf("Claude API error: %w", err)
+	}
+
+	var reply string
+	for _, block := range msg.Content {
+		if block.Type == "text" {
+			reply += block.Text
+		}
+	}
+
+	history = append(history, anthropic.MessageParam{
+		Role: anthropic.MessageParamRoleAssistant,
+		Content: []anthropic.ContentBlockParamUnion{
+			{OfText: &anthropic.TextBlockParam{Text: reply}},
+		},
+	})
+
+	return history, reply, nil
+}
+
 func startRunFromFile(ctx context.Context, filePath string) error {
 	task, err := config.LoadTaskFile(filePath)
 	if err != nil {
