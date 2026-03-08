@@ -80,8 +80,8 @@ func TestStore_FilterByTags(t *testing.T) {
 	dir := t.TempDir()
 	store := knowledge.NewStore(dir)
 
-	goItem := model.KnowledgeItem{ID: "go-01", Type: model.KnowledgeTypePattern, Summary: "go thing", Source: model.KnowledgeSourceManual, Tags: []string{"go", "imports"}, Confidence: 0.8, CreatedAt: time.Now()}
-	pyItem := model.KnowledgeItem{ID: "py-01", Type: model.KnowledgeTypeGotcha, Summary: "python thing", Source: model.KnowledgeSourceManual, Tags: []string{"python"}, Confidence: 0.7, CreatedAt: time.Now()}
+	goItem := model.KnowledgeItem{ID: "go-01", Type: model.KnowledgeTypePattern, Summary: "go thing", Source: model.KnowledgeSourceManual, Tags: []string{"go", "imports"}, Confidence: 0.8, Status: model.KnowledgeStatusApproved, CreatedAt: time.Now()}
+	pyItem := model.KnowledgeItem{ID: "py-01", Type: model.KnowledgeTypeGotcha, Summary: "python thing", Source: model.KnowledgeSourceManual, Tags: []string{"python"}, Confidence: 0.7, Status: model.KnowledgeStatusApproved, CreatedAt: time.Now()}
 
 	require.NoError(t, store.Write("t1", goItem))
 	require.NoError(t, store.Write("t1", pyItem))
@@ -96,8 +96,8 @@ func TestStore_FilterByTags_NoFilter_ReturnsAll(t *testing.T) {
 	dir := t.TempDir()
 	store := knowledge.NewStore(dir)
 
-	item1 := model.KnowledgeItem{ID: "a1", Type: model.KnowledgeTypePattern, Summary: "a", Source: model.KnowledgeSourceManual, Confidence: 0.9, CreatedAt: time.Now()}
-	item2 := model.KnowledgeItem{ID: "a2", Type: model.KnowledgeTypePattern, Summary: "b", Source: model.KnowledgeSourceManual, Confidence: 0.7, CreatedAt: time.Now()}
+	item1 := model.KnowledgeItem{ID: "a1", Type: model.KnowledgeTypePattern, Summary: "a", Source: model.KnowledgeSourceManual, Confidence: 0.9, Status: model.KnowledgeStatusApproved, CreatedAt: time.Now()}
+	item2 := model.KnowledgeItem{ID: "a2", Type: model.KnowledgeTypePattern, Summary: "b", Source: model.KnowledgeSourceManual, Confidence: 0.7, Status: model.KnowledgeStatusApproved, CreatedAt: time.Now()}
 	require.NoError(t, store.Write("t1", item1))
 	require.NoError(t, store.Write("t1", item2))
 
@@ -147,6 +147,33 @@ func TestStore_Update_NotFound(t *testing.T) {
 	store := knowledge.NewStore(t.TempDir())
 	err := store.Update(model.KnowledgeItem{ID: "missing"})
 	assert.ErrorContains(t, err, "not found")
+}
+
+func TestFilterByTags_ExcludesPendingItems(t *testing.T) {
+	dir := t.TempDir()
+	store := knowledge.NewStore(dir)
+
+	approved := model.KnowledgeItem{
+		ID:         "approved-1",
+		Summary:    "approved insight",
+		Tags:       []string{"go"},
+		Status:     model.KnowledgeStatusApproved,
+		Confidence: 0.9,
+	}
+	pending := model.KnowledgeItem{
+		ID:         "pending-1",
+		Summary:    "pending insight",
+		Tags:       []string{"go"},
+		Status:     model.KnowledgeStatusPending,
+		Confidence: 0.8,
+	}
+	require.NoError(t, store.Write("task-1", approved))
+	require.NoError(t, store.Write("task-1", pending))
+
+	results, err := store.FilterByTags([]string{"go"}, 10)
+	require.NoError(t, err)
+	require.Len(t, results, 1, "FilterByTags must only return approved items")
+	assert.Equal(t, "approved-1", results[0].ID)
 }
 
 func TestStore_ListApproved(t *testing.T) {

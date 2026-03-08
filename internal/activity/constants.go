@@ -6,11 +6,7 @@ import (
 	"log"
 	"os"
 	"strings"
-	"time"
 )
-
-// AgentStaleThreshold is how long without an update before an agent is considered stale.
-const AgentStaleThreshold = 5 * time.Minute
 
 // Activity name constants to prevent typos and improve maintainability (SIMP-003)
 const (

@@ -61,7 +61,10 @@ func main() {
 	}
 
 	// Expose /metrics on a dedicated port
-	metricsAddr := getEnvOrDefault("METRICS_ADDR", ":9090")
+	metricsAddr := os.Getenv("METRICS_ADDR")
+	if metricsAddr == "" {
+		metricsAddr = ":9090"
+	}
 	go func() {
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
@@ -91,8 +94,12 @@ func main() {
 	log.Printf("Task queue: %s", internalclient.TaskQueue)
 
 	// Create sandbox provider
+	openSandboxDomain := os.Getenv("OPEN_SANDBOX_DOMAIN")
+	if openSandboxDomain == "" {
+		openSandboxDomain = "http://localhost:8080"
+	}
 	cfg := sandbox.ProviderConfig{
-		OpenSandboxDomain:         getEnvOrDefault("OPEN_SANDBOX_DOMAIN", "http://localhost:8080"),
+		OpenSandboxDomain:         openSandboxDomain,
 		OpenSandboxAPIKey:         os.Getenv("OPEN_SANDBOX_API_KEY"),
 		OpenSandboxUseServerProxy: os.Getenv("OPEN_SANDBOX_USE_SERVER_PROXY") == "true",
 	}
@@ -143,11 +150,4 @@ func main() {
 	}
 
 	log.Println("Worker stopped")
-}
-
-func getEnvOrDefault(key, defaultVal string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return defaultVal
 }

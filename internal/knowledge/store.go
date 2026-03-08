@@ -164,8 +164,9 @@ func (s *Store) ListApproved() ([]model.KnowledgeItem, error) {
 
 // FilterByTags returns up to maxItems knowledge items whose tags overlap with filterTags.
 // If filterTags is empty, returns all items up to maxItems, sorted by confidence descending.
+// Only approved items are returned.
 func (s *Store) FilterByTags(filterTags []string, maxItems int) ([]model.KnowledgeItem, error) {
-	all, err := s.ListAll()
+	all, err := s.ListApproved()
 	if err != nil {
 		return nil, err
 	}

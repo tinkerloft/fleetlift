@@ -3,6 +3,7 @@ package server_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -58,7 +59,7 @@ func (m *mockClient) ContinueWorkflow(_ context.Context, _ string, _ bool) error
 func (m *mockClient) Close()                                                      {}
 
 func TestHealthEndpoint(t *testing.T) {
-	s := server.New(nil, nil, nil)
+	s := server.New(nil, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
@@ -69,11 +70,11 @@ func TestHealthEndpoint(t *testing.T) {
 func TestListTasks(t *testing.T) {
 	mc := &mockClient{
 		workflows: []flclient.WorkflowInfo{
-			{WorkflowID: "transform-abc-123", Status: "Running", StartTime: "2026-02-18 10:00:00"},
+			{WorkflowID: "transform-abc-123", Status: "Running", StartTime: time.Date(2026, 2, 18, 10, 0, 0, 0, time.UTC)},
 		},
 		status: model.TaskStatusRunning,
 	}
-	s := server.New(mc, nil, nil)
+	s := server.New(mc, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
@@ -88,11 +89,11 @@ func TestListTasks(t *testing.T) {
 func TestGetInbox_AwaitingApproval(t *testing.T) {
 	mc := &mockClient{
 		workflows: []flclient.WorkflowInfo{
-			{WorkflowID: "transform-abc-123", Status: "Running", StartTime: "2026-02-18 10:00:00"},
+			{WorkflowID: "transform-abc-123", Status: "Running", StartTime: time.Now().Add(-1 * time.Hour)},
 		},
 		status: model.TaskStatusAwaitingApproval,
 	}
-	s := server.New(mc, nil, nil)
+	s := server.New(mc, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks/inbox", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
@@ -107,7 +108,7 @@ func TestGetInbox_AwaitingApproval(t *testing.T) {
 }
 
 func TestApproveWorkflow(t *testing.T) {
-	s := server.New(&mockClient{}, nil, nil)
+	s := server.New(&mockClient{}, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/transform-abc-123/approve", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
@@ -115,7 +116,7 @@ func TestApproveWorkflow(t *testing.T) {
 }
 
 func TestSteerWorkflow(t *testing.T) {
-	s := server.New(&mockClient{}, nil, nil)
+	s := server.New(&mockClient{}, nil, nil, nil)
 	body := strings.NewReader(`{"prompt":"use slog instead"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/transform-abc-123/steer", body)
 	req.Header.Set("Content-Type", "application/json")
@@ -125,7 +126,7 @@ func TestSteerWorkflow(t *testing.T) {
 }
 
 func TestSteerWorkflow_MissingPrompt(t *testing.T) {
-	s := server.New(&mockClient{}, nil, nil)
+	s := server.New(&mockClient{}, nil, nil, nil)
 	body := strings.NewReader(`{}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/transform-abc-123/steer", body)
 	req.Header.Set("Content-Type", "application/json")
@@ -136,7 +137,7 @@ func TestSteerWorkflow_MissingPrompt(t *testing.T) {
 
 func TestSSEEndpoint(t *testing.T) {
 	mc := &mockClient{status: model.TaskStatusRunning}
-	s := server.New(mc, nil, nil)
+	s := server.New(mc, nil, nil, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
@@ -151,10 +152,67 @@ func TestSSEEndpoint(t *testing.T) {
 func TestMetricsEndpoint(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(collectors.NewGoCollector())
-	s := server.New(&mockClient{}, nil, reg)
+	s := server.New(&mockClient{}, nil, reg, nil)
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Header().Get("Content-Type"), "text/plain")
+}
+
+func TestHandleSteer_RejectsOversizedBody(t *testing.T) {
+	mc := &mockClient{}
+	s := server.New(mc, nil, nil, nil)
+
+	// Build a body larger than 1 MB
+	hugebody := strings.Repeat("x", 2*1024*1024)
+	body := fmt.Sprintf(`{"prompt":%q}`, hugebody)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/wf-123/steer", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+}
+
+func TestCORSOriginRestriction(t *testing.T) {
+	mc := &mockClient{}
+	s := server.New(mc, nil, nil, []string{"https://app.example.com"})
+
+	req := httptest.NewRequest(http.MethodOptions, "/api/v1/health", nil)
+	req.Header.Set("Origin", "https://evil.example.com")
+	req.Header.Set("Access-Control-Request-Method", "GET")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	assert.NotEqual(t, "https://evil.example.com", w.Header().Get("Access-Control-Allow-Origin"))
+}
+
+type countingClient struct {
+	mockClient
+	getStatusCalls int
+}
+
+func (c *countingClient) GetWorkflowStatus(ctx context.Context, id string) (model.TaskStatus, error) {
+	c.getStatusCalls++
+	return c.mockClient.GetWorkflowStatus(ctx, id)
+}
+
+func TestListTasks_NoPerWorkflowStatusQuery(t *testing.T) {
+	mc := &countingClient{
+		mockClient: mockClient{
+			workflows: []flclient.WorkflowInfo{
+				{WorkflowID: "w1", Status: "Running", StartTime: time.Now()},
+				{WorkflowID: "w2", Status: "Completed", StartTime: time.Now()},
+				{WorkflowID: "w3", Status: "Failed", StartTime: time.Now()},
+			},
+		},
+	}
+	s := server.New(mc, nil, nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, 0, mc.getStatusCalls, "handleListTasks must not issue per-workflow status queries")
 }

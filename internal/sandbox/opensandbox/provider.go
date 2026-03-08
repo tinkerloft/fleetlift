@@ -1,11 +1,11 @@
 package opensandbox
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"strings"
 	"sync"
 
 	fleetproto "github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
@@ -182,7 +182,7 @@ func (p *Provider) CopyFrom(ctx context.Context, id string, srcPath string) (io.
 	if data == nil {
 		return nil, fmt.Errorf("file not found: %s", srcPath)
 	}
-	return io.NopCloser(strings.NewReader(string(data))), nil
+	return io.NopCloser(bytes.NewReader(data)), nil
 }
 
 // Status returns the current phase of the sandbox.

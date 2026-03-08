@@ -85,6 +85,8 @@ func transformGrouped(ctx workflow.Context, task model.Task, groups []model.Repo
 				})
 				input := GroupTransformInput{Task: task, Group: group}
 				var result GroupTransformResult
+				// TransformGroup embeds failures in result.Error rather than returning a non-nil error.
+				// Check result.Error explicitly — a nil err does not mean the group succeeded.
 				err := workflow.ExecuteChildWorkflow(childCtx, TransformGroup, input).Get(childCtx, &result)
 				if err != nil {
 					errMsg := err.Error()

@@ -198,7 +198,7 @@ type WorkflowInfo struct {
 	WorkflowID string
 	RunID      string
 	Status     string
-	StartTime  string
+	StartTime  time.Time
 }
 
 // ListWorkflows lists workflows matching the given status filter with pagination.
@@ -232,7 +232,7 @@ func (c *Client) ListWorkflows(ctx context.Context, statusFilter string, limit i
 				WorkflowID: wf.Execution.WorkflowId,
 				RunID:      wf.Execution.RunId,
 				Status:     wf.Status.String(),
-				StartTime:  wf.StartTime.AsTime().Format("2006-01-02 15:04:05"),
+				StartTime:  wf.StartTime.AsTime(),
 			})
 		}
 

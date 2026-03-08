@@ -17,6 +17,23 @@ type TaskSummary struct {
 	IsPaused   bool             `json:"is_paused,omitempty"`
 }
 
+func temporalStatusToTaskStatus(s string) model.TaskStatus {
+	switch s {
+	case "Running":
+		return model.TaskStatusRunning
+	case "Completed":
+		return model.TaskStatusCompleted
+	case "Failed":
+		return model.TaskStatusFailed
+	case "Canceled", "Terminated":
+		return model.TaskStatusCancelled
+	case "TimedOut":
+		return model.TaskStatusFailed
+	default:
+		return model.TaskStatus(s)
+	}
+}
+
 func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 	statusFilter := r.URL.Query().Get("status")
 	workflows, err := s.client.ListWorkflows(r.Context(), statusFilter, 100)
@@ -27,11 +44,10 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 
 	tasks := make([]TaskSummary, 0, len(workflows))
 	for _, wf := range workflows {
-		status, _ := s.client.GetWorkflowStatus(r.Context(), wf.WorkflowID)
 		tasks = append(tasks, TaskSummary{
 			WorkflowID: wf.WorkflowID,
-			Status:     status,
-			StartTime:  wf.StartTime,
+			Status:     temporalStatusToTaskStatus(wf.Status),
+			StartTime:  wf.StartTime.UTC().Format(time.RFC3339),
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
@@ -69,7 +85,7 @@ func (s *Server) handleGetInbox(w http.ResponseWriter, r *http.Request) {
 			items = append(items, TaskSummary{
 				WorkflowID: wf.WorkflowID,
 				Status:     status,
-				StartTime:  wf.StartTime,
+				StartTime:  wf.StartTime.UTC().Format(time.RFC3339),
 				InboxType:  inboxType,
 				IsPaused:   isPaused,
 			})
@@ -79,14 +95,13 @@ func (s *Server) handleGetInbox(w http.ResponseWriter, r *http.Request) {
 	// Include recently completed tasks (last 24h) for passive review.
 	completed, _ := s.client.ListWorkflows(r.Context(), "Completed", 20)
 	for _, wf := range completed {
-		t, err := time.Parse("2006-01-02 15:04:05", wf.StartTime)
-		if err != nil || time.Since(t) > 24*time.Hour {
+		if time.Since(wf.StartTime) > 24*time.Hour {
 			continue
 		}
 		items = append(items, TaskSummary{
 			WorkflowID: wf.WorkflowID,
 			Status:     model.TaskStatusCompleted,
-			StartTime:  wf.StartTime,
+			StartTime:  wf.StartTime.UTC().Format(time.RFC3339),
 			InboxType:  "completed_review",
 		})
 	}

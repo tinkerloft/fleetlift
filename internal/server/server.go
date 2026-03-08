@@ -15,16 +15,21 @@ import (
 
 // Server is the HTTP API server.
 type Server struct {
-	router   chi.Router
-	client   TemporalClient
-	staticFS fs.FS // pre-subbed FS rooted at index.html; nil in tests
-	gatherer prometheus.Gatherer
+	router         chi.Router
+	client         TemporalClient
+	staticFS       fs.FS // pre-subbed FS rooted at index.html; nil in tests
+	gatherer       prometheus.Gatherer
+	allowedOrigins []string
 }
 
 // New creates a new Server. staticFS may be nil (disables static serving).
 // gatherer may be nil (uses prometheus.DefaultGatherer).
-func New(client TemporalClient, staticFS fs.FS, gatherer prometheus.Gatherer) *Server {
-	s := &Server{client: client, staticFS: staticFS, gatherer: gatherer}
+// allowedOrigins may be nil or empty (defaults to ["*"]).
+func New(client TemporalClient, staticFS fs.FS, gatherer prometheus.Gatherer, allowedOrigins []string) *Server {
+	if len(allowedOrigins) == 0 {
+		allowedOrigins = []string{"*"}
+	}
+	s := &Server{client: client, staticFS: staticFS, gatherer: gatherer, allowedOrigins: allowedOrigins}
 	s.router = s.buildRouter()
 	return s
 }
@@ -39,7 +44,7 @@ func (s *Server) buildRouter() chi.Router {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: []string{"*"},
+		AllowedOrigins: s.allowedOrigins,
 		AllowedMethods: []string{"GET", "POST", "OPTIONS"},
 		AllowedHeaders: []string{"Accept", "Content-Type"},
 	}))

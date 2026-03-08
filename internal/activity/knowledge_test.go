@@ -153,6 +153,7 @@ func TestEnrichPrompt_WithItems(t *testing.T) {
 		ID: "k1", Type: model.KnowledgeTypeCorrection,
 		Summary: "Run go mod tidy", Tags: []string{"go"},
 		Source: model.KnowledgeSourceManual, Confidence: 0.9,
+		Status:    model.KnowledgeStatusApproved,
 		CreatedAt: time.Now(),
 	}))
 
@@ -188,6 +189,7 @@ func TestEnrichPrompt_Tier2CapacityReducedByTier3(t *testing.T) {
 			Summary:    fmt.Sprintf("Local item %d", i),
 			Source:     model.KnowledgeSourceManual,
 			Confidence: float64(i) / 10.0,
+			Status:     model.KnowledgeStatusApproved,
 			CreatedAt:  time.Now(),
 		}))
 	}

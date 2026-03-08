@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
@@ -37,7 +38,8 @@ func main() {
 	reg.MustRegister(collectors.NewGoCollector())
 	reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 
-	s := server.New(c, webFS, reg)
+	origins := strings.Fields(os.Getenv("ALLOWED_ORIGINS"))
+	s := server.New(c, webFS, reg, origins)
 	log.Printf("Fleetlift server listening on %s", addr)
 	if err := http.ListenAndServe(addr, s); err != nil {
 		log.Fatalf("server error: %v", err)

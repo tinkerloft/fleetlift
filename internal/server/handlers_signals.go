@@ -7,6 +7,8 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+const maxRequestBodyBytes = 1 << 20 // 1 MiB
+
 func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := s.client.ApproveWorkflow(r.Context(), id); err != nil {
@@ -40,8 +42,13 @@ type steerRequest struct {
 
 func (s *Server) handleSteer(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 	var req steerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err.Error() == "http: request body too large" {
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}

@@ -28,6 +28,11 @@ type GroupTransformResult struct {
 
 // TransformGroup is a child workflow that processes a group of repositories.
 // It delegates to TransformV2 with a task scoped to the repos in this group.
+//
+// Error convention: this workflow always returns (result, nil). Failures are
+// embedded in GroupTransformResult.Error and per-repo RepositoryResult.Error
+// so that the parent workflow (transformGrouped) can continue processing other
+// groups and aggregate results. Callers MUST check result.Error.
 func TransformGroup(ctx workflow.Context, input GroupTransformInput) (*GroupTransformResult, error) {
 	logger := workflow.GetLogger(ctx)
 
