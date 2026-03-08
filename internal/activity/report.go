@@ -8,16 +8,16 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 
-	agentboxsandbox "github.com/tinkerloft/agentbox/sandbox"
+	"github.com/tinkerloft/fleetlift/internal/sandbox"
 )
 
 // ReportActivities contains activities for report mode operations.
 type ReportActivities struct {
-	Provider agentboxsandbox.Provider
+	Provider sandbox.Provider
 }
 
 // NewReportActivities creates a new ReportActivities instance.
-func NewReportActivities(provider agentboxsandbox.Provider) *ReportActivities {
+func NewReportActivities(provider sandbox.Provider) *ReportActivities {
 	return &ReportActivities{Provider: provider}
 }
 

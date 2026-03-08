@@ -13,28 +13,26 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/testsuite"
 
-	agentboxproto "github.com/tinkerloft/agentbox/protocol"
-	agentboxsandbox "github.com/tinkerloft/agentbox/sandbox"
-
 	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
+	"github.com/tinkerloft/fleetlift/internal/sandbox"
 )
 
-// agentMockProvider implements agentboxsandbox.AgentProvider for agent activity tests.
+// agentMockProvider implements sandbox.AgentProvider for agent activity tests.
 type agentMockProvider struct {
 	submitManifestFunc func(ctx context.Context, id string, manifest []byte) error
 	pollStatusFunc     func(ctx context.Context, id string) ([]byte, error)
 	readResultFunc     func(ctx context.Context, id string) ([]byte, error)
 	submitSteeringFunc func(ctx context.Context, id string, instruction []byte) error
-	statusFunc         func(ctx context.Context, id string) (*agentboxsandbox.SandboxStatus, error)
+	statusFunc         func(ctx context.Context, id string) (*sandbox.SandboxStatus, error)
 }
 
-func (m *agentMockProvider) Provision(_ context.Context, _ agentboxsandbox.ProvisionOptions) (*agentboxsandbox.Sandbox, error) {
+func (m *agentMockProvider) Provision(_ context.Context, _ sandbox.ProvisionOptions) (*sandbox.Sandbox, error) {
 	return nil, errors.New("not implemented")
 }
-func (m *agentMockProvider) Exec(_ context.Context, _ string, _ agentboxsandbox.ExecCommand) (*agentboxsandbox.ExecResult, error) {
+func (m *agentMockProvider) Exec(_ context.Context, _ string, _ sandbox.ExecCommand) (*sandbox.ExecResult, error) {
 	return nil, errors.New("not implemented")
 }
-func (m *agentMockProvider) ExecShell(_ context.Context, _, _, _ string) (*agentboxsandbox.ExecResult, error) {
+func (m *agentMockProvider) ExecShell(_ context.Context, _, _, _ string) (*sandbox.ExecResult, error) {
 	return nil, errors.New("not implemented")
 }
 func (m *agentMockProvider) CopyTo(_ context.Context, _ string, _ io.Reader, _ string) error {
@@ -43,7 +41,7 @@ func (m *agentMockProvider) CopyTo(_ context.Context, _ string, _ io.Reader, _ s
 func (m *agentMockProvider) CopyFrom(_ context.Context, _, _ string) (io.ReadCloser, error) {
 	return nil, errors.New("not implemented")
 }
-func (m *agentMockProvider) Status(ctx context.Context, id string) (*agentboxsandbox.SandboxStatus, error) {
+func (m *agentMockProvider) Status(ctx context.Context, id string) (*sandbox.SandboxStatus, error) {
 	if m.statusFunc != nil {
 		return m.statusFunc(ctx, id)
 	}
@@ -65,7 +63,7 @@ func (m *agentMockProvider) PollStatus(ctx context.Context, id string) ([]byte, 
 	if m.pollStatusFunc != nil {
 		return m.pollStatusFunc(ctx, id)
 	}
-	statusBytes, _ := json.Marshal(agentboxproto.AgentStatus{Phase: agentboxproto.PhaseComplete})
+	statusBytes, _ := json.Marshal(fleetproto.AgentStatus{Phase: fleetproto.PhaseComplete})
 	return statusBytes, nil
 }
 
@@ -145,8 +143,8 @@ func TestSubmitTaskManifest_Error(t *testing.T) {
 func TestWaitForAgentPhase_ImmediateMatch(t *testing.T) {
 	provider := &agentMockProvider{
 		pollStatusFunc: func(_ context.Context, _ string) ([]byte, error) {
-			b, _ := json.Marshal(agentboxproto.AgentStatus{
-				Phase:     agentboxproto.PhaseComplete,
+			b, _ := json.Marshal(fleetproto.AgentStatus{
+				Phase:     fleetproto.PhaseComplete,
 				Message:   "done",
 				UpdatedAt: time.Now().UTC(),
 			})
@@ -162,15 +160,15 @@ func TestWaitForAgentPhase_ImmediateMatch(t *testing.T) {
 
 	input := WaitForAgentPhaseInput{
 		SandboxID:    "container-123",
-		TargetPhases: []string{string(agentboxproto.PhaseComplete)},
+		TargetPhases: []string{string(fleetproto.PhaseComplete)},
 	}
 
 	result, err := env.ExecuteActivity(activities.WaitForAgentPhase, input)
 	require.NoError(t, err)
 
-	var status agentboxproto.AgentStatus
+	var status fleetproto.AgentStatus
 	require.NoError(t, result.Get(&status))
-	assert.Equal(t, agentboxproto.PhaseComplete, status.Phase)
+	assert.Equal(t, fleetproto.PhaseComplete, status.Phase)
 }
 
 func TestWaitForAgentPhase_PollingUntilReady(t *testing.T) {
@@ -179,13 +177,13 @@ func TestWaitForAgentPhase_PollingUntilReady(t *testing.T) {
 	provider := &agentMockProvider{
 		pollStatusFunc: func(_ context.Context, _ string) ([]byte, error) {
 			count := callCount.Add(1)
-			var phase agentboxproto.Phase
+			var phase fleetproto.Phase
 			if count < 3 {
-				phase = agentboxproto.PhaseExecuting
+				phase = fleetproto.PhaseExecuting
 			} else {
-				phase = agentboxproto.PhaseAwaitingInput
+				phase = fleetproto.PhaseAwaitingInput
 			}
-			b, _ := json.Marshal(agentboxproto.AgentStatus{Phase: phase})
+			b, _ := json.Marshal(fleetproto.AgentStatus{Phase: phase})
 			return b, nil
 		},
 	}
@@ -198,22 +196,22 @@ func TestWaitForAgentPhase_PollingUntilReady(t *testing.T) {
 
 	input := WaitForAgentPhaseInput{
 		SandboxID:    "container-123",
-		TargetPhases: []string{string(agentboxproto.PhaseAwaitingInput), string(agentboxproto.PhaseComplete)},
+		TargetPhases: []string{string(fleetproto.PhaseAwaitingInput), string(fleetproto.PhaseComplete)},
 	}
 
 	result, err := env.ExecuteActivity(activities.WaitForAgentPhase, input)
 	require.NoError(t, err)
 
-	var status agentboxproto.AgentStatus
+	var status fleetproto.AgentStatus
 	require.NoError(t, result.Get(&status))
-	assert.Equal(t, agentboxproto.PhaseAwaitingInput, status.Phase)
+	assert.Equal(t, fleetproto.PhaseAwaitingInput, status.Phase)
 	assert.GreaterOrEqual(t, int(callCount.Load()), 3)
 }
 
 func TestWaitForAgentPhase_FailedIsAlwaysTerminal(t *testing.T) {
 	provider := &agentMockProvider{
 		pollStatusFunc: func(_ context.Context, _ string) ([]byte, error) {
-			b, _ := json.Marshal(agentboxproto.AgentStatus{Phase: agentboxproto.PhaseFailed, Message: "crash"})
+			b, _ := json.Marshal(fleetproto.AgentStatus{Phase: fleetproto.PhaseFailed, Message: "crash"})
 			return b, nil
 		},
 	}
@@ -227,15 +225,15 @@ func TestWaitForAgentPhase_FailedIsAlwaysTerminal(t *testing.T) {
 	// Even though we only ask for "complete", failed should be returned
 	input := WaitForAgentPhaseInput{
 		SandboxID:    "container-123",
-		TargetPhases: []string{string(agentboxproto.PhaseComplete)},
+		TargetPhases: []string{string(fleetproto.PhaseComplete)},
 	}
 
 	result, err := env.ExecuteActivity(activities.WaitForAgentPhase, input)
 	require.NoError(t, err)
 
-	var status agentboxproto.AgentStatus
+	var status fleetproto.AgentStatus
 	require.NoError(t, result.Get(&status))
-	assert.Equal(t, agentboxproto.PhaseFailed, status.Phase)
+	assert.Equal(t, fleetproto.PhaseFailed, status.Phase)
 }
 
 func TestWaitForAgentPhase_StaleAgent(t *testing.T) {
@@ -243,15 +241,15 @@ func TestWaitForAgentPhase_StaleAgent(t *testing.T) {
 
 	provider := &agentMockProvider{
 		pollStatusFunc: func(_ context.Context, _ string) ([]byte, error) {
-			b, _ := json.Marshal(agentboxproto.AgentStatus{
-				Phase:     agentboxproto.PhaseExecuting,
+			b, _ := json.Marshal(fleetproto.AgentStatus{
+				Phase:     fleetproto.PhaseExecuting,
 				UpdatedAt: staleTime,
 			})
 			return b, nil
 		},
-		statusFunc: func(_ context.Context, _ string) (*agentboxsandbox.SandboxStatus, error) {
-			return &agentboxsandbox.SandboxStatus{
-				Phase:   agentboxsandbox.SandboxPhaseFailed,
+		statusFunc: func(_ context.Context, _ string) (*sandbox.SandboxStatus, error) {
+			return &sandbox.SandboxStatus{
+				Phase:   sandbox.SandboxPhaseFailed,
 				Message: "container exited",
 			}, nil
 		},
@@ -265,7 +263,7 @@ func TestWaitForAgentPhase_StaleAgent(t *testing.T) {
 
 	input := WaitForAgentPhaseInput{
 		SandboxID:    "container-123",
-		TargetPhases: []string{string(agentboxproto.PhaseComplete)},
+		TargetPhases: []string{string(fleetproto.PhaseComplete)},
 	}
 
 	_, err := env.ExecuteActivity(activities.WaitForAgentPhase, input)
@@ -275,7 +273,7 @@ func TestWaitForAgentPhase_StaleAgent(t *testing.T) {
 
 func TestReadAgentResult(t *testing.T) {
 	agentResult := fleetproto.AgentResult{
-		Status: agentboxproto.PhaseComplete,
+		Status: fleetproto.PhaseComplete,
 		Repositories: []fleetproto.RepoResult{
 			{Name: "svc", Status: "success", FilesModified: []string{"main.go"}},
 		},
@@ -301,7 +299,7 @@ func TestReadAgentResult(t *testing.T) {
 
 	var decoded fleetproto.AgentResult
 	require.NoError(t, result.Get(&decoded))
-	assert.Equal(t, agentboxproto.PhaseComplete, decoded.Status)
+	assert.Equal(t, fleetproto.PhaseComplete, decoded.Status)
 	assert.Len(t, decoded.Repositories, 1)
 	assert.Equal(t, "svc", decoded.Repositories[0].Name)
 }
@@ -342,7 +340,7 @@ func TestSubmitSteeringAction(t *testing.T) {
 
 	input := SubmitSteeringActionInput{
 		SandboxID: "container-123",
-		Action:    string(agentboxproto.SteeringActionSteer),
+		Action:    string(fleetproto.SteeringActionSteer),
 		Prompt:    "Also update test helpers",
 		Iteration: 1,
 	}
@@ -352,7 +350,7 @@ func TestSubmitSteeringAction(t *testing.T) {
 
 	var decoded fleetproto.SteeringInstruction
 	require.NoError(t, json.Unmarshal(captured, &decoded))
-	assert.Equal(t, agentboxproto.SteeringActionSteer, decoded.Action)
+	assert.Equal(t, fleetproto.SteeringActionSteer, decoded.Action)
 	assert.Equal(t, "Also update test helpers", decoded.Prompt)
 	assert.Equal(t, 1, decoded.Iteration)
 }
@@ -375,7 +373,7 @@ func TestSubmitSteeringAction_Approve(t *testing.T) {
 
 	input := SubmitSteeringActionInput{
 		SandboxID: "container-123",
-		Action:    string(agentboxproto.SteeringActionApprove),
+		Action:    string(fleetproto.SteeringActionApprove),
 	}
 
 	_, err := env.ExecuteActivity(activities.SubmitSteeringAction, input)
@@ -383,7 +381,7 @@ func TestSubmitSteeringAction_Approve(t *testing.T) {
 
 	var decoded fleetproto.SteeringInstruction
 	require.NoError(t, json.Unmarshal(captured, &decoded))
-	assert.Equal(t, agentboxproto.SteeringActionApprove, decoded.Action)
+	assert.Equal(t, fleetproto.SteeringActionApprove, decoded.Action)
 }
 
 func TestSubmitSteeringAction_InvalidAction(t *testing.T) {

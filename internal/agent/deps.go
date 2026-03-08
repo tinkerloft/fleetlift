@@ -53,7 +53,7 @@ type CommandResult struct {
 }
 
 // OSFileSystem is the exported OS-backed FileSystem implementation.
-// It satisfies both the agent.FileSystem interface and agentbox/agent.FileSystem interface.
+// It satisfies the agent.FileSystem interface.
 type OSFileSystem = osFileSystem
 
 // osFileSystem implements FileSystem using the real OS.

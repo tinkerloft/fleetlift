@@ -17,9 +17,6 @@ import (
 	"syscall"
 	"time"
 
-	agentboxagent "github.com/tinkerloft/agentbox/agent"
-	agentboxproto "github.com/tinkerloft/agentbox/protocol"
-
 	"github.com/tinkerloft/fleetlift/internal/agent"
 	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 )
@@ -45,9 +42,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create agentbox Protocol with the fleetlift base path.
-	// agent.OSFileSystem satisfies the agentbox/agent.FileSystem interface.
-	proto := agentboxagent.New(basePath, agent.OSFileSystem{})
+	proto := agent.NewProtocol(basePath, agent.OSFileSystem{})
 
 	logger.Info("Sidecar agent starting", "basePath", basePath)
 
@@ -57,7 +52,7 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, proto *agentboxagent.Protocol, basePath string, logger *slog.Logger) error {
+func run(ctx context.Context, proto *agent.Protocol, basePath string, logger *slog.Logger) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -75,8 +70,8 @@ func run(ctx context.Context, proto *agentboxagent.Protocol, basePath string, lo
 	}()
 
 	logger.Info("Agent starting, waiting for manifest...")
-	if err := proto.WriteStatus(agentboxproto.AgentStatus{
-		Phase:     agentboxproto.PhaseInitializing,
+	if err := proto.WriteStatus(fleetproto.AgentStatus{
+		Phase:     fleetproto.PhaseInitializing,
 		Message:   "Waiting for manifest",
 		UpdatedAt: time.Now().UTC(),
 	}); err != nil {

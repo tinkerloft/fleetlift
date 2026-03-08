@@ -10,18 +10,17 @@ import (
 	"go.temporal.io/sdk/activity"
 	"golang.org/x/oauth2"
 
-	agentboxsandbox "github.com/tinkerloft/agentbox/sandbox"
-
 	"github.com/tinkerloft/fleetlift/internal/model"
+	"github.com/tinkerloft/fleetlift/internal/sandbox"
 )
 
 // GitHubActivities contains activities for GitHub operations.
 type GitHubActivities struct {
-	Provider agentboxsandbox.Provider
+	Provider sandbox.Provider
 }
 
 // NewGitHubActivities creates a new GitHubActivities instance.
-func NewGitHubActivities(provider agentboxsandbox.Provider) *GitHubActivities {
+func NewGitHubActivities(provider sandbox.Provider) *GitHubActivities {
 	return &GitHubActivities{Provider: provider}
 }
 

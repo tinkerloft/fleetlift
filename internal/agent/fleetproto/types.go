@@ -1,28 +1,86 @@
-// Package fleetproto defines fleetlift-specific types that extend the agentbox protocol.
-// These types are either not present in agentbox/protocol or extend it with additional fields.
+// Package fleetproto defines fleetlift-specific protocol types for the agent sidecar.
 package fleetproto
 
 import (
 	"path/filepath"
 	"time"
-
-	agentboxproto "github.com/tinkerloft/agentbox/protocol"
 )
 
-// DefaultBasePath is the base directory for fleetlift agent protocol files inside the sandbox.
-// This is the fleetlift-specific override of agentbox's DefaultBasePath.
-const DefaultBasePath = "/workspace/.fleetlift"
+// --- Phase ---
+
+// Phase represents the lifecycle phase of the agent.
+type Phase string
+
+const (
+	PhaseInitializing  Phase = "initializing"
+	PhaseExecuting     Phase = "executing"
+	PhaseVerifying     Phase = "verifying"
+	PhaseAwaitingInput Phase = "awaiting_input"
+	PhaseComplete      Phase = "complete"
+	PhaseFailed        Phase = "failed"
+	PhaseCancelled     Phase = "cancelled"
+)
 
 // PhaseCreatingPRs is a fleetlift-specific agent lifecycle phase.
-const PhaseCreatingPRs agentboxproto.Phase = "creating_prs"
+const PhaseCreatingPRs Phase = "creating_prs"
 
-// SteeringInstruction extends agentbox's SteeringInstruction with a Timestamp field.
+// --- SteeringAction ---
+
+// SteeringAction represents the type of steering instruction.
+type SteeringAction string
+
+const (
+	SteeringActionApprove SteeringAction = "approve"
+	SteeringActionReject  SteeringAction = "reject"
+	SteeringActionCancel  SteeringAction = "cancel"
+	SteeringActionSteer   SteeringAction = "steer"
+)
+
+// --- AgentStatus ---
+
+// AgentStatus is the current status written by the agent to the status file.
+type AgentStatus struct {
+	Phase     Phase             `json:"phase"`
+	Step      string            `json:"step,omitempty"`
+	Message   string            `json:"message,omitempty"`
+	Progress  *StatusProgress   `json:"progress,omitempty"`
+	Iteration int               `json:"iteration"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
+	UpdatedAt time.Time         `json:"updated_at"`
+}
+
+// StatusProgress represents progress within a phase.
+type StatusProgress struct {
+	Current int `json:"current"`
+	Total   int `json:"total"`
+}
+
+// --- Path functions ---
+
+// ManifestPath returns the path to the manifest file under base.
+func ManifestPath(base string) string { return filepath.Join(base, "manifest.json") }
+
+// StatusPath returns the path to the status file under base.
+func StatusPath(base string) string { return filepath.Join(base, "status.json") }
+
+// ResultPath returns the path to the result file under base.
+func ResultPath(base string) string { return filepath.Join(base, "result.json") }
+
+// SteeringPath returns the path to the steering file under base.
+func SteeringPath(base string) string { return filepath.Join(base, "steering.json") }
+
+// DefaultBasePath is the base directory for fleetlift agent protocol files inside the sandbox.
+const DefaultBasePath = "/workspace/.fleetlift"
+
+// --- SteeringInstruction ---
+
+// SteeringInstruction extends the base steering instruction with a Timestamp field.
 // The worker sets Timestamp when writing the instruction for audit/tracing.
 type SteeringInstruction struct {
-	Action    agentboxproto.SteeringAction `json:"action"`
-	Prompt    string                       `json:"prompt,omitempty"`
-	Iteration int                          `json:"iteration"`
-	Timestamp time.Time                    `json:"timestamp"`
+	Action    SteeringAction `json:"action"`
+	Prompt    string         `json:"prompt,omitempty"`
+	Iteration int            `json:"iteration"`
+	Timestamp time.Time      `json:"timestamp"`
 }
 
 // --- Manifest (Worker → Agent) ---
@@ -116,13 +174,13 @@ type ManifestGitConfig struct {
 
 // AgentResult is the full structured result written by the agent.
 type AgentResult struct {
-	Status          agentboxproto.Phase `json:"status"`
-	Repositories    []RepoResult        `json:"repositories"`
-	AgentOutput     string              `json:"agent_output,omitempty"`
-	SteeringHistory []SteeringRecord    `json:"steering_history,omitempty"`
-	Error           *string             `json:"error,omitempty"`
-	StartedAt       time.Time           `json:"started_at"`
-	CompletedAt     *time.Time          `json:"completed_at,omitempty"`
+	Status          Phase            `json:"status"`
+	Repositories    []RepoResult     `json:"repositories"`
+	AgentOutput     string           `json:"agent_output,omitempty"`
+	SteeringHistory []SteeringRecord `json:"steering_history,omitempty"`
+	Error           *string          `json:"error,omitempty"`
+	StartedAt       time.Time        `json:"started_at"`
+	CompletedAt     *time.Time       `json:"completed_at,omitempty"`
 }
 
 // RepoResult contains the result for a single repository.

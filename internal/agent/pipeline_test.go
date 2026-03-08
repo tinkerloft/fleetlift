@@ -11,8 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	agentboxproto "github.com/tinkerloft/agentbox/protocol"
-
 	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 )
 
@@ -62,7 +60,7 @@ func TestWaitForSteering_AtomicRename(t *testing.T) {
 	p := testPipeline(fs, exec)
 
 	instruction := &fleetproto.SteeringInstruction{
-		Action: agentboxproto.SteeringActionApprove,
+		Action: fleetproto.SteeringActionApprove,
 	}
 	data, _ := json.Marshal(instruction)
 
@@ -74,7 +72,7 @@ func TestWaitForSteering_AtomicRename(t *testing.T) {
 
 	got, err := p.waitForSteering(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, agentboxproto.SteeringActionApprove, got.Action)
+	assert.Equal(t, fleetproto.SteeringActionApprove, got.Action)
 
 	// Verify the original file was removed (renamed then deleted)
 	_, err = fs.ReadFile("/tmp/test-fleetlift/steering.json")
@@ -92,7 +90,7 @@ func TestWaitForSteering_RenameFailsNoFile(t *testing.T) {
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		instruction := &fleetproto.SteeringInstruction{
-			Action: agentboxproto.SteeringActionSteer,
+			Action: fleetproto.SteeringActionSteer,
 			Prompt: "fix tests",
 		}
 		data, _ := json.Marshal(instruction)
@@ -104,7 +102,7 @@ func TestWaitForSteering_RenameFailsNoFile(t *testing.T) {
 
 	got, err := p.waitForSteering(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, agentboxproto.SteeringActionSteer, got.Action)
+	assert.Equal(t, fleetproto.SteeringActionSteer, got.Action)
 	assert.Equal(t, "fix tests", got.Prompt)
 }
 
@@ -113,17 +111,17 @@ func TestWriteStatus(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	p.writeStatus(agentboxproto.AgentStatus{
-		Phase:   agentboxproto.PhaseExecuting,
+	p.writeStatus(fleetproto.AgentStatus{
+		Phase:   fleetproto.PhaseExecuting,
 		Message: "Running...",
 	})
 
 	data, err := fs.ReadFile("/tmp/test-fleetlift/status.json")
 	require.NoError(t, err)
 
-	var status agentboxproto.AgentStatus
+	var status fleetproto.AgentStatus
 	require.NoError(t, json.Unmarshal(data, &status))
-	assert.Equal(t, agentboxproto.PhaseExecuting, status.Phase)
+	assert.Equal(t, fleetproto.PhaseExecuting, status.Phase)
 	assert.Equal(t, "Running...", status.Message)
 }
 
@@ -133,7 +131,7 @@ func TestWriteResult_Success(t *testing.T) {
 	p := testPipeline(fs, exec)
 
 	result := &fleetproto.AgentResult{
-		Status: agentboxproto.PhaseComplete,
+		Status: fleetproto.PhaseComplete,
 		Repositories: []fleetproto.RepoResult{
 			{Name: "svc", Status: "success"},
 		},
@@ -147,7 +145,7 @@ func TestWriteResult_Success(t *testing.T) {
 
 	var decoded fleetproto.AgentResult
 	require.NoError(t, json.Unmarshal(data, &decoded))
-	assert.Equal(t, agentboxproto.PhaseComplete, decoded.Status)
+	assert.Equal(t, fleetproto.PhaseComplete, decoded.Status)
 }
 
 func TestWriteResult_Error(t *testing.T) {
@@ -158,7 +156,7 @@ func TestWriteResult_Error(t *testing.T) {
 	exec := newMockExecutor()
 	p := testPipeline(fs, exec)
 
-	err := p.writeResult(&fleetproto.AgentResult{Status: agentboxproto.PhaseComplete})
+	err := p.writeResult(&fleetproto.AgentResult{Status: fleetproto.PhaseComplete})
 	assert.ErrorContains(t, err, "disk full")
 }
 
@@ -198,7 +196,7 @@ func TestExecute_HappyPath(t *testing.T) {
 
 	var result fleetproto.AgentResult
 	require.NoError(t, json.Unmarshal(data, &result))
-	assert.Equal(t, agentboxproto.PhaseComplete, result.Status)
+	assert.Equal(t, fleetproto.PhaseComplete, result.Status)
 	assert.NotNil(t, result.CompletedAt)
 }
 
@@ -235,6 +233,6 @@ func TestExecute_CloneFailure(t *testing.T) {
 
 	var result fleetproto.AgentResult
 	require.NoError(t, json.Unmarshal(data, &result))
-	assert.Equal(t, agentboxproto.PhaseFailed, result.Status)
+	assert.Equal(t, fleetproto.PhaseFailed, result.Status)
 	assert.NotNil(t, result.Error)
 }

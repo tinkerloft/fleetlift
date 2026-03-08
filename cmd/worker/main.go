@@ -16,11 +16,9 @@ import (
 	sdkinterceptor "go.temporal.io/sdk/interceptor"
 	"go.temporal.io/sdk/worker"
 
-	agentboxsandbox "github.com/tinkerloft/agentbox/sandbox"
-	_ "github.com/tinkerloft/agentbox/sandbox/docker" // register docker provider
-	_ "github.com/tinkerloft/agentbox/sandbox/k8s"    // register k8s provider
-
 	"github.com/tinkerloft/fleetlift/internal/activity"
+	"github.com/tinkerloft/fleetlift/internal/sandbox"
+	_ "github.com/tinkerloft/fleetlift/internal/sandbox/opensandbox" // register opensandbox provider
 	internalclient "github.com/tinkerloft/fleetlift/internal/client"
 	"github.com/tinkerloft/fleetlift/internal/logging"
 	"github.com/tinkerloft/fleetlift/internal/metrics"
@@ -93,13 +91,12 @@ func main() {
 	log.Printf("Task queue: %s", internalclient.TaskQueue)
 
 	// Create sandbox provider
-	providerName := os.Getenv("SANDBOX_PROVIDER")
-	cfg := agentboxsandbox.ProviderConfig{
-		Namespace:      getEnvOrDefault("SANDBOX_NAMESPACE", "sandbox-isolated"),
-		AgentImage:     getEnvOrDefault("AGENT_IMAGE", "fleetlift-agent:latest"),
-		KubeconfigPath: os.Getenv("KUBECONFIG"),
+	cfg := sandbox.ProviderConfig{
+		OpenSandboxDomain:         getEnvOrDefault("OPEN_SANDBOX_DOMAIN", "http://localhost:8080"),
+		OpenSandboxAPIKey:         os.Getenv("OPEN_SANDBOX_API_KEY"),
+		OpenSandboxUseServerProxy: os.Getenv("OPEN_SANDBOX_USE_SERVER_PROXY") == "true",
 	}
-	provider, err := agentboxsandbox.NewProvider(providerName, cfg)
+	provider, err := sandbox.NewProvider(cfg)
 	if err != nil {
 		log.Fatalf("Failed to create sandbox provider: %v", err)
 	}

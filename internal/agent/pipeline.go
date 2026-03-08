@@ -9,9 +9,6 @@ import (
 	"os"
 	"time"
 
-	agentpkg "github.com/tinkerloft/agentbox/agent"
-	agentboxproto "github.com/tinkerloft/agentbox/protocol"
-
 	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 )
 
@@ -21,7 +18,7 @@ type Pipeline struct {
 	fs       FileSystem
 	exec     CommandExecutor
 	logger   *slog.Logger
-	proto    *agentpkg.Protocol
+	proto    *Protocol
 }
 
 // NewPipeline creates a new agent pipeline with explicit dependencies.
@@ -31,7 +28,7 @@ func NewPipeline(basePath string, fs FileSystem, exec CommandExecutor, logger *s
 		fs:       fs,
 		exec:     exec,
 		logger:   logger,
-		proto:    agentpkg.New(basePath, fs),
+		proto:    NewProtocol(basePath, fs),
 	}
 }
 
@@ -41,11 +38,11 @@ func NewDefaultPipeline(basePath string) *Pipeline {
 }
 
 // Execute runs the full task pipeline for the given manifest.
-// The caller is responsible for acquiring the manifest (e.g., via agentbox Protocol.WaitForManifest).
+// The caller is responsible for acquiring the manifest (e.g., via Protocol.WaitForManifest).
 func (p *Pipeline) Execute(ctx context.Context, manifest *fleetproto.TaskManifest) error {
 	startedAt := time.Now().UTC()
 	result := &fleetproto.AgentResult{
-		Status:    agentboxproto.PhaseExecuting,
+		Status:    fleetproto.PhaseExecuting,
 		StartedAt: startedAt,
 	}
 
@@ -53,14 +50,14 @@ func (p *Pipeline) Execute(ctx context.Context, manifest *fleetproto.TaskManifes
 	fail := func(errMsg string) error {
 		p.logger.Error("Pipeline failed", "error", errMsg)
 		now := time.Now().UTC()
-		result.Status = agentboxproto.PhaseFailed
+		result.Status = fleetproto.PhaseFailed
 		result.Error = &errMsg
 		result.CompletedAt = &now
 		if err := p.writeResult(result); err != nil {
 			p.logger.Warn("Failed to write failure result", "error", err)
 		}
-		p.writeStatus(agentboxproto.AgentStatus{
-			Phase:     agentboxproto.PhaseFailed,
+		p.writeStatus(fleetproto.AgentStatus{
+			Phase:     fleetproto.PhaseFailed,
 			Message:   errMsg,
 			UpdatedAt: now,
 		})
@@ -68,8 +65,8 @@ func (p *Pipeline) Execute(ctx context.Context, manifest *fleetproto.TaskManifes
 	}
 
 	// 1. Clone repositories
-	p.writeStatus(agentboxproto.AgentStatus{
-		Phase:     agentboxproto.PhaseExecuting,
+	p.writeStatus(fleetproto.AgentStatus{
+		Phase:     fleetproto.PhaseExecuting,
 		Step:      "cloning",
 		Message:   "Cloning repositories...",
 		UpdatedAt: time.Now().UTC(),
@@ -80,8 +77,8 @@ func (p *Pipeline) Execute(ctx context.Context, manifest *fleetproto.TaskManifes
 	}
 
 	// 2. Execute transformation
-	p.writeStatus(agentboxproto.AgentStatus{
-		Phase:     agentboxproto.PhaseExecuting,
+	p.writeStatus(fleetproto.AgentStatus{
+		Phase:     fleetproto.PhaseExecuting,
 		Step:      "running_transformation",
 		Message:   "Running transformation...",
 		UpdatedAt: time.Now().UTC(),
@@ -95,8 +92,8 @@ func (p *Pipeline) Execute(ctx context.Context, manifest *fleetproto.TaskManifes
 
 	// 3. Run verifiers
 	if len(manifest.Verifiers) > 0 {
-		p.writeStatus(agentboxproto.AgentStatus{
-			Phase:     agentboxproto.PhaseVerifying,
+		p.writeStatus(fleetproto.AgentStatus{
+			Phase:     fleetproto.PhaseVerifying,
 			Step:      "running_verifiers",
 			Message:   "Running verifiers...",
 			UpdatedAt: time.Now().UTC(),
@@ -115,12 +112,12 @@ func (p *Pipeline) Execute(ctx context.Context, manifest *fleetproto.TaskManifes
 
 	// 5. HITL loop or auto-complete
 	if manifest.RequireApproval && manifest.Mode == "transform" {
-		result.Status = agentboxproto.PhaseAwaitingInput
+		result.Status = fleetproto.PhaseAwaitingInput
 		if err := p.writeResult(result); err != nil {
 			p.logger.Warn("Failed to write awaiting result", "error", err)
 		}
-		p.writeStatus(agentboxproto.AgentStatus{
-			Phase:     agentboxproto.PhaseAwaitingInput,
+		p.writeStatus(fleetproto.AgentStatus{
+			Phase:     fleetproto.PhaseAwaitingInput,
 			Message:   "Awaiting human input",
 			UpdatedAt: time.Now().UTC(),
 		})
@@ -130,15 +127,15 @@ func (p *Pipeline) Execute(ctx context.Context, manifest *fleetproto.TaskManifes
 			return fail(fmt.Sprintf("steering loop failed: %v", err))
 		}
 
-		if finalAction == agentboxproto.SteeringActionCancel || finalAction == agentboxproto.SteeringActionReject {
+		if finalAction == fleetproto.SteeringActionCancel || finalAction == fleetproto.SteeringActionReject {
 			now := time.Now().UTC()
-			result.Status = agentboxproto.PhaseCancelled
+			result.Status = fleetproto.PhaseCancelled
 			result.CompletedAt = &now
 			if err := p.writeResult(result); err != nil {
 				p.logger.Warn("Failed to write cancelled result", "error", err)
 			}
-			p.writeStatus(agentboxproto.AgentStatus{
-				Phase:     agentboxproto.PhaseCancelled,
+			p.writeStatus(fleetproto.AgentStatus{
+				Phase:     fleetproto.PhaseCancelled,
 				Message:   "Cancelled by user",
 				UpdatedAt: now,
 			})
@@ -148,7 +145,7 @@ func (p *Pipeline) Execute(ctx context.Context, manifest *fleetproto.TaskManifes
 
 	// 6. Create PRs (transform mode only)
 	if manifest.Mode == "transform" && manifest.PullRequest != nil {
-		p.writeStatus(agentboxproto.AgentStatus{
+		p.writeStatus(fleetproto.AgentStatus{
 			Phase:     fleetproto.PhaseCreatingPRs,
 			Message:   "Creating pull requests...",
 			UpdatedAt: time.Now().UTC(),
@@ -162,13 +159,13 @@ func (p *Pipeline) Execute(ctx context.Context, manifest *fleetproto.TaskManifes
 
 	// 7. Complete
 	now := time.Now().UTC()
-	result.Status = agentboxproto.PhaseComplete
+	result.Status = fleetproto.PhaseComplete
 	result.CompletedAt = &now
 	if err := p.writeResult(result); err != nil {
 		p.logger.Warn("Failed to write final result", "error", err)
 	}
-	p.writeStatus(agentboxproto.AgentStatus{
-		Phase:     agentboxproto.PhaseComplete,
+	p.writeStatus(fleetproto.AgentStatus{
+		Phase:     fleetproto.PhaseComplete,
 		Message:   "Task completed",
 		UpdatedAt: now,
 	})
@@ -178,7 +175,7 @@ func (p *Pipeline) Execute(ctx context.Context, manifest *fleetproto.TaskManifes
 }
 
 // steeringLoop handles the HITL steering cycle.
-func (p *Pipeline) steeringLoop(ctx context.Context, manifest *fleetproto.TaskManifest, result *fleetproto.AgentResult) (agentboxproto.SteeringAction, error) {
+func (p *Pipeline) steeringLoop(ctx context.Context, manifest *fleetproto.TaskManifest, result *fleetproto.AgentResult) (fleetproto.SteeringAction, error) {
 	maxIterations := manifest.MaxSteeringIterations
 	if maxIterations <= 0 {
 		maxIterations = DefaultMaxSteering
@@ -189,25 +186,25 @@ func (p *Pipeline) steeringLoop(ctx context.Context, manifest *fleetproto.TaskMa
 		// Check for context cancellation (e.g., timeout)
 		select {
 		case <-ctx.Done():
-			return agentboxproto.SteeringAction(""), fmt.Errorf("steering loop timed out: %w", ctx.Err())
+			return fleetproto.SteeringAction(""), fmt.Errorf("steering loop timed out: %w", ctx.Err())
 		default:
 		}
 
 		instruction, err := p.waitForSteering(ctx)
 		if err != nil {
-			return agentboxproto.SteeringAction(""), err
+			return fleetproto.SteeringAction(""), err
 		}
 
 		switch instruction.Action {
-		case agentboxproto.SteeringActionApprove:
+		case fleetproto.SteeringActionApprove:
 			p.logger.Info("Received approve")
-			return agentboxproto.SteeringActionApprove, nil
+			return fleetproto.SteeringActionApprove, nil
 
-		case agentboxproto.SteeringActionReject, agentboxproto.SteeringActionCancel:
+		case fleetproto.SteeringActionReject, fleetproto.SteeringActionCancel:
 			p.logger.Info("Received action", "action", instruction.Action)
 			return instruction.Action, nil
 
-		case agentboxproto.SteeringActionSteer:
+		case fleetproto.SteeringActionSteer:
 			iteration++
 			if iteration > maxIterations {
 				p.logger.Warn("Max steering iterations reached, waiting for approve/reject", "max", maxIterations)
@@ -224,8 +221,8 @@ func (p *Pipeline) steeringLoop(ctx context.Context, manifest *fleetproto.TaskMa
 			})
 
 			// Re-run transformation with steering prompt
-			p.writeStatus(agentboxproto.AgentStatus{
-				Phase:     agentboxproto.PhaseExecuting,
+			p.writeStatus(fleetproto.AgentStatus{
+				Phase:     fleetproto.PhaseExecuting,
 				Step:      "running_transformation",
 				Message:   fmt.Sprintf("Steering iteration %d...", iteration),
 				Iteration: iteration,
@@ -245,12 +242,12 @@ func (p *Pipeline) steeringLoop(ctx context.Context, manifest *fleetproto.TaskMa
 			result.Repositories = p.collectResults(ctx, manifest, verifierResults)
 
 			// Update result and status
-			result.Status = agentboxproto.PhaseAwaitingInput
+			result.Status = fleetproto.PhaseAwaitingInput
 			if err := p.writeResult(result); err != nil {
 				p.logger.Warn("Failed to write steering result", "error", err)
 			}
-			p.writeStatus(agentboxproto.AgentStatus{
-				Phase:     agentboxproto.PhaseAwaitingInput,
+			p.writeStatus(fleetproto.AgentStatus{
+				Phase:     fleetproto.PhaseAwaitingInput,
 				Message:   fmt.Sprintf("Steering iteration %d complete, awaiting input", iteration),
 				Iteration: iteration,
 				UpdatedAt: time.Now().UTC(),
@@ -259,7 +256,7 @@ func (p *Pipeline) steeringLoop(ctx context.Context, manifest *fleetproto.TaskMa
 	}
 }
 
-// waitForManifest polls for the manifest file by delegating to agentbox Protocol.
+// waitForManifest polls for the manifest file via Protocol.
 func (p *Pipeline) waitForManifest(ctx context.Context) (*fleetproto.TaskManifest, error) {
 	data, err := p.proto.WaitForManifest(ctx)
 	if err != nil {
@@ -272,28 +269,20 @@ func (p *Pipeline) waitForManifest(ctx context.Context) (*fleetproto.TaskManifes
 	return &manifest, nil
 }
 
-// waitForSteering polls for the steering file by delegating to agentbox Protocol.
-// The agentbox Protocol handles atomic rename to prevent TOCTOU races.
+// waitForSteering polls for the steering file via Protocol.
+// Protocol handles atomic rename to prevent TOCTOU races.
 func (p *Pipeline) waitForSteering(ctx context.Context) (*fleetproto.SteeringInstruction, error) {
-	si, err := p.proto.WaitForSteering(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &fleetproto.SteeringInstruction{
-		Action:    si.Action,
-		Prompt:    si.Prompt,
-		Iteration: si.Iteration,
-	}, nil
+	return p.proto.WaitForSteering(ctx)
 }
 
-// writeStatus writes the status file atomically by delegating to agentbox Protocol.
-func (p *Pipeline) writeStatus(status agentboxproto.AgentStatus) {
+// writeStatus writes the status file atomically via Protocol.
+func (p *Pipeline) writeStatus(status fleetproto.AgentStatus) {
 	if err := p.proto.WriteStatus(status); err != nil {
 		p.logger.Warn("Failed to write status", "error", err)
 	}
 }
 
-// writeResult writes the result file atomically by delegating to agentbox Protocol.
+// writeResult writes the result file atomically via Protocol.
 func (p *Pipeline) writeResult(result *fleetproto.AgentResult) error {
 	data, err := json.Marshal(result)
 	if err != nil {

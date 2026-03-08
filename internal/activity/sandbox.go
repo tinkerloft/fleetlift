@@ -10,11 +10,9 @@ import (
 
 	"go.temporal.io/sdk/activity"
 
-	agentboxsandbox "github.com/tinkerloft/agentbox/sandbox"
-	agentboxtemporalkit "github.com/tinkerloft/agentbox/temporalkit"
-
 	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 	"github.com/tinkerloft/fleetlift/internal/model"
+	"github.com/tinkerloft/fleetlift/internal/sandbox"
 )
 
 // shortContainerID safely truncates container ID for logging
@@ -30,16 +28,12 @@ func shortContainerID(id string) string {
 
 // SandboxActivities contains activities for managing sandbox containers.
 type SandboxActivities struct {
-	Provider agentboxsandbox.AgentProvider
-	base     *agentboxtemporalkit.SandboxActivities
+	Provider sandbox.AgentProvider
 }
 
 // NewSandboxActivities creates a new SandboxActivities instance.
-func NewSandboxActivities(provider agentboxsandbox.AgentProvider) *SandboxActivities {
-	return &SandboxActivities{
-		Provider: provider,
-		base:     &agentboxtemporalkit.SandboxActivities{Provider: provider},
-	}
+func NewSandboxActivities(provider sandbox.AgentProvider) *SandboxActivities {
+	return &SandboxActivities{Provider: provider}
 }
 
 // getEnvOrDefault returns the environment variable value or a default.
@@ -125,8 +119,8 @@ type ProvisionAgentSandboxInput struct {
 	Image string `json:"image,omitempty"`
 }
 
-// ProvisionAgentSandbox creates a Docker container for the sidecar agent pattern.
-// Unlike ProvisionSandbox, this sets UseAgentMode=true so the Dockerfile CMD runs (C2 fix),
+// ProvisionAgentSandbox creates a sandbox for the sidecar agent pattern.
+// Sets UseAgentMode=true so the Dockerfile CMD runs the agent (C2 fix),
 // and accepts an optional image override (M2 fix).
 func (a *SandboxActivities) ProvisionAgentSandbox(ctx context.Context, input ProvisionAgentSandboxInput) (*model.SandboxInfo, error) {
 	logger := activity.GetLogger(ctx)
@@ -148,24 +142,24 @@ func (a *SandboxActivities) ProvisionAgentSandbox(ctx context.Context, input Pro
 		logger.Warn("Failed to parse CPU limit, using default", "value", cpuLimit, "error", err)
 	}
 
-	opts := agentboxsandbox.ProvisionOptions{
-		TaskID:     input.TaskID,
-		Image:      sandboxImage,
-		Cmd:        []string{"/agent-bin/agent", "serve"},
-		BasePath:   fleetproto.DefaultBasePath,
-		WorkingDir: WorkspacePath,
+	opts := sandbox.ProvisionOptions{
+		TaskID:       input.TaskID,
+		Image:        sandboxImage,
+		UseAgentMode: true,
+		BasePath:     fleetproto.DefaultBasePath,
+		WorkingDir:   WorkspacePath,
 		Env: map[string]string{
 			"ANTHROPIC_API_KEY": os.Getenv("ANTHROPIC_API_KEY"),
 			"GITHUB_TOKEN":      os.Getenv("GITHUB_TOKEN"),
 			"TASK_ID":           input.TaskID,
 		},
-		Resources: agentboxsandbox.ResourceLimits{
+		Resources: sandbox.ResourceLimits{
 			MemoryBytes: memLimitBytes,
 			CPUQuota:    cpuQuota,
 		},
 	}
 
-	sb, err := a.base.Provision(ctx, opts)
+	sb, err := a.Provider.Provision(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to provision sandbox: %w", err)
 	}
@@ -178,7 +172,7 @@ func (a *SandboxActivities) ProvisionAgentSandbox(ctx context.Context, input Pro
 	}, nil
 }
 
-// ProvisionSandbox creates a Docker container for Claude Code execution.
+// ProvisionSandbox creates a sandbox for Claude Code execution.
 func (a *SandboxActivities) ProvisionSandbox(ctx context.Context, taskID string) (*model.SandboxInfo, error) {
 	logger := activity.GetLogger(ctx)
 	logger.Info("Provisioning sandbox", "taskID", taskID)
@@ -198,7 +192,7 @@ func (a *SandboxActivities) ProvisionSandbox(ctx context.Context, taskID string)
 		logger.Warn("Failed to parse CPU limit, using default", "value", cpuLimit, "error", err)
 	}
 
-	opts := agentboxsandbox.ProvisionOptions{
+	opts := sandbox.ProvisionOptions{
 		TaskID:     taskID,
 		Image:      sandboxImage,
 		WorkingDir: WorkspacePath,
@@ -207,13 +201,13 @@ func (a *SandboxActivities) ProvisionSandbox(ctx context.Context, taskID string)
 			"GITHUB_TOKEN":      os.Getenv("GITHUB_TOKEN"),
 			"TASK_ID":           taskID,
 		},
-		Resources: agentboxsandbox.ResourceLimits{
+		Resources: sandbox.ResourceLimits{
 			MemoryBytes: memLimitBytes,
 			CPUQuota:    cpuQuota,
 		},
 	}
 
-	sb, err := a.base.Provision(ctx, opts)
+	sb, err := a.Provider.Provision(ctx, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to provision sandbox: %w", err)
 	}
@@ -240,7 +234,7 @@ func (a *SandboxActivities) CleanupSandbox(ctx context.Context, containerID stri
 
 	logger.Info("Cleaning up container", "containerID", shortContainerID(containerID))
 
-	if err := a.base.Cleanup(ctx, containerID); err != nil {
+	if err := a.Provider.Cleanup(ctx, containerID); err != nil {
 		logger.Error("Error cleaning up container", "error", err)
 		return err
 	}

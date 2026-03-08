@@ -15,7 +15,6 @@ require (
 	github.com/slack-go/slack v0.12.5
 	github.com/spf13/cobra v1.8.1
 	github.com/stretchr/testify v1.11.1
-	github.com/tinkerloft/agentbox v0.0.0-00010101000000-000000000000
 	go.temporal.io/api v1.39.0
 	go.temporal.io/sdk v1.27.0
 	golang.org/x/oauth2 v0.35.0
@@ -108,4 +107,3 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/tinkerloft/agentbox => ../agentbox
