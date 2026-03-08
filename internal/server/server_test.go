@@ -23,6 +23,7 @@ type mockClient struct {
 	workflows          []flclient.WorkflowInfo
 	completedWorkflows []flclient.WorkflowInfo // returned when statusFilter == "Completed"
 	status             model.TaskStatus
+	result             *model.TaskResult
 	diffs              []model.DiffOutput
 	verifierLogs       []model.VerifierOutput
 	steeringState      *model.SteeringState
@@ -38,6 +39,9 @@ func (m *mockClient) ListWorkflows(_ context.Context, statusFilter string, _ int
 }
 func (m *mockClient) GetWorkflowStatus(_ context.Context, _ string) (model.TaskStatus, error) {
 	return m.status, m.err
+}
+func (m *mockClient) GetWorkflowResult(_ context.Context, _ string) (*model.TaskResult, error) {
+	return m.result, m.err
 }
 func (m *mockClient) GetWorkflowDiff(_ context.Context, _ string) ([]model.DiffOutput, error) {
 	return m.diffs, m.err
@@ -147,6 +151,34 @@ func TestSSEEndpoint(t *testing.T) {
 
 	assert.Equal(t, "text/event-stream", w.Header().Get("Content-Type"))
 	assert.Contains(t, w.Body.String(), "event: status")
+}
+
+func TestGetConfig(t *testing.T) {
+	s := server.New(&mockClient{}, nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "temporal_ui_url")
+}
+
+func TestGetResult(t *testing.T) {
+	result := &model.TaskResult{
+		TaskID: "test-task",
+		Status: model.TaskStatusCompleted,
+		Mode:   model.TaskModeTransform,
+	}
+	mc := &mockClient{result: result}
+	s := server.New(mc, nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks/transform-abc-123/result", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp model.TaskResult
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "test-task", resp.TaskID)
+	assert.Equal(t, model.TaskStatusCompleted, resp.Status)
 }
 
 func TestMetricsEndpoint(t *testing.T) {

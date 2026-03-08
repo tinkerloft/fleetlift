@@ -122,6 +122,16 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, TaskSummary{WorkflowID: id, Status: status})
 }
 
+func (s *Server) handleGetResult(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	result, err := s.client.GetWorkflowResult(r.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (s *Server) handleGetDiff(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	diffs, err := s.client.GetWorkflowDiff(r.Context(), id)

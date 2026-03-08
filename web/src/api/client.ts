@@ -1,6 +1,6 @@
 import type {
   TaskSummary, DiffOutput, VerifierOutput,
-  SteeringState, ExecutionProgress,
+  SteeringState, ExecutionProgress, TaskResult, AppConfig,
 } from './types'
 
 const BASE = '/api/v1'
@@ -36,6 +36,8 @@ export const api = {
   getLogs:  (id: string) => get<{ logs: VerifierOutput[] }>(`/tasks/${id}/logs`),
   getSteering: (id: string) => get<SteeringState>(`/tasks/${id}/steering`),
   getProgress: (id: string) => get<ExecutionProgress>(`/tasks/${id}/progress`),
+  getResult:   (id: string) => get<TaskResult>(`/tasks/${id}/result`),
+  getConfig:   () => get<AppConfig>('/config'),
 
   approve: (id: string) => post<{ status: string }>(`/tasks/${id}/approve`),
   reject:  (id: string) => post<{ status: string }>(`/tasks/${id}/reject`),

@@ -12,6 +12,7 @@ import (
 type TemporalClient interface {
 	ListWorkflows(ctx context.Context, statusFilter string, limit int) ([]flclient.WorkflowInfo, error)
 	GetWorkflowStatus(ctx context.Context, workflowID string) (model.TaskStatus, error)
+	GetWorkflowResult(ctx context.Context, workflowID string) (*model.TaskResult, error)
 	GetWorkflowDiff(ctx context.Context, workflowID string) ([]model.DiffOutput, error)
 	GetWorkflowVerifierLogs(ctx context.Context, workflowID string) ([]model.VerifierOutput, error)
 	GetSteeringState(ctx context.Context, workflowID string) (*model.SteeringState, error)

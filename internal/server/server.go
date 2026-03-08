@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"os"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -50,12 +51,14 @@ func (s *Server) buildRouter() chi.Router {
 	}))
 
 	r.Get("/api/v1/health", s.handleHealth)
+	r.Get("/api/v1/config", s.handleGetConfig)
 
 	// Task routes
 	r.Get("/api/v1/tasks", s.handleListTasks)
 	r.Get("/api/v1/tasks/inbox", s.handleGetInbox)
 	r.Route("/api/v1/tasks/{id}", func(r chi.Router) {
 		r.Get("/", s.handleGetTask)
+		r.Get("/result", s.handleGetResult)
 		r.Get("/diff", s.handleGetDiff)
 		r.Get("/logs", s.handleGetLogs)
 		r.Get("/steering", s.handleGetSteering)
@@ -85,6 +88,14 @@ func (s *Server) buildRouter() chi.Router {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+	temporalUIURL := os.Getenv("TEMPORAL_UI_URL")
+	if temporalUIURL == "" {
+		temporalUIURL = "http://localhost:8233"
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"temporal_ui_url": temporalUIURL})
 }
 
 func (s *Server) buildStaticHandler() http.Handler {

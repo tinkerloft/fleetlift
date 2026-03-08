@@ -59,3 +59,54 @@ export interface ExecutionProgress {
   paused_reason?: string
   failed_group_names?: string[]
 }
+
+// Result types
+
+export interface PullRequest {
+  repo_name: string
+  pr_url: string
+  pr_number: number
+  branch_name: string
+  title: string
+}
+
+export interface ReportOutput {
+  frontmatter?: Record<string, unknown>
+  body?: string
+  raw: string
+  error?: string
+  validation_errors?: string[]
+}
+
+export interface RepositoryResult {
+  repository: string
+  status: string
+  files_modified?: string[]
+  pull_request?: PullRequest
+  report?: ReportOutput
+  error?: string
+}
+
+export interface GroupResult {
+  group_name: string
+  status: string
+  repositories?: RepositoryResult[]
+  error?: string
+}
+
+export interface TaskResult {
+  task_id: string
+  status: TaskStatus
+  mode?: string
+  repositories?: RepositoryResult[]
+  groups?: GroupResult[]
+  started_at?: string
+  completed_at?: string
+  error?: string
+  duration_seconds?: number
+  pull_requests?: PullRequest[]
+}
+
+export interface AppConfig {
+  temporal_ui_url: string
+}
