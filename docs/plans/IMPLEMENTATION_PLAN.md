@@ -350,9 +350,9 @@ The full task YAML schema and 5 canonical examples (single-repo agentic, multi-r
 
 ### 11.6 Template Library
 
-- [ ] Ship built-in templates embedded in binary: `dependency-upgrade`, `api-migration`, `security-audit`, `framework-upgrade`
-- [ ] `fleetlift create --template api-migration` and `fleetlift templates list`
-- [ ] User-defined templates at `~/.fleetlift/templates/`
+- [x] Ship built-in templates embedded in binary: `dependency-upgrade`, `api-migration`, `security-audit`, `framework-upgrade`
+- [x] `fleetlift create --template api-migration` and `fleetlift templates list`
+- [x] User-defined templates at `~/.fleetlift/templates/`
 
 ### Deliverable
 
@@ -388,7 +388,7 @@ $ fleetlift create \
 | 9.5 | **Web UI** | Inbox, diff review, approval/steering dashboard | ✅ Complete |
 | 9.6 | **Report storage** | S3/GCS backend for large-scale discovery | ⬜ Deferred |
 | 10 | **Continual Learning** | Knowledge capture, enrichment, curation | ✅ Complete (10.8 deferred) |
-| 11 | **NL Task Creation** | One-shot create, schema bundle, validation | ✅ Complete (11.1, 11.3, 11.5, 11.6 deferred) |
+| 11 | **NL Task Creation** | One-shot create, schema bundle, validation | ✅ Complete |
 
 Each phase builds on the previous and delivers working functionality.
 
