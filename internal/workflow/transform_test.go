@@ -161,7 +161,7 @@ func TestTransform_SingleGroup_DelegatesToTransformV2(t *testing.T) {
 	env.RegisterWorkflow(TransformGroup)
 	env.RegisterWorkflow(TransformV2)
 
-	registerSuccessfulActivities(t, env, sandboxInfo)
+	mockActivities := registerSuccessfulActivities(t, env, sandboxInfo)
 
 	env.ExecuteWorkflow(Transform, task)
 
@@ -177,6 +177,7 @@ func TestTransform_SingleGroup_DelegatesToTransformV2(t *testing.T) {
 	assert.Nil(t, result.Groups)
 	require.Len(t, result.Repositories, 1)
 	assert.Equal(t, "svc", result.Repositories[0].Repository)
+	mockActivities.AssertExpectations(t)
 }
 
 // TestTransform_MultiGroup_AllSucceed tests that Transform orchestrates multiple groups
@@ -306,6 +307,10 @@ func TestTransform_MultiGroup_FailureThreshold_Abort(t *testing.T) {
 	env.OnWorkflow(TransformGroup, mock.Anything, mock.MatchedBy(func(input GroupTransformInput) bool {
 		return input.Group.Name == "group-a"
 	})).Return(nil, errors.New("group-a workflow failed"))
+
+	// group-b is intentionally NOT mocked. The Temporal test environment will panic or error
+	// if TransformGroup is invoked for group-b without a registered mock, which serves as the
+	// assertion that group-b is never dispatched after the abort threshold is triggered.
 
 	env.ExecuteWorkflow(Transform, task)
 
