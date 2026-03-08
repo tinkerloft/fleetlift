@@ -488,9 +488,6 @@ type TaskResult struct {
 	Error           *string            `json:"error,omitempty"`
 	DurationSeconds *float64           `json:"duration_seconds,omitempty"`
 
-	// For retry lineage tracking
-	OriginalWorkflowID *string `json:"original_workflow_id,omitempty"`
-
 	// Deprecated: Use Repositories[].PullRequest instead. Kept for backward compatibility.
 	PullRequests []PullRequest `json:"pull_requests,omitempty"`
 }
@@ -503,30 +500,6 @@ func NewTaskResult(taskID string, status TaskStatus) TaskResult {
 		PullRequests: []PullRequest{},
 		Repositories: []RepositoryResult{},
 	}
-}
-
-// WithMode returns a copy of the result with the specified mode.
-func (r TaskResult) WithMode(mode TaskMode) TaskResult {
-	r.Mode = mode
-	return r
-}
-
-// WithStartedAt returns a copy of the result with the started timestamp.
-func (r TaskResult) WithStartedAt(t time.Time) TaskResult {
-	r.StartedAt = &t
-	return r
-}
-
-// WithCompletedAt returns a copy of the result with the completed timestamp.
-func (r TaskResult) WithCompletedAt(t time.Time) TaskResult {
-	r.CompletedAt = &t
-	return r
-}
-
-// WithRepositories returns a copy of the result with repository results.
-func (r TaskResult) WithRepositories(repos []RepositoryResult) TaskResult {
-	r.Repositories = repos
-	return r
 }
 
 // WithError returns a copy of the result with an error message.
