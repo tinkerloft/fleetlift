@@ -487,20 +487,31 @@ Used in: task creation wizard, template editing, AI-assisted creation preview.
 
 ## Implementation Order
 
-| Order | Phase | Effort | Value |
-|-------|-------|--------|-------|
-| 1 | 1A + 1B (Submit + Result APIs) | Medium | High — enables task creation |
-| 2 | 2A (Task Wizard) | Large | High — primary missing feature |
-| 3 | 1D + 2C (Templates API + Gallery) | Small | Medium — speeds up task creation |
-| 4 | 3A (Result/Report views) | Medium | High — completes the output story |
-| 5 | 1F + 4A (Knowledge API + List) | Medium | Medium — unique feature |
-| 6 | 1E + 2B (AI Create API + Chat) | Medium | High — differentiator |
-| 7 | 6A (Temporal embed) | Small | Medium — low effort high value |
-| 8 | 5A + 5B (Nav + Dashboard) | Small | Medium — polish |
-| 9 | 1C + 3B (Retry API + UI) | Small | Medium — completes grouped workflows |
-| 10 | 4B + 4C (Knowledge Review + Commit) | Medium | Medium — completes knowledge |
-| 11 | 7A-7C (Enhanced components) | Medium | Low — polish |
-| 12 | 5C + 6B (Inbox enhance + System) | Small | Low — nice to have |
+| Order | Phase | Effort | Value | Status |
+|-------|-------|--------|-------|--------|
+| 1 | 1A + 1B (Submit + Result APIs) | Medium | High — enables task creation | ✅ Done |
+| 2 | 2A (Task Wizard) | Large | High — primary missing feature | ✅ Done |
+| 3 | 1D + 2C (Templates API + Gallery) | Small | Medium — speeds up task creation | ✅ Done (API+Chat done; gallery UI pending) |
+| 4 | 3A (Result/Report views) | Medium | High — completes the output story | ✅ Done |
+| 5 | 1F + 4A (Knowledge API + List) | Medium | Medium — unique feature | ✅ Done (API done; UI pending) |
+| 6 | 1E + 2B (AI Create API + Chat) | Medium | High — differentiator | ✅ Done |
+| 7 | 6A (Temporal embed) | Small | Medium — low effort high value | ✅ Done |
+| 8 | 5A + 5B (Nav + Dashboard) | Small | Medium — polish | ✅ Done |
+| 9 | 1C + 3B (Retry API + UI) | Small | Medium — completes grouped workflows | ✅ Done (API done; retry UI pending) |
+| 10 | 4B + 4C (Knowledge Review + Commit) | Medium | Medium — completes knowledge | ⬜ Pending |
+| 11 | 7A-7C (Enhanced components) | Medium | Low — polish | ⬜ Pending |
+| 12 | 5C + 6B (Inbox enhance + System) | Small | Low — nice to have | ⬜ Pending |
+
+### Phase 1 Complete — commit c27c95c (2026-03-09)
+
+All Phase 1 backend APIs are implemented:
+- 1A: `POST /api/v1/tasks` — task submission
+- 1B: `GET /api/v1/tasks/{id}/result` — workflow result
+- 1C: `POST /api/v1/tasks/{id}/retry` — retry with optional failed-group filtering
+- 1D: `GET /api/v1/templates`, `GET /api/v1/templates/{name}` — template listing
+- 1E: `POST /api/v1/create/chat` — AI-assisted creation (SSE streaming)
+- 1F: Full knowledge CRUD — list, get, create, update, delete, bulk, commit
+- 1G: `POST /api/v1/create/validate` — YAML validation
 
 ## New Dependencies
 
