@@ -29,12 +29,14 @@ type mockClient struct {
 	steeringState      *model.SteeringState
 	progress           *model.ExecutionProgress
 	err                error
+	lastTask           model.Task
 }
 
-func (m *mockClient) StartTransform(_ context.Context, _ model.Task) (string, error) {
+func (m *mockClient) StartTransform(_ context.Context, task model.Task) (string, error) {
 	if m.err != nil {
 		return "", m.err
 	}
+	m.lastTask = task
 	return "transform-test-123", nil
 }
 func (m *mockClient) ListWorkflows(_ context.Context, statusFilter string, _ int) ([]flclient.WorkflowInfo, error) {
@@ -247,6 +249,347 @@ func TestValidateYAML(t *testing.T) {
 	s.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), `"valid":true`)
+}
+
+func TestRetryTask(t *testing.T) {
+	mc := &mockClient{
+		result: &model.TaskResult{
+			TaskID: "test-task",
+			Status: model.TaskStatusCompleted,
+			Groups: []model.GroupResult{
+				{GroupName: "group-a", Status: "failed"},
+				{GroupName: "group-b", Status: "success"},
+			},
+		},
+	}
+	s := server.New(mc, nil, nil)
+	yamlBody := `{"yaml": "version: 1\ntitle: Test\nexecution:\n  agentic:\n    prompt: do stuff\nrepositories:\n  - url: https://github.com/org/repo.git\n", "failed_only": true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/transform-abc-123/retry", strings.NewReader(yamlBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "workflow_id")
+}
+
+func TestRetryTask_MissingYAML(t *testing.T) {
+	s := server.New(&mockClient{}, nil, nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/transform-abc-123/retry", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestRetryTask_ResultError(t *testing.T) {
+	mc := &mockClient{err: fmt.Errorf("temporal error")}
+	s := server.New(mc, nil, nil)
+	yamlBody := `{"yaml": "version: 1\ntitle: Test\nexecution:\n  agentic:\n    prompt: do stuff\nrepositories:\n  - url: https://github.com/org/repo.git\n    name: repo\ngroups:\n  - name: group-a\n    repositories:\n      - url: https://github.com/org/repo.git\n", "failed_only": true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/transform-abc-123/retry", strings.NewReader(yamlBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func TestRetryTask_FailedGroupsFiltered(t *testing.T) {
+	mc := &mockClient{
+		result: &model.TaskResult{
+			TaskID: "test-task",
+			Status: model.TaskStatusCompleted,
+			Groups: []model.GroupResult{
+				{GroupName: "group-a", Status: "failed"},
+				{GroupName: "group-b", Status: "success"},
+			},
+		},
+	}
+	s := server.New(mc, nil, nil)
+	yamlBody := `{"yaml": "version: 1\ntitle: Test\nexecution:\n  agentic:\n    prompt: do stuff\nrepositories:\n  - url: https://github.com/org/repo.git\n    name: repo\ngroups:\n  - name: group-a\n    repositories:\n      - url: https://github.com/org/repo.git\n  - name: group-b\n    repositories:\n      - url: https://github.com/org/repo.git\n", "failed_only": true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/transform-abc-123/retry", strings.NewReader(yamlBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), "workflow_id")
+	assert.Len(t, mc.lastTask.Groups, 1)
+	assert.Equal(t, "group-a", mc.lastTask.Groups[0].Name)
+}
+
+func TestKnowledgeList_Empty(t *testing.T) {
+	dir := t.TempDir()
+	s := server.NewWithKnowledge(nil, nil, nil, nil, dir)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp map[string]any
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Empty(t, resp["items"])
+}
+
+func TestKnowledgeCreate(t *testing.T) {
+	dir := t.TempDir()
+	s := server.NewWithKnowledge(nil, nil, nil, nil, dir)
+	body := `{"type":"pattern","summary":"Use slog","details":"Always use log/slog","source":"manual","confidence":0.9}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusCreated, w.Code)
+	var item map[string]any
+	assert.NoError(t, json.Unmarshal(w.Body.Bytes(), &item))
+	assert.NotEmpty(t, item["id"])
+	assert.Equal(t, "Use slog", item["summary"])
+}
+
+func TestKnowledgeCreate_MissingSummary(t *testing.T) {
+	dir := t.TempDir()
+	s := server.NewWithKnowledge(nil, nil, nil, nil, dir)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge", strings.NewReader(`{"type":"pattern"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestKnowledgeGet_NotFound(t *testing.T) {
+	dir := t.TempDir()
+	s := server.NewWithKnowledge(nil, nil, nil, nil, dir)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge/nonexistent", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestKnowledgeGet(t *testing.T) {
+	dir := t.TempDir()
+	s := server.NewWithKnowledge(nil, nil, nil, nil, dir)
+
+	// Create
+	createBody := `{"type":"pattern","summary":"test summary","details":"details","source":"manual","confidence":0.8}`
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge", strings.NewReader(createBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createW := httptest.NewRecorder()
+	s.ServeHTTP(createW, createReq)
+	assert.Equal(t, http.StatusCreated, createW.Code)
+	var created map[string]any
+	json.Unmarshal(createW.Body.Bytes(), &created)
+	id := created["id"].(string)
+
+	// Get
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge/"+id, nil)
+	getW := httptest.NewRecorder()
+	s.ServeHTTP(getW, getReq)
+	assert.Equal(t, http.StatusOK, getW.Code)
+	assert.Contains(t, getW.Body.String(), "test summary")
+}
+
+func TestKnowledgeUpdate(t *testing.T) {
+	dir := t.TempDir()
+	s := server.NewWithKnowledge(nil, nil, nil, nil, dir)
+
+	// Create
+	createBody := `{"type":"pattern","summary":"original","details":"details","source":"manual","confidence":0.8}`
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge", strings.NewReader(createBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createW := httptest.NewRecorder()
+	s.ServeHTTP(createW, createReq)
+	assert.Equal(t, http.StatusCreated, createW.Code)
+	var created map[string]any
+	json.Unmarshal(createW.Body.Bytes(), &created)
+	id := created["id"].(string)
+
+	// Update
+	updateBody := `{"summary":"updated summary"}`
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/v1/knowledge/"+id, strings.NewReader(updateBody))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateW := httptest.NewRecorder()
+	s.ServeHTTP(updateW, updateReq)
+	assert.Equal(t, http.StatusOK, updateW.Code)
+	assert.Contains(t, updateW.Body.String(), "updated summary")
+}
+
+func TestKnowledgeDelete(t *testing.T) {
+	dir := t.TempDir()
+	s := server.NewWithKnowledge(nil, nil, nil, nil, dir)
+
+	// Create
+	createBody := `{"type":"pattern","summary":"to delete","source":"manual","confidence":0.5}`
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge", strings.NewReader(createBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createW := httptest.NewRecorder()
+	s.ServeHTTP(createW, createReq)
+	var created map[string]any
+	json.Unmarshal(createW.Body.Bytes(), &created)
+	id := created["id"].(string)
+
+	// Delete
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/v1/knowledge/"+id, nil)
+	deleteW := httptest.NewRecorder()
+	s.ServeHTTP(deleteW, deleteReq)
+	assert.Equal(t, http.StatusOK, deleteW.Code)
+
+	// Verify gone
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge/"+id, nil)
+	getW := httptest.NewRecorder()
+	s.ServeHTTP(getW, getReq)
+	assert.Equal(t, http.StatusNotFound, getW.Code)
+}
+
+func TestKnowledgeBulk_Approve(t *testing.T) {
+	dir := t.TempDir()
+	s := server.NewWithKnowledge(nil, nil, nil, nil, dir)
+
+	// Create
+	createBody := `{"type":"pattern","summary":"bulk test","source":"manual","confidence":0.7}`
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge", strings.NewReader(createBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createW := httptest.NewRecorder()
+	s.ServeHTTP(createW, createReq)
+	var created map[string]any
+	json.Unmarshal(createW.Body.Bytes(), &created)
+	id := created["id"].(string)
+
+	// Bulk approve
+	bulkBody := fmt.Sprintf(`{"actions":[{"id":"%s","action":"approve"}]}`, id)
+	bulkReq := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge/bulk", strings.NewReader(bulkBody))
+	bulkReq.Header.Set("Content-Type", "application/json")
+	bulkW := httptest.NewRecorder()
+	s.ServeHTTP(bulkW, bulkReq)
+	assert.Equal(t, http.StatusOK, bulkW.Code)
+
+	// Verify approved
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge/"+id, nil)
+	getW := httptest.NewRecorder()
+	s.ServeHTTP(getW, getReq)
+	assert.Contains(t, getW.Body.String(), `"approved"`)
+}
+
+func TestKnowledgeBulk_Delete(t *testing.T) {
+	dir := t.TempDir()
+	s := server.NewWithKnowledge(nil, nil, nil, nil, dir)
+
+	// Create
+	createBody := `{"type":"pattern","summary":"to bulk delete","source":"manual","confidence":0.5}`
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge", strings.NewReader(createBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createW := httptest.NewRecorder()
+	s.ServeHTTP(createW, createReq)
+	var created map[string]any
+	json.Unmarshal(createW.Body.Bytes(), &created)
+	id := created["id"].(string)
+
+	// Bulk delete
+	bulkBody := fmt.Sprintf(`{"actions":[{"id":"%s","action":"delete"}]}`, id)
+	bulkReq := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge/bulk", strings.NewReader(bulkBody))
+	bulkReq.Header.Set("Content-Type", "application/json")
+	bulkW := httptest.NewRecorder()
+	s.ServeHTTP(bulkW, bulkReq)
+	assert.Equal(t, http.StatusOK, bulkW.Code)
+
+	// Verify gone
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge/"+id, nil)
+	getW := httptest.NewRecorder()
+	s.ServeHTTP(getW, getReq)
+	assert.Equal(t, http.StatusNotFound, getW.Code)
+}
+
+func TestKnowledgeCommit(t *testing.T) {
+	dir := t.TempDir()
+	repoDir := t.TempDir()
+	s := server.NewWithKnowledge(nil, nil, nil, nil, dir)
+
+	// Create + approve an item
+	createBody := `{"type":"pattern","summary":"commit test","source":"manual","confidence":0.9}`
+	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge", strings.NewReader(createBody))
+	createReq.Header.Set("Content-Type", "application/json")
+	createW := httptest.NewRecorder()
+	s.ServeHTTP(createW, createReq)
+	var created map[string]any
+	json.Unmarshal(createW.Body.Bytes(), &created)
+	id := created["id"].(string)
+
+	bulkBody := fmt.Sprintf(`{"actions":[{"id":"%s","action":"approve"}]}`, id)
+	bulkReq := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge/bulk", strings.NewReader(bulkBody))
+	bulkReq.Header.Set("Content-Type", "application/json")
+	s.ServeHTTP(httptest.NewRecorder(), bulkReq)
+
+	// Commit
+	commitBody := fmt.Sprintf(`{"repo_path":"%s"}`, repoDir)
+	commitReq := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge/commit", strings.NewReader(commitBody))
+	commitReq.Header.Set("Content-Type", "application/json")
+	commitW := httptest.NewRecorder()
+	s.ServeHTTP(commitW, commitReq)
+	assert.Equal(t, http.StatusOK, commitW.Code)
+	assert.Contains(t, commitW.Body.String(), `"committed":1`)
+}
+
+func TestKnowledgeCommit_MissingRepoPath(t *testing.T) {
+	dir := t.TempDir()
+	s := server.NewWithKnowledge(nil, nil, nil, nil, dir)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge/commit", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestKnowledgeList_Filters(t *testing.T) {
+	dir := t.TempDir()
+	s := server.NewWithKnowledge(nil, nil, nil, nil, dir)
+
+	// Create two items: one pattern/approved, one correction/pending
+	s.ServeHTTP(httptest.NewRecorder(), func() *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge",
+			strings.NewReader(`{"type":"pattern","summary":"pattern item","source":"manual","confidence":0.9,"tags":["go"]}`))
+		r.Header.Set("Content-Type", "application/json")
+		return r
+	}())
+
+	// Approve the pattern item via bulk
+	listW := httptest.NewRecorder()
+	s.ServeHTTP(listW, httptest.NewRequest(http.MethodGet, "/api/v1/knowledge", nil))
+	var listResp map[string]any
+	json.Unmarshal(listW.Body.Bytes(), &listResp)
+	items := listResp["items"].([]any)
+	patternID := items[0].(map[string]any)["id"].(string)
+	bulkBody := fmt.Sprintf(`{"actions":[{"id":"%s","action":"approve"}]}`, patternID)
+	s.ServeHTTP(httptest.NewRecorder(), func() *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge/bulk", strings.NewReader(bulkBody))
+		r.Header.Set("Content-Type", "application/json")
+		return r
+	}())
+
+	s.ServeHTTP(httptest.NewRecorder(), func() *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge",
+			strings.NewReader(`{"type":"correction","summary":"correction item","source":"manual","confidence":0.5,"tags":["python"]}`))
+		r.Header.Set("Content-Type", "application/json")
+		return r
+	}())
+
+	// Filter by type
+	typeW := httptest.NewRecorder()
+	s.ServeHTTP(typeW, httptest.NewRequest(http.MethodGet, "/api/v1/knowledge?type=pattern", nil))
+	assert.Equal(t, http.StatusOK, typeW.Code)
+	var typeResp map[string]any
+	json.Unmarshal(typeW.Body.Bytes(), &typeResp)
+	assert.Len(t, typeResp["items"].([]any), 1)
+
+	// Filter by status
+	statusW := httptest.NewRecorder()
+	s.ServeHTTP(statusW, httptest.NewRequest(http.MethodGet, "/api/v1/knowledge?status=approved", nil))
+	assert.Equal(t, http.StatusOK, statusW.Code)
+	var statusResp map[string]any
+	json.Unmarshal(statusW.Body.Bytes(), &statusResp)
+	assert.Len(t, statusResp["items"].([]any), 1)
+
+	// Filter by tag
+	tagW := httptest.NewRecorder()
+	s.ServeHTTP(tagW, httptest.NewRequest(http.MethodGet, "/api/v1/knowledge?tag=go", nil))
+	assert.Equal(t, http.StatusOK, tagW.Code)
+	var tagResp map[string]any
+	json.Unmarshal(tagW.Body.Bytes(), &tagResp)
+	assert.Len(t, tagResp["items"].([]any), 1)
 }
 
 func TestMetricsEndpoint(t *testing.T) {

@@ -138,6 +138,76 @@ func (s *Server) handleSubmitTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, submitResponse{WorkflowID: workflowID})
 }
 
+type retryRequest struct {
+	YAML       string `json:"yaml"`
+	FailedOnly bool   `json:"failed_only"`
+}
+
+// handleRetryTask handles POST /api/v1/tasks/{id}/retry.
+func (s *Server) handleRetryTask(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var req retryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.YAML == "" {
+		writeError(w, http.StatusBadRequest, "yaml is required")
+		return
+	}
+
+	task, err := create.ValidateTaskYAML(req.YAML)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if task.Version == 0 {
+		task.Version = model.SchemaVersion
+	}
+	if task.ID == "" {
+		task.ID = uuid.New().String()[:8]
+	}
+
+	if req.FailedOnly && len(task.Groups) > 0 {
+		result, err := s.client.GetWorkflowResult(r.Context(), id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to get workflow result: %v", err))
+			return
+		}
+		if result == nil {
+			writeError(w, http.StatusConflict, "workflow has no result yet; cannot retry")
+			return
+		}
+		failedNames := map[string]bool{}
+		for _, gr := range result.Groups {
+			if gr.Status == "failed" {
+				failedNames[gr.GroupName] = true
+			}
+		}
+		var filtered []model.RepositoryGroup
+		for _, g := range task.Groups {
+			if failedNames[g.Name] {
+				filtered = append(filtered, g)
+			}
+		}
+		if len(filtered) == 0 {
+			writeError(w, http.StatusBadRequest, "no failed groups to retry")
+			return
+		}
+		task.Groups = filtered
+	}
+
+	workflowID, err := s.client.StartTransform(r.Context(), task)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to start workflow: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, submitResponse{WorkflowID: workflowID})
+}
+
 // handleValidateYAML handles POST /api/v1/create/validate.
 func (s *Server) handleValidateYAML(w http.ResponseWriter, r *http.Request) {
 	var req submitRequest
