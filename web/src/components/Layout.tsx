@@ -3,14 +3,15 @@ import { Link, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import {
-  LayoutDashboard, Inbox, List, ExternalLink, Plus,
+  LayoutDashboard, Inbox, List, ExternalLink, Plus, LayoutTemplate,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const NAV_ITEMS = [
-  { href: '/',      label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/inbox', label: 'Inbox',     icon: Inbox },
-  { href: '/tasks', label: 'Tasks',     icon: List },
+  { href: '/',          label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/inbox',     label: 'Inbox',     icon: Inbox },
+  { href: '/tasks',     label: 'Tasks',     icon: List },
+  { href: '/templates', label: 'Templates', icon: LayoutTemplate },
 ]
 
 function NavLink({ href, label, icon: Icon, active, badge }: {
