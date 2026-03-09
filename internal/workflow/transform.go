@@ -27,6 +27,7 @@ const (
 	QueryVerifierLogs      = "get_verifier_logs"
 	QuerySteeringState     = "get_steering_state"
 	QueryExecutionProgress = "get_execution_progress"
+	QuerySandboxID         = "get_sandbox_id"
 )
 
 // DefaultMaxSteeringIterations is the default limit for steering iterations.

@@ -72,19 +72,25 @@ func (p *Pipeline) cloneRepos(ctx context.Context, manifest *fleetproto.TaskMani
 }
 
 func (p *Pipeline) cloneRepo(ctx context.Context, repo *fleetproto.ManifestRepo, destPath string, depth int) error {
-	branch := repo.Branch
-	if branch == "" {
-		branch = "main"
-	}
 	if depth <= 0 {
 		depth = DefaultCloneDepth
 	}
 
-	p.logger.Info("Cloning repository", "url", repo.URL, "branch", branch, "dest", destPath)
+	args := []string{"clone", "--depth", strconv.Itoa(depth)}
+	if repo.Branch != "" {
+		args = append(args, "--branch", repo.Branch)
+	}
+	args = append(args, repo.URL, destPath)
+
+	logBranch := repo.Branch
+	if logBranch == "" {
+		logBranch = "(default)"
+	}
+	p.logger.Info("Cloning repository", "url", repo.URL, "branch", logBranch, "dest", destPath)
 
 	_, err := p.exec.Run(ctx, CommandOpts{
 		Name: "git",
-		Args: []string{"clone", "--branch", branch, "--depth", strconv.Itoa(depth), repo.URL, destPath},
+		Args: args,
 	})
 	return err
 }

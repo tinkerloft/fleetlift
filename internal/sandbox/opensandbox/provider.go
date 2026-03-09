@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	fleetproto "github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
@@ -72,11 +73,13 @@ func (p *Provider) Provision(ctx context.Context, opts sandbox.ProvisionOptions)
 	}
 
 	// Entrypoint is required by the lifecycle API.
-	// Agent mode: use the image's default CMD to run the agent.
+	// OpenSandbox replaces the container entrypoint with its bootstrap script and
+	// passes this value as the command ($@), so it must be the actual command to run.
+	// Agent mode: run the sidecar agent directly.
 	// Non-agent mode: keep container alive for exec commands.
 	entrypoint := []string{"sh", "-c", "touch /tmp/fleetlift.log && tail -f /tmp/fleetlift.log"}
 	if opts.UseAgentMode {
-		entrypoint = []string{"/bin/sh", "-c", "exec \"$@\"", "--"}
+		entrypoint = []string{"fleetlift-agent", "serve"}
 	}
 
 	req := CreateSandboxRequest{
@@ -116,12 +119,24 @@ func (p *Provider) Provision(ctx context.Context, opts sandbox.ProvisionOptions)
 	}, nil
 }
 
+// execd returns the cached ExecdClient for the given sandbox ID.
+// If not cached (e.g. activity retry landed on a different worker), it re-fetches
+// the execd endpoint from the lifecycle server and caches the result.
 func (p *Provider) execd(sandboxID string) (*ExecdClient, error) {
-	v, ok := p.execdCache.Load(sandboxID)
-	if !ok {
-		return nil, fmt.Errorf("no execd client for sandbox %q", sandboxID)
+	if v, ok := p.execdCache.Load(sandboxID); ok {
+		return v.(*ExecdClient), nil
 	}
-	return v.(*ExecdClient), nil
+	// Cache miss: reconnect by fetching the endpoint from the lifecycle server.
+	// This handles activity retries that land on a worker that did not run Provision.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	execdURL, err := p.lifecycle.GetEndpoint(ctx, sandboxID, execdPort, p.cfg.UseServerProxy)
+	if err != nil {
+		return nil, fmt.Errorf("no execd client for sandbox %q (reconnect failed: %w)", sandboxID, err)
+	}
+	client := NewExecdClient(execdURL, p.cfg.ExecdAccessToken)
+	p.execdCache.Store(sandboxID, client)
+	return client, nil
 }
 
 // ExecShell runs a shell command string in the sandbox.
@@ -229,8 +244,8 @@ func (p *Provider) PollStatus(ctx context.Context, id string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read status: %w", err)
 	}
-	if data == nil {
-		// Status file not yet written — agent is still initializing.
+	if len(data) == 0 {
+		// Status file not yet written (or empty) — agent is still initializing.
 		status := fleetproto.AgentStatus{Phase: fleetproto.PhaseInitializing, Message: "Waiting for agent to start"}
 		return json.Marshal(status)
 	}

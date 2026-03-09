@@ -75,3 +75,4 @@ docker/fleetlift-agent
 .worktrees/
 /cli
 .worktrees/
+.env

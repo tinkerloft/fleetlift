@@ -149,9 +149,22 @@ func TestProvider_AgentProtocol(t *testing.T) {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			metaStr := r.FormValue("metadata")
-			var metas []fileMetadata
-			if err := json.Unmarshal([]byte(metaStr), &metas); err != nil {
+			// Metadata is sent as a file attachment via CreateFormFile.
+			metaFile, _, err := r.FormFile("metadata")
+			if err != nil {
+				t.Logf("form file metadata: %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			defer metaFile.Close()
+			metaBytes, err := io.ReadAll(metaFile)
+			if err != nil {
+				t.Logf("read metadata: %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			var meta fileMetadata
+			if err := json.Unmarshal(metaBytes, &meta); err != nil {
 				t.Logf("decode metadata: %v", err)
 				w.WriteHeader(http.StatusBadRequest)
 				return
@@ -169,9 +182,7 @@ func TestProvider_AgentProtocol(t *testing.T) {
 				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
-			if len(metas) > 0 {
-				writtenFiles[metas[0].Path] = string(data)
-			}
+			writtenFiles[meta.Path] = string(data)
 			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodGet && r.URL.Path == "/files/download":
 			path := r.URL.Query().Get("path")

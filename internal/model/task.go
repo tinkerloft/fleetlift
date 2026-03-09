@@ -75,9 +75,6 @@ func NewVerifier(name string, command []string) Verifier {
 
 // NewRepository creates a new Repository with auto-derived name if not provided.
 func NewRepository(url, branch, name string) Repository {
-	if branch == "" {
-		branch = "main"
-	}
 	if name == "" {
 		name = extractRepoName(url)
 	}

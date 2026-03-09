@@ -43,6 +43,9 @@ type CommandOpts struct {
 	// Use os.Environ() as a base and append to augment rather than replace.
 	Env   []string
 	Stdin io.Reader
+	// LogFile, if non-empty, appends stdout+stderr to this file in real time
+	// in addition to buffering the output in CommandResult.
+	LogFile string
 }
 
 // CommandResult holds the output of a command execution.
@@ -86,6 +89,13 @@ func (osCommandExecutor) Run(ctx context.Context, opts CommandOpts) (*CommandRes
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	if opts.LogFile != "" {
+		if f, err := os.OpenFile(opts.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+			defer f.Close()
+			cmd.Stdout = io.MultiWriter(&stdout, f)
+			cmd.Stderr = io.MultiWriter(&stderr, f)
+		}
+	}
 
 	err := cmd.Run()
 	exitCode := 0

@@ -28,6 +28,7 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 		approved              *bool
 		steerRequested        bool
 		steeringPrompt        string
+		currentSandboxID      string
 	)
 
 	if task.MaxSteeringIterations > 0 {
@@ -38,6 +39,7 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 	_ = workflow.SetQueryHandler(ctx, QueryStatus, func() (model.TaskStatus, error) { return status, nil })
 	_ = workflow.SetQueryHandler(ctx, QueryDiff, func() ([]model.DiffOutput, error) { return cachedDiffs, nil })
 	_ = workflow.SetQueryHandler(ctx, QuerySteeringState, func() (*model.SteeringState, error) { return &steeringState, nil })
+	_ = workflow.SetQueryHandler(ctx, QuerySandboxID, func() (string, error) { return currentSandboxID, nil })
 
 	// Signal channels
 	approveChannel := workflow.GetSignalChannel(ctx, SignalApprove)
@@ -147,6 +149,7 @@ func TransformV2(ctx workflow.Context, task model.Task) (*model.TaskResult, erro
 	if err := workflow.ExecuteActivity(shortCtx, activity.ActivityProvisionAgentSandbox, provisionInput).Get(shortCtx, &sandboxInfo); err != nil {
 		return failedResult(fmt.Sprintf("provision failed: %v", err)), nil
 	}
+	currentSandboxID = sandboxInfo.ContainerID
 
 	// 2. Submit manifest
 	status = model.TaskStatusRunning

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
@@ -184,5 +185,9 @@ func (c *LifecycleClient) GetEndpoint(ctx context.Context, id string, port int, 
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", fmt.Errorf("decode endpoint response: %w", err)
 	}
-	return out.Endpoint, nil
+	endpoint := out.Endpoint
+	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
+		endpoint = "http://" + endpoint
+	}
+	return endpoint, nil
 }

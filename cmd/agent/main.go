@@ -105,5 +105,18 @@ func run(ctx context.Context, proto *agent.Protocol, basePath string, logger *sl
 
 	// Execute the pipeline steps
 	pipeline := agent.NewDefaultPipeline(basePath)
-	return pipeline.Execute(ctx, &manifest)
+	if err := pipeline.Execute(ctx, &manifest); err != nil {
+		logger.Error("Pipeline failed", "error", err)
+	}
+
+	// Keep the container alive so the worker can read status/result via execd.
+	// The container is terminated externally (SIGTERM) once the worker has collected results.
+	logger.Info("Pipeline complete, waiting for shutdown signal")
+	select {
+	case <-sigCh:
+		logger.Info("Received shutdown signal")
+	case <-time.After(30 * time.Minute):
+		logger.Warn("Timeout waiting for shutdown, exiting")
+	}
+	return nil
 }

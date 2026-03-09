@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/tinkerloft/fleetlift/internal/agent/fleetproto"
@@ -65,10 +66,11 @@ func (p *Pipeline) runAgenticTransformation(ctx context.Context, manifest *fleet
 
 	p.logger.Info("Running Claude Code")
 	result, err := p.exec.Run(ctx, CommandOpts{
-		Name: "claude",
-		Args: args,
-		Dir:  fleetproto.WorkspacePath,
-		Env:  claudeEnv,
+		Name:    "claude",
+		Args:    args,
+		Dir:     fleetproto.WorkspacePath,
+		Env:     claudeEnv,
+		LogFile: filepath.Join(p.basePath, "agent.log"),
 	})
 	if err != nil {
 		output := ""

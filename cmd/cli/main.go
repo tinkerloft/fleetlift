@@ -6,13 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
 	"github.com/tinkerloft/fleetlift/internal/client"
 	"github.com/tinkerloft/fleetlift/internal/config"
 	"github.com/tinkerloft/fleetlift/internal/model"
+	"github.com/tinkerloft/fleetlift/internal/sandbox/opensandbox"
 	"github.com/tinkerloft/fleetlift/internal/state"
 )
 
@@ -122,13 +125,21 @@ var retryCmd = &cobra.Command{
 	RunE:  runRetry,
 }
 
+var streamCmd = &cobra.Command{
+	Use:   "stream [workflow-id]",
+	Short: "Stream agent logs from a running workflow",
+	Long:  "Stream real-time agent output from the sandbox container via execd",
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runStream,
+}
+
 func init() {
 	// Run command flags (matches design doc interface)
 	runCmd.Flags().StringP("file", "f", "", "Path to task YAML file")
 	runCmd.Flags().StringArray("repo", []string{}, "Repository URL (can be repeated)")
 	runCmd.Flags().StringP("prompt", "p", "", "Task prompt/description")
 	runCmd.Flags().StringArray("verifier", []string{}, "Verifier in format 'name:command' (can be repeated)")
-	runCmd.Flags().String("branch", "main", "Branch to use for all repositories")
+	runCmd.Flags().String("branch", "", "Branch to use for all repositories (default: remote's default branch)")
 	runCmd.Flags().Bool("no-approval", false, "Skip human approval step")
 	runCmd.Flags().String("timeout", "30m", "Timeout duration (e.g., '30m', '1h')")
 	runCmd.Flags().Bool("parallel", false, "Execute PR creation in parallel for multi-repo tasks")
@@ -195,6 +206,9 @@ func init() {
 	retryCmd.Flags().Bool("failed-only", true, "Retry only failed groups (default: true)")
 	_ = retryCmd.MarkFlagRequired("file")
 
+	// Stream command flags
+	streamCmd.Flags().String("workflow-id", "", "Workflow ID (defaults to last run)")
+
 	// Add commands
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(statusCmd)
@@ -212,6 +226,7 @@ func init() {
 	rootCmd.AddCommand(knowledgeCmd)
 	rootCmd.AddCommand(createCmd)
 	rootCmd.AddCommand(templatesCmd)
+	rootCmd.AddCommand(streamCmd)
 }
 
 // getWorkflowID returns the workflow ID from the flag or falls back to the last workflow.
@@ -1112,6 +1127,41 @@ func runRetry(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Original workflow: %s\n", workflowID)
 	fmt.Printf("View at: http://localhost:8233/namespaces/default/workflows/%s\n", newWorkflowID)
 
+	return nil
+}
+
+func runStream(cmd *cobra.Command, args []string) error {
+	workflowID, err := getWorkflowID(cmd)
+	if err != nil {
+		return err
+	}
+
+	sandboxID, err := client.GetSandboxID(context.Background(), workflowID)
+	if err != nil {
+		return fmt.Errorf("failed to get sandbox ID: %w", err)
+	}
+	if sandboxID == "" {
+		return fmt.Errorf("no sandbox ID available for workflow %s (is it still in the provisioning phase?)", workflowID)
+	}
+
+	domain := os.Getenv("OPEN_SANDBOX_DOMAIN")
+	if domain == "" {
+		domain = "http://localhost:8090"
+	}
+	useServerProxy := os.Getenv("OPEN_SANDBOX_USE_SERVER_PROXY") == "true"
+
+	fmt.Fprintf(os.Stderr, "Streaming logs from sandbox %s...\n", sandboxID)
+	fmt.Fprintln(os.Stderr, "Press Ctrl+C to stop")
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	err = opensandbox.StreamSandboxLog(ctx, domain, sandboxID, "/workspace/.fleetlift/agent.log", useServerProxy, func(line string) {
+		fmt.Print(line)
+	})
+	if err != nil && ctx.Err() == nil {
+		return fmt.Errorf("stream error: %w", err)
+	}
 	return nil
 }
 

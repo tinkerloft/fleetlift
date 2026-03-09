@@ -380,3 +380,21 @@ func GetExecutionProgress(ctx context.Context, workflowID string) (*model.Execut
 	defer c.Close()
 	return c.GetExecutionProgress(ctx, workflowID)
 }
+
+// GetSandboxID queries the workflow for the current sandbox container ID.
+func GetSandboxID(ctx context.Context, workflowID string) (string, error) {
+	c, err := NewClient()
+	if err != nil {
+		return "", err
+	}
+	defer c.Close()
+	resp, err := c.temporal.QueryWorkflow(ctx, workflowID, "", workflow.QuerySandboxID)
+	if err != nil {
+		return "", fmt.Errorf("failed to query sandbox ID: %w", err)
+	}
+	var id string
+	if err := resp.Get(&id); err != nil {
+		return "", fmt.Errorf("failed to decode sandbox ID: %w", err)
+	}
+	return id, nil
+}

@@ -94,15 +94,21 @@ func TestExecdClient_WriteFile(t *testing.T) {
 		if err := r.ParseMultipartForm(32 << 20); err != nil {
 			t.Fatalf("parse multipart: %v", err)
 		}
-		// Parse metadata field.
-		metaStr := r.FormValue("metadata")
-		var metas []fileMetadata
-		if err := json.Unmarshal([]byte(metaStr), &metas); err != nil {
+		// Parse metadata field (sent as a file attachment via CreateFormFile).
+		metaFile, _, err := r.FormFile("metadata")
+		if err != nil {
+			t.Fatalf("form file metadata: %v", err)
+		}
+		defer metaFile.Close()
+		metaBytes, err := io.ReadAll(metaFile)
+		if err != nil {
+			t.Fatalf("read metadata: %v", err)
+		}
+		var meta fileMetadata
+		if err := json.Unmarshal(metaBytes, &meta); err != nil {
 			t.Fatalf("decode metadata: %v", err)
 		}
-		if len(metas) > 0 {
-			gotPath = metas[0].Path
-		}
+		gotPath = meta.Path
 		// Parse file field.
 		file, _, err := r.FormFile("file")
 		if err != nil {

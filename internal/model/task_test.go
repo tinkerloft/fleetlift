@@ -35,9 +35,9 @@ func TestNewRepository(t *testing.T) {
 	assert.Equal(t, "develop", repo.Branch)
 	assert.Equal(t, "custom-name", repo.Name)
 
-	// Test with defaults
+	// Test with defaults — branch is empty string (use remote default)
 	repo = NewRepository("https://github.com/org/my-repo.git", "", "")
-	assert.Equal(t, "main", repo.Branch)
+	assert.Equal(t, "", repo.Branch)
 	assert.Equal(t, "my-repo", repo.Name)
 }
 

@@ -1,4 +1,4 @@
-.PHONY: build test clean fleetlift-worker fleetlift fleetlift-agent all temporal-dev temporal-up temporal-down temporal-logs sandbox-build agent-image kind-setup test-integration-k8s build-web dev-web
+.PHONY: build test clean fleetlift-worker fleetlift fleetlift-agent all temporal-dev temporal-up temporal-down temporal-logs sandbox-build agent-image kind-setup test-integration-k8s build-web dev-web opensandbox-up opensandbox-down opensandbox-logs
 
 # Build all binaries
 all: build
@@ -77,9 +77,9 @@ temporal-down:
 temporal-logs:
 	docker compose logs -f temporal
 
-# Build sandbox image (copies agent binary into build context)
-sandbox-build: fleetlift-agent
-	cp bin/fleetlift-agent docker/fleetlift-agent
+# Build sandbox image (cross-compiles agent for linux to match the container OS)
+sandbox-build:
+	GOOS=linux CGO_ENABLED=0 go build -o docker/fleetlift-agent ./cmd/agent
 	docker build -f docker/Dockerfile.sandbox -t claude-code-sandbox:latest docker/
 	rm -f docker/fleetlift-agent
 
@@ -94,3 +94,16 @@ kind-setup:
 # Run K8s integration tests (requires kind cluster)
 test-integration-k8s:
 	go test -tags=integration -v ./internal/sandbox/k8s/...
+
+# Start OpenSandbox lifecycle server (pulls opensandbox/server:latest from Docker Hub)
+# Worker env: OPEN_SANDBOX_DOMAIN=http://localhost:8090 OPEN_SANDBOX_USE_SERVER_PROXY=true
+opensandbox-up:
+	docker compose -f docker-compose.opensandbox.yaml up -d
+
+# Stop OpenSandbox lifecycle server
+opensandbox-down:
+	docker compose -f docker-compose.opensandbox.yaml down
+
+# View OpenSandbox lifecycle server logs
+opensandbox-logs:
+	docker compose -f docker-compose.opensandbox.yaml logs -f opensandbox-server
