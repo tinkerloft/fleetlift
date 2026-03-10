@@ -1,6 +1,6 @@
 import type {
   TaskSummary, DiffOutput, VerifierOutput,
-  SteeringState, ExecutionProgress, TaskResult, AppConfig,
+  SteeringState, ExecutionProgress, TaskResult, AppConfig, AppHealth,
   Template, KnowledgeItem, KnowledgeFilters, CreateKnowledgeRequest,
   UpdateKnowledgeRequest, BulkAction,
 } from './types'
@@ -62,6 +62,7 @@ export const api = {
   getProgress: (id: string) => get<ExecutionProgress>(`/tasks/${id}/progress`),
   getResult:   (id: string) => get<TaskResult>(`/tasks/${id}/result`),
   getConfig:   () => get<AppConfig>('/config'),
+  getHealth:   () => get<AppHealth>('/health'),
 
   // Create & Templates
   submitTask: (yaml: string) =>

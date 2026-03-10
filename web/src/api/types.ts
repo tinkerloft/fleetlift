@@ -178,3 +178,7 @@ export interface BulkAction {
   id: string
   action: 'approve' | 'delete'
 }
+
+export interface AppHealth {
+  status: string
+}

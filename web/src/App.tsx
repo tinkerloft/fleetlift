@@ -8,6 +8,7 @@ import { TaskCreatePage } from './pages/TaskCreate'
 import { TemplatesPage } from './pages/TemplatesPage'
 import { KnowledgePage } from './pages/KnowledgePage'
 import { KnowledgeReviewPage } from './pages/KnowledgeReview'
+import { SystemPage } from './pages/SystemPage'
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/templates" element={<TemplatesPage />} />
         <Route path="/knowledge" element={<KnowledgePage />} />
         <Route path="/knowledge/review" element={<KnowledgeReviewPage />} />
+        <Route path="/system" element={<SystemPage />} />
       </Routes>
     </Layout>
   )

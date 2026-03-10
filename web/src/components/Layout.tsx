@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import {
-  LayoutDashboard, Inbox, List, ExternalLink, Plus, LayoutTemplate, BookOpen,
+  LayoutDashboard, Inbox, List, ExternalLink, Plus, LayoutTemplate, BookOpen, Activity,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -111,6 +111,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Footer */}
         <div className="border-t px-3 py-3">
+          <Link
+            to="/system"
+            className={cn(
+              'flex items-center gap-3 rounded-lg px-3 py-2 text-xs transition-colors',
+              pathname === '/system'
+                ? 'bg-sidebar-accent text-foreground font-medium'
+                : 'text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground',
+            )}
+          >
+            <Activity className="h-3.5 w-3.5 shrink-0" />
+            System
+          </Link>
           <a
             href={`${window.location.protocol}//${window.location.hostname}:8233`}
             target="_blank"
