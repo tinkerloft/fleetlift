@@ -8,6 +8,8 @@ import { cn } from '@/lib/utils'
 
 type ModeFilter = 'all' | 'transform' | 'report'
 
+const TRANSFORM_KEYWORDS = ['transform', 'migrate', 'upgrade']
+
 export function TemplatesPage() {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -30,7 +32,9 @@ export function TemplatesPage() {
       t.description.toLowerCase().includes(search.toLowerCase())
     const matchesMode =
       modeFilter === 'all' ||
-      t.description.toLowerCase().includes(modeFilter)
+      (modeFilter === 'transform'
+        ? TRANSFORM_KEYWORDS.some((k) => t.description.toLowerCase().includes(k))
+        : t.description.toLowerCase().includes(modeFilter))
     return matchesSearch && matchesMode
   })
 
@@ -38,11 +42,13 @@ export function TemplatesPage() {
     if (selected?.name === t.name) return
     setSelected(t)
     setPreviewError(null)
+    setLoadingPreview(false)
     if (!t.content) {
       setLoadingPreview(true)
+      const targetName = t.name
       try {
         const full = await api.getTemplate(t.name)
-        setSelected(full)
+        setSelected((current) => current?.name === targetName ? full : current)
       } catch {
         setPreviewError('Failed to load template content.')
       } finally {
