@@ -135,6 +135,8 @@ func (s *Server) handleSubmitTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.taskYAMLs[workflowID] = req.YAML
+
 	writeJSON(w, http.StatusOK, submitResponse{WorkflowID: workflowID})
 }
 
@@ -287,6 +289,17 @@ func (s *Server) handleApplyTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"yaml": content})
+}
+
+// handleGetTaskYAML handles GET /api/v1/tasks/{id}/yaml.
+func (s *Server) handleGetTaskYAML(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	yaml, ok := s.taskYAMLs[id]
+	if !ok {
+		writeError(w, http.StatusNotFound, "no YAML found for task "+id)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"yaml": yaml})
 }
 
 func sendSSE(w http.ResponseWriter, flusher http.Flusher, event string, data any) {

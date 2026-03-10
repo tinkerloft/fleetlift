@@ -27,6 +27,7 @@ type Server struct {
 	allowedOrigins []string
 	conversations  *create.ConversationStore
 	knowledgeStore *knowledge.Store
+	taskYAMLs      map[string]string
 }
 
 // New creates a new Server. staticFS may be nil (disables static serving).
@@ -56,6 +57,7 @@ func NewWithKnowledge(client TemporalClient, staticFS fs.FS, gatherer prometheus
 		allowedOrigins: allowedOrigins,
 		conversations:  create.NewConversationStore(30 * time.Minute),
 		knowledgeStore: ks,
+		taskYAMLs:      make(map[string]string),
 	}
 	s.router = s.buildRouter()
 	return s
@@ -113,6 +115,7 @@ func (s *Server) buildRouter() chi.Router {
 		r.Post("/steer", s.handleSteer)
 		r.Post("/continue", s.handleContinue)
 		r.Post("/retry", s.handleRetryTask)
+		r.Get("/yaml", s.handleGetTaskYAML)
 	})
 
 	// Metrics endpoint

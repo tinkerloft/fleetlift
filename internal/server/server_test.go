@@ -13,6 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	flclient "github.com/tinkerloft/fleetlift/internal/client"
 	"github.com/tinkerloft/fleetlift/internal/model"
 	"github.com/tinkerloft/fleetlift/internal/server"
@@ -69,6 +70,11 @@ func (m *mockClient) CancelWorkflow(_ context.Context, _ string) error          
 func (m *mockClient) SteerWorkflow(_ context.Context, _, _ string) error          { return m.err }
 func (m *mockClient) ContinueWorkflow(_ context.Context, _ string, _ bool) error { return m.err }
 func (m *mockClient) Close()                                                      {}
+
+func newTestServer(t *testing.T) *server.Server {
+	t.Helper()
+	return server.New(&mockClient{}, nil, nil, nil)
+}
 
 func TestHealthEndpoint(t *testing.T) {
 	s := server.New(nil, nil, nil, nil)
@@ -262,7 +268,7 @@ func TestRetryTask(t *testing.T) {
 			},
 		},
 	}
-	s := server.New(mc, nil, nil)
+	s := server.New(mc, nil, nil, nil)
 	yamlBody := `{"yaml": "version: 1\ntitle: Test\nexecution:\n  agentic:\n    prompt: do stuff\nrepositories:\n  - url: https://github.com/org/repo.git\n", "failed_only": true}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/transform-abc-123/retry", strings.NewReader(yamlBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -273,7 +279,7 @@ func TestRetryTask(t *testing.T) {
 }
 
 func TestRetryTask_MissingYAML(t *testing.T) {
-	s := server.New(&mockClient{}, nil, nil)
+	s := server.New(&mockClient{}, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/transform-abc-123/retry", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -283,7 +289,7 @@ func TestRetryTask_MissingYAML(t *testing.T) {
 
 func TestRetryTask_ResultError(t *testing.T) {
 	mc := &mockClient{err: fmt.Errorf("temporal error")}
-	s := server.New(mc, nil, nil)
+	s := server.New(mc, nil, nil, nil)
 	yamlBody := `{"yaml": "version: 1\ntitle: Test\nexecution:\n  agentic:\n    prompt: do stuff\nrepositories:\n  - url: https://github.com/org/repo.git\n    name: repo\ngroups:\n  - name: group-a\n    repositories:\n      - url: https://github.com/org/repo.git\n", "failed_only": true}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/transform-abc-123/retry", strings.NewReader(yamlBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -303,7 +309,7 @@ func TestRetryTask_FailedGroupsFiltered(t *testing.T) {
 			},
 		},
 	}
-	s := server.New(mc, nil, nil)
+	s := server.New(mc, nil, nil, nil)
 	yamlBody := `{"yaml": "version: 1\ntitle: Test\nexecution:\n  agentic:\n    prompt: do stuff\nrepositories:\n  - url: https://github.com/org/repo.git\n    name: repo\ngroups:\n  - name: group-a\n    repositories:\n      - url: https://github.com/org/repo.git\n  - name: group-b\n    repositories:\n      - url: https://github.com/org/repo.git\n", "failed_only": true}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/transform-abc-123/retry", strings.NewReader(yamlBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -658,4 +664,35 @@ func TestListTasks_NoPerWorkflowStatusQuery(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, 0, mc.getStatusCalls, "handleListTasks must not issue per-workflow status queries")
+}
+
+func TestGetTaskYAML(t *testing.T) {
+	s := newTestServer(t)
+	yamlBody := `{"yaml": "version: 1\nid: test\ntitle: Test\nmode: transform\nrepositories:\n  - url: https://github.com/org/repo\nexecution:\n  agentic:\n    prompt: do something\n"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", strings.NewReader(yamlBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var submitResp map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &submitResp))
+	wfID := submitResp["workflow_id"]
+
+	req2 := httptest.NewRequest(http.MethodGet, "/api/v1/tasks/"+wfID+"/yaml", nil)
+	w2 := httptest.NewRecorder()
+	s.ServeHTTP(w2, req2)
+	require.Equal(t, http.StatusOK, w2.Code)
+
+	var yamlResp map[string]string
+	require.NoError(t, json.Unmarshal(w2.Body.Bytes(), &yamlResp))
+	assert.Contains(t, yamlResp["yaml"], "title: Test")
+}
+
+func TestGetTaskYAMLNotFound(t *testing.T) {
+	s := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks/nonexistent/yaml", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
