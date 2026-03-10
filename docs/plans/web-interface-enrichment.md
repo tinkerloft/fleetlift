@@ -502,6 +502,16 @@ Used in: task creation wizard, template editing, AI-assisted creation preview.
 | 11 | 7A-7C (Enhanced components) | Medium | Low — polish | ⬜ Pending |
 | 12 | 5C + 6B (Inbox enhance + System) | Small | Low — nice to have | ⬜ Pending |
 
+### Phases 1–10 Complete — commit 1d4abd8 (2026-03-10)
+
+All frontend features through phase 10 are implemented:
+- Retry Failed Groups button on task detail (fetches YAML + confirmation dialog)
+- Knowledge list page (`/knowledge`) — filters, expandable CRUD rows, Add modal, nav badge
+- Knowledge review queue (`/knowledge/review`) — keyboard shortcuts (a/d/s), progress bar, commit-to-repo modal
+- Backend: `GET /api/v1/tasks/{id}/yaml` — stores YAML on submit (in-memory, RWMutex-protected)
+
+Remaining: phases 11 (enhanced diff viewer, YAML editor, execution timeline polish) and 12 (inbox enhancements, system health page).
+
 ### Phase 1 Complete — commit c27c95c (2026-03-09)
 
 All Phase 1 backend APIs are implemented:
