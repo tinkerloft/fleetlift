@@ -491,14 +491,14 @@ Used in: task creation wizard, template editing, AI-assisted creation preview.
 |-------|-------|--------|-------|--------|
 | 1 | 1A + 1B (Submit + Result APIs) | Medium | High — enables task creation | ✅ Done |
 | 2 | 2A (Task Wizard) | Large | High — primary missing feature | ✅ Done |
-| 3 | 1D + 2C (Templates API + Gallery) | Small | Medium — speeds up task creation | ✅ Done (API+Chat done; gallery UI pending) |
+| 3 | 1D + 2C (Templates API + Gallery) | Small | Medium — speeds up task creation | ✅ Done |
 | 4 | 3A (Result/Report views) | Medium | High — completes the output story | ✅ Done |
-| 5 | 1F + 4A (Knowledge API + List) | Medium | Medium — unique feature | ✅ Done (API done; UI pending) |
+| 5 | 1F + 4A (Knowledge API + List) | Medium | Medium — unique feature | ✅ Done |
 | 6 | 1E + 2B (AI Create API + Chat) | Medium | High — differentiator | ✅ Done |
 | 7 | 6A (Temporal embed) | Small | Medium — low effort high value | ✅ Done |
 | 8 | 5A + 5B (Nav + Dashboard) | Small | Medium — polish | ✅ Done |
-| 9 | 1C + 3B (Retry API + UI) | Small | Medium — completes grouped workflows | ✅ Done (API done; retry UI pending) |
-| 10 | 4B + 4C (Knowledge Review + Commit) | Medium | Medium — completes knowledge | ⬜ Pending |
+| 9 | 1C + 3B (Retry API + UI) | Small | Medium — completes grouped workflows | ✅ Done |
+| 10 | 4B + 4C (Knowledge Review + Commit) | Medium | Medium — completes knowledge | ✅ Done |
 | 11 | 7A-7C (Enhanced components) | Medium | Low — polish | ⬜ Pending |
 | 12 | 5C + 6B (Inbox enhance + System) | Small | Low — nice to have | ⬜ Pending |
 
