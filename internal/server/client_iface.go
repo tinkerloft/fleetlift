@@ -10,8 +10,11 @@ import (
 // TemporalClient is the interface the server uses to interact with Temporal.
 // *client.Client satisfies this interface.
 type TemporalClient interface {
+	StartTransform(ctx context.Context, task model.Task) (string, error)
 	ListWorkflows(ctx context.Context, statusFilter string, limit int) ([]flclient.WorkflowInfo, error)
+	GetLatestRunID(ctx context.Context, workflowID string) (string, error)
 	GetWorkflowStatus(ctx context.Context, workflowID string) (model.TaskStatus, error)
+	GetWorkflowResult(ctx context.Context, workflowID string) (*model.TaskResult, error)
 	GetWorkflowDiff(ctx context.Context, workflowID string) ([]model.DiffOutput, error)
 	GetWorkflowVerifierLogs(ctx context.Context, workflowID string) ([]model.VerifierOutput, error)
 	GetSteeringState(ctx context.Context, workflowID string) (*model.SteeringState, error)

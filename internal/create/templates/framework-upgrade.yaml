@@ -1,0 +1,34 @@
+version: 1
+id: framework-upgrade
+title: "Framework upgrade"
+description: "Upgrade a framework or runtime to a new major version"
+mode: transform
+
+repositories:
+  - url: https://github.com/your-org/your-repo.git
+    branch: main
+
+execution:
+  agentic:
+    prompt: |
+      Upgrade the framework to the new major version.
+
+      Requirements:
+      - Update the framework version in dependency manifests
+      - Apply any required breaking-change migrations documented in the upgrade guide
+      - Fix compilation errors caused by removed or changed APIs
+      - Ensure tests pass after the upgrade
+      - Do not change unrelated code
+    verifiers:
+      - name: build
+        command: ["go", "build", "./..."]
+      - name: test
+        command: ["go", "test", "./..."]
+
+timeout: 45m
+require_approval: true
+
+pull_request:
+  branch_prefix: "auto/framework-upgrade"
+  title: "Upgrade framework to new major version"
+  labels: ["automated", "upgrade"]

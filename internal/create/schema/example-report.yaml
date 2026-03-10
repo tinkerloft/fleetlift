@@ -1,0 +1,44 @@
+version: 1
+id: dependency-audit
+title: "Dependency audit"
+description: "Audit direct dependencies for outdated versions and CVEs"
+mode: report
+
+repositories:
+  - url: https://github.com/acme/api-service.git
+    branch: main
+
+execution:
+  agentic:
+    prompt: |
+      Audit the direct dependencies in this repository.
+
+      Write your findings to /workspace/REPORT.md with YAML frontmatter:
+
+      ---
+      total_dependencies: <count>
+      outdated_count: <count>
+      cve_count: <count>
+      risk: low|medium|high
+      ---
+
+      # Dependency Audit
+
+      List each outdated or vulnerable dependency with current version,
+      latest version, and CVE IDs if applicable.
+    output:
+      schema:
+        type: object
+        required: [total_dependencies, risk]
+        properties:
+          total_dependencies:
+            type: integer
+          outdated_count:
+            type: integer
+          cve_count:
+            type: integer
+          risk:
+            type: string
+            enum: [low, medium, high]
+
+timeout: 15m

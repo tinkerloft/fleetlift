@@ -1,0 +1,28 @@
+version: 1
+id: security-audit
+title: "Security audit"
+description: "Audit repository for common security vulnerabilities and issues"
+mode: report
+
+repositories:
+  - url: https://github.com/your-org/your-repo.git
+    branch: main
+
+execution:
+  agentic:
+    prompt: |
+      Perform a security audit of this repository.
+
+      Write your findings to /workspace/REPORT.md with YAML frontmatter:
+
+      ---
+      risk: low|medium|high|critical
+      vulnerability_count: <count>
+      categories: [list of issue categories]
+      ---
+
+      # Security Audit
+
+      For each finding, describe: location, severity, issue, recommendation.
+
+timeout: 20m

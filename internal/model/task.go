@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // SchemaVersion is the current supported schema version.
@@ -108,6 +110,25 @@ type AgentLimits struct {
 // OutputConfig defines how report mode output is captured and validated.
 type OutputConfig struct {
 	Schema json.RawMessage `json:"schema,omitempty" yaml:"schema,omitempty"` // JSON Schema for frontmatter validation
+}
+
+// UnmarshalYAML handles the schema field, which may be a YAML map (not raw bytes).
+func (o *OutputConfig) UnmarshalYAML(value *yaml.Node) error {
+	type plain struct {
+		Schema interface{} `yaml:"schema"`
+	}
+	var p plain
+	if err := value.Decode(&p); err != nil {
+		return err
+	}
+	if p.Schema != nil {
+		b, err := json.Marshal(p.Schema)
+		if err != nil {
+			return err
+		}
+		o.Schema = json.RawMessage(b)
+	}
+	return nil
 }
 
 // AgenticExecution contains settings for agentic (Claude Code) execution.

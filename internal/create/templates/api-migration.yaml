@@ -1,0 +1,34 @@
+version: 1
+id: api-migration
+title: "API migration"
+description: "Migrate from a deprecated API version to a new one"
+mode: transform
+
+repositories:
+  - url: https://github.com/your-org/your-repo.git
+    branch: main
+
+execution:
+  agentic:
+    prompt: |
+      Migrate all usages of the deprecated API to the new API version.
+
+      Requirements:
+      - Identify all call sites using the old API
+      - Replace with equivalent new API calls
+      - Preserve behaviour and semantics
+      - Update imports as needed
+      - Do not change unrelated code
+    verifiers:
+      - name: build
+        command: ["go", "build", "./..."]
+      - name: test
+        command: ["go", "test", "./..."]
+
+timeout: 30m
+require_approval: true
+
+pull_request:
+  branch_prefix: "auto/api-migration"
+  title: "Migrate to updated API"
+  labels: ["automated", "migration"]
