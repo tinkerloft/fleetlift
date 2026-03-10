@@ -185,22 +185,22 @@ export function KnowledgeReviewPage() {
     qc.invalidateQueries({ queryKey: ['knowledge'] })
   }, [qc])
 
-  const advanceCursor = useCallback((listLength: number) => {
-    setCursor(c => Math.min(c, Math.max(0, listLength - 2)))
-  }, [])
-
   const approveMutation = useMutation({
     mutationFn: (id: string) => api.updateKnowledge(id, { status: 'approved' } as UpdateKnowledgeRequest),
-    onSuccess: () => { invalidate(); advanceCursor(pending.length) },
+    onSuccess: invalidate,
   })
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.deleteKnowledge(id),
-    onSuccess: () => { invalidate(); advanceCursor(pending.length) },
+    onSuccess: invalidate,
   })
 
   const skip = useCallback(() => {
     setCursor(c => Math.min(c + 1, Math.max(0, pending.length - 1)))
+  }, [pending.length])
+
+  useEffect(() => {
+    setCursor(c => Math.max(0, Math.min(c, pending.length - 1)))
   }, [pending.length])
 
   const currentItem = pending[cursor]
