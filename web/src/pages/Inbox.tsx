@@ -1,9 +1,10 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '@/api/client'
 import type { TaskSummary } from '@/api/types'
 import { InboxBadge } from '@/components/StatusIcon'
-import { CheckCircle2 } from 'lucide-react'
+import { CheckCircle2, Check, X } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
 function formatTimeAgo(dateStr: string): string {
   const date = new Date(dateStr.replace(' ', 'T') + 'Z')
@@ -18,22 +19,74 @@ function formatTimeAgo(dateStr: string): string {
   return `${diffDays}d ago`
 }
 
+function inboxSubtitle(item: TaskSummary): string {
+  if (item.inbox_type === 'awaiting_approval') return 'Awaiting your approval'
+  if (item.is_paused) return 'Paused — pending input'
+  if (item.inbox_type === 'completed_review') return 'Completed — review result'
+  return 'Needs attention'
+}
+
 function InboxItem({ item }: { item: TaskSummary }) {
+  const qc = useQueryClient()
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['inbox'] })
+
+  const approveMutation = useMutation({
+    mutationFn: () => api.approve(item.workflow_id),
+    onSuccess: invalidate,
+  })
+  const rejectMutation = useMutation({
+    mutationFn: () => api.reject(item.workflow_id),
+    onSuccess: invalidate,
+  })
+
+  const isAwaitingApproval = item.inbox_type === 'awaiting_approval'
+  const isPending = approveMutation.isPending || rejectMutation.isPending
+
   return (
-    <Link
-      to={`/tasks/${item.workflow_id}`}
-      className="flex items-center gap-3 rounded-lg border px-4 py-3 hover:bg-muted/30 transition-colors group"
-    >
-      <div className="flex-1 min-w-0">
+    <div className="flex items-center gap-3 rounded-lg border px-4 py-3 hover:bg-muted/20 transition-colors">
+      {/* Main link area */}
+      <Link
+        to={`/tasks/${item.workflow_id}`}
+        className="flex-1 min-w-0 group"
+      >
         <p className="font-mono text-sm font-medium truncate group-hover:text-blue-600 transition-colors">
           {item.workflow_id}
         </p>
         <p className="text-xs text-muted-foreground mt-0.5">
-          {formatTimeAgo(item.start_time)}
+          {inboxSubtitle(item)} · {formatTimeAgo(item.start_time)}
         </p>
-      </div>
+      </Link>
+
+      {/* Badge */}
       <InboxBadge type={item.inbox_type} isPaused={item.is_paused} />
-    </Link>
+
+      {/* Inline actions for awaiting approval */}
+      {isAwaitingApproval && (
+        <div className="flex items-center gap-1.5 shrink-0 ml-1">
+          <Button
+            size="sm"
+            className="h-7 px-2.5 text-xs bg-green-600 hover:bg-green-700 text-white"
+            onClick={(e) => { e.preventDefault(); approveMutation.mutate() }}
+            disabled={isPending}
+            title="Approve"
+          >
+            <Check className="h-3.5 w-3.5 mr-1" />
+            Approve
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 px-2.5 text-xs text-destructive hover:bg-destructive/10"
+            onClick={(e) => { e.preventDefault(); rejectMutation.mutate() }}
+            disabled={isPending}
+            title="Reject"
+          >
+            <X className="h-3.5 w-3.5 mr-1" />
+            Reject
+          </Button>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -55,7 +108,10 @@ export function InboxPage() {
   }
   if (error) return <p className="text-sm text-destructive">Error: {String(error)}</p>
 
-  const items = data?.items ?? []
+  // Sort by urgency: longest-waiting first (ascending start_time)
+  const items = [...(data?.items ?? [])].sort(
+    (a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+  )
 
   return (
     <div className="max-w-3xl">
@@ -63,6 +119,7 @@ export function InboxPage() {
         <h1 className="text-xl font-semibold tracking-tight">Inbox</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Workflows that need your attention
+          {items.length > 0 && ` · ${items.length} item${items.length !== 1 ? 's' : ''}`}
         </p>
       </div>
       {items.length === 0 ? (
