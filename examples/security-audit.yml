@@ -1,0 +1,70 @@
+  version: 1
+  id: security-audit-public-repos
+  title: "Security Audit: Authentication & Input Validation"
+  mode: report
+
+  repositories:
+    - url: https://github.com/expressjs/express.git
+      branch: master
+    - url: https://github.com/pallets/flask.git
+      branch: main
+    - url: https://github.com/gin-gonic/gin.git
+      branch: master
+
+  execution:
+    agentic:
+      prompt: |
+        Perform a focused security audit of this repository.
+        Examine the codebase for the following categories:
+
+        1. Input validation — are user-supplied values sanitised before use?
+        2. Authentication & authorisation patterns — any insecure defaults or missing checks?
+        3. Dependency risk — any obvious outdated or high-risk dependencies?
+        4. Error handling — do error responses leak internal details?
+        5. Injection risks — SQL, shell, template injection surface area?
+
+        Write your findings to /workspace/REPORT.md using this exact structure:
+
+        ---
+        summary: "<one sentence summary>"
+        risk_score: <1-10>
+        language: "<primary language>"
+        findings:
+          - severity: <critical|high|medium|low>
+            category: "<category>"
+            description: "<finding>"
+        ---
+
+        ## Security Audit: <repo name>
+
+        <detailed markdown analysis>
+
+      output:
+        schema:
+          type: object
+          required: [summary, risk_score, language, findings]
+          properties:
+            summary:
+              type: string
+            risk_score:
+              type: integer
+              minimum: 1
+              maximum: 10
+            language:
+              type: string
+            findings:
+              type: array
+              items:
+                type: object
+                required: [severity, category, description]
+                properties:
+                  severity:
+                    type: string
+                    enum: [critical, high, medium, low]
+                  category:
+                    type: string
+                  description:
+                    type: string
+
+  timeout: 20m
+  require_approval: false
