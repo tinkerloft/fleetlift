@@ -259,7 +259,10 @@ export function KnowledgePage() {
 
   const items = data?.items ?? []
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['knowledge'] })
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['knowledge'] })
+    qc.invalidateQueries({ queryKey: ['knowledge-pending-count'] })
+  }
 
   const approveMutation = useMutation({
     mutationFn: (id: string) => api.updateKnowledge(id, { status: 'approved' }),

@@ -54,7 +54,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const inboxCount = inboxData?.items?.length ?? 0
 
   const { data: knowledgeData } = useQuery({
-    queryKey: ['knowledge', '', 'pending', ''],
+    queryKey: ['knowledge-pending-count'],
     queryFn: () => api.listKnowledge({ status: 'pending' }),
     refetchInterval: 30000,
   })
