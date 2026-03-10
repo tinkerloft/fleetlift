@@ -219,7 +219,7 @@ function ModeBadge({ description }: { description: string }) {
       </span>
     )
   }
-  if (lower.includes('transform') || lower.includes('migrate') || lower.includes('upgrade') || lower.includes('add') || lower.includes('fix')) {
+  if (TRANSFORM_KEYWORDS.some((k) => lower.includes(k))) {
     return (
       <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
         transform
