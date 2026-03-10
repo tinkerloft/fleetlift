@@ -5,6 +5,7 @@ import { InboxPage } from './pages/Inbox'
 import { TaskListPage } from './pages/TaskList'
 import { TaskDetailPage } from './pages/TaskDetail'
 import { TaskCreatePage } from './pages/TaskCreate'
+import { TemplatesPage } from './pages/TemplatesPage'
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
         <Route path="/tasks" element={<TaskListPage />} />
         <Route path="/tasks/:id" element={<TaskDetailPage />} />
         <Route path="/create" element={<TaskCreatePage />} />
+        <Route path="/templates" element={<TemplatesPage />} />
       </Routes>
     </Layout>
   )
