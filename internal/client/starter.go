@@ -79,11 +79,50 @@ func (c *Client) StartTransform(ctx context.Context, task model.Task) (string, e
 	return we.GetID(), nil
 }
 
+// GetLatestRunID returns the run ID of the latest execution for the given workflow.
+func (c *Client) GetLatestRunID(ctx context.Context, workflowID string) (string, error) {
+	resp, err := c.temporal.DescribeWorkflowExecution(ctx, workflowID, "")
+	if err != nil {
+		return "", fmt.Errorf("failed to describe workflow: %w", err)
+	}
+	return resp.WorkflowExecutionInfo.Execution.GetRunId(), nil
+}
+
 // GetWorkflowStatus queries the status of a workflow.
+// It checks the actual Temporal execution status first so that terminal states
+// (Failed, Canceled, TimedOut) are reported correctly even when the workflow's
+// internal query handler was never updated to reflect them (e.g. worker crash).
 func (c *Client) GetWorkflowStatus(ctx context.Context, workflowID string) (model.TaskStatus, error) {
+	desc, err := c.temporal.DescribeWorkflowExecution(ctx, workflowID, "")
+	if err != nil {
+		return "", fmt.Errorf("failed to describe workflow: %w", err)
+	}
+	execStatus := desc.WorkflowExecutionInfo.Status.String()
+	fmt.Printf("[DEBUG] GetWorkflowStatus %s: DescribeWorkflowExecution status=%q\n", workflowID, execStatus)
+	switch execStatus {
+	case "Failed", "TimedOut":
+		return model.TaskStatusFailed, nil
+	case "Canceled", "Terminated":
+		return model.TaskStatusCancelled, nil
+	case "Completed":
+		// Workflow ran to completion — still query for fine-grained internal status
+		// (e.g. the workflow may have set a more specific terminal state).
+		resp, qerr := c.temporal.QueryWorkflow(ctx, workflowID, "", workflow.QueryStatus)
+		if qerr != nil {
+			return model.TaskStatusCompleted, nil
+		}
+		var status model.TaskStatus
+		if err := resp.Get(&status); err != nil {
+			return model.TaskStatusCompleted, nil
+		}
+		return status, nil
+	}
+
+	// Workflow is still running — query the internal handler for fine-grained status.
 	resp, err := c.temporal.QueryWorkflow(ctx, workflowID, "", workflow.QueryStatus)
 	if err != nil {
-		return "", fmt.Errorf("failed to query workflow: %w", err)
+		// Query handler not registered (e.g. grouped workflows before the handler was added).
+		return model.TaskStatusRunning, nil
 	}
 
 	var status model.TaskStatus

@@ -23,6 +23,7 @@ export function TaskCreatePage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [streamingContent, setStreamingContent] = useState('')
+  const streamingContentRef = useRef('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -74,20 +75,22 @@ export function TaskCreatePage() {
       text.trim(),
       conversationId,
       (id) => setConversationId(id),
-      (delta) => setStreamingContent(prev => prev + delta),
+      (delta) => setStreamingContent(prev => {
+        const next = prev + delta
+        streamingContentRef.current = next
+        return next
+      }),
       (data) => {
+        const content = streamingContentRef.current
+        streamingContentRef.current = ''
         setIsStreaming(false)
-        setStreamingContent(prev => {
-          if (prev) {
-            // Split content before/after the YAML marker
-            const marker = '---YAML---'
-            const markerIdx = prev.indexOf(marker)
-            const displayContent = markerIdx !== -1 ? prev.substring(0, markerIdx).trim() : prev
-
-            setMessages(msgs => [...msgs, { role: 'assistant', content: displayContent || prev }])
-          }
-          return ''
-        })
+        setStreamingContent('')
+        if (content) {
+          const marker = '---YAML---'
+          const markerIdx = content.indexOf(marker)
+          const displayContent = markerIdx !== -1 ? content.substring(0, markerIdx).trim() : content
+          setMessages(msgs => [...msgs, { role: 'assistant', content: displayContent || content }])
+        }
         if (data.yaml) {
           setGeneratedYAML(data.yaml)
           setYamlWarning(data.yaml_warning ?? null)

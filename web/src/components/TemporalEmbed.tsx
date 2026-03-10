@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import { ExternalLink } from 'lucide-react'
 
-export function TemporalEmbed({ workflowId }: { workflowId: string }) {
+export function TemporalEmbed({ workflowId, runId }: { workflowId: string; runId?: string }) {
   const { data: config } = useQuery({
     queryKey: ['config'],
     queryFn: () => api.getConfig(),
@@ -10,18 +10,10 @@ export function TemporalEmbed({ workflowId }: { workflowId: string }) {
     retry: false,
   })
 
-  const baseUrl = config?.temporal_ui_url
-  if (!baseUrl) {
-    // Fallback: try default Temporal UI URL
-    const fallbackUrl = `${window.location.protocol}//${window.location.hostname}:8233`
-    return <TemporalFrame url={fallbackUrl} workflowId={workflowId} />
-  }
-
-  return <TemporalFrame url={baseUrl} workflowId={workflowId} />
-}
-
-function TemporalFrame({ url, workflowId }: { url: string; workflowId: string }) {
-  const fullUrl = `${url}/namespaces/default/workflows/${workflowId}`
+  const baseUrl = config?.temporal_ui_url ?? `${window.location.protocol}//${window.location.hostname}:8233`
+  const fullUrl = runId
+    ? `${baseUrl}/namespaces/default/workflows/${workflowId}/${runId}`
+    : `${baseUrl}/namespaces/default/workflows/${workflowId}`
 
   return (
     <div className="space-y-3">

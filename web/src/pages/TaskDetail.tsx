@@ -203,7 +203,7 @@ export function TaskDetailPage() {
           </TabsContent>
         )}
         <TabsContent value="temporal" className="mt-4">
-          <TemporalEmbed workflowId={id!} />
+          <TemporalEmbed workflowId={id!} runId={task?.run_id} />
         </TabsContent>
       </Tabs>
     </div>

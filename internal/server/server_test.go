@@ -46,6 +46,9 @@ func (m *mockClient) ListWorkflows(_ context.Context, statusFilter string, _ int
 	}
 	return m.workflows, m.err
 }
+func (m *mockClient) GetLatestRunID(_ context.Context, _ string) (string, error) {
+	return "", m.err
+}
 func (m *mockClient) GetWorkflowStatus(_ context.Context, _ string) (model.TaskStatus, error) {
 	return m.status, m.err
 }

@@ -11,6 +11,7 @@ import (
 // TaskSummary is the API representation of a workflow for list/inbox responses.
 type TaskSummary struct {
 	WorkflowID string           `json:"workflow_id"`
+	RunID      string           `json:"run_id,omitempty"`
 	Status     model.TaskStatus `json:"status"`
 	StartTime  string           `json:"start_time"`
 	InboxType  string           `json:"inbox_type,omitempty"`
@@ -46,6 +47,7 @@ func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 	for _, wf := range workflows {
 		tasks = append(tasks, TaskSummary{
 			WorkflowID: wf.WorkflowID,
+			RunID:      wf.RunID,
 			Status:     temporalStatusToTaskStatus(wf.Status),
 			StartTime:  wf.StartTime.UTC().Format(time.RFC3339),
 		})
@@ -84,6 +86,7 @@ func (s *Server) handleGetInbox(w http.ResponseWriter, r *http.Request) {
 		if inboxType != "" {
 			items = append(items, TaskSummary{
 				WorkflowID: wf.WorkflowID,
+				RunID:      wf.RunID,
 				Status:     status,
 				StartTime:  wf.StartTime.UTC().Format(time.RFC3339),
 				InboxType:  inboxType,
@@ -100,6 +103,7 @@ func (s *Server) handleGetInbox(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, TaskSummary{
 			WorkflowID: wf.WorkflowID,
+			RunID:      wf.RunID,
 			Status:     model.TaskStatusCompleted,
 			StartTime:  wf.StartTime.UTC().Format(time.RFC3339),
 			InboxType:  "completed_review",
@@ -119,7 +123,8 @@ func (s *Server) handleGetTask(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "workflow not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, TaskSummary{WorkflowID: id, Status: status})
+	runID, _ := s.client.GetLatestRunID(r.Context(), id)
+	writeJSON(w, http.StatusOK, TaskSummary{WorkflowID: id, RunID: runID, Status: status})
 }
 
 func (s *Server) handleGetResult(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +141,7 @@ func (s *Server) handleGetDiff(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	diffs, err := s.client.GetWorkflowDiff(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeJSON(w, http.StatusOK, map[string]any{"diffs": []any{}})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"diffs": diffs})
@@ -146,7 +151,7 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	logs, err := s.client.GetWorkflowVerifierLogs(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeJSON(w, http.StatusOK, map[string]any{"logs": []any{}})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"logs": logs})
@@ -156,7 +161,7 @@ func (s *Server) handleGetSteering(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	state, err := s.client.GetSteeringState(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeJSON(w, http.StatusOK, &model.SteeringState{})
 		return
 	}
 	writeJSON(w, http.StatusOK, state)
@@ -166,7 +171,8 @@ func (s *Server) handleGetProgress(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	progress, err := s.client.GetExecutionProgress(r.Context(), id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		// Workflow may be completed/failed and unable to answer queries — return empty progress.
+		writeJSON(w, http.StatusOK, &model.ExecutionProgress{})
 		return
 	}
 	writeJSON(w, http.StatusOK, progress)

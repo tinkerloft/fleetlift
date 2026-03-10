@@ -56,6 +56,10 @@ func transformGrouped(ctx workflow.Context, task model.Task, groups []model.Repo
 		FailedGroupNames: []string{},
 	}
 
+	groupedStatus := model.TaskStatusRunning
+	_ = workflow.SetQueryHandler(ctx, QueryStatus, func() (model.TaskStatus, error) {
+		return groupedStatus, nil
+	})
 	_ = workflow.SetQueryHandler(ctx, QueryExecutionProgress, func() (model.ExecutionProgress, error) {
 		return progress, nil
 	})
@@ -193,6 +197,7 @@ func transformGrouped(ctx workflow.Context, task model.Task, groups []model.Repo
 	if failedCount == len(allGroupResults) && len(allGroupResults) > 0 {
 		overallStatus = model.TaskStatusFailed
 	}
+	groupedStatus = overallStatus
 
 	// Flatten repositories from all groups.
 	var allRepos []model.RepositoryResult

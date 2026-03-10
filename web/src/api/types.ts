@@ -6,6 +6,7 @@ export type InboxType = 'awaiting_approval' | 'paused' | 'steering_requested' | 
 
 export interface TaskSummary {
   workflow_id: string
+  run_id?: string
   status: TaskStatus
   start_time: string
   inbox_type?: InboxType
