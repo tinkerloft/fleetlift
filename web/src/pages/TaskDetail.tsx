@@ -23,6 +23,7 @@ export function TaskDetailPage() {
   const [liveStatus, setLiveStatus] = useState<TaskStatus | null>(null)
   const [showRetryDialog, setShowRetryDialog] = useState(false)
   const [retryError, setRetryError] = useState<string | null>(null)
+  const [phaseTimestamps, setPhaseTimestamps] = useState<Partial<Record<TaskStatus, Date>>>({})
 
   const { data: task } = useQuery({
     queryKey: ['task', id],
@@ -60,6 +61,14 @@ export function TaskDetailPage() {
   }, [id])
 
   const status = liveStatus ?? task?.status
+
+  useEffect(() => {
+    if (!status) return
+    setPhaseTimestamps(prev => {
+      if (status in prev) return prev  // already recorded
+      return { ...prev, [status]: new Date() }
+    })
+  }, [status])
   const isAwaitingApproval = status === 'awaiting_approval'
   const isTerminal = status ? TERMINAL_STATUSES.includes(status) : false
   const isRunning = status && !isTerminal
@@ -157,7 +166,7 @@ export function TaskDetailPage() {
       {/* Execution timeline */}
       {status && (
         <div className="mb-6 rounded-lg border bg-card px-4 py-3 overflow-x-auto">
-          <ExecutionTimeline status={status} />
+          <ExecutionTimeline status={status} phaseTimestamps={phaseTimestamps} />
         </div>
       )}
 
