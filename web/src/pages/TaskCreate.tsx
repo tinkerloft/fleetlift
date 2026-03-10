@@ -7,7 +7,7 @@ import {
   Send, Sparkles, FileCode, Play, Loader2,
   ChevronRight, AlertCircle, CheckCircle2,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, formatTemplateName, TRANSFORM_KEYWORDS } from '@/lib/utils'
 
 type ViewMode = 'chat' | 'templates'
 
@@ -418,13 +418,8 @@ function TemplateGallery({
   )
 }
 
-function formatTemplateName(name: string): string {
-  return name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-}
-
 function InlineModeBadge({ description }: { description: string }) {
   const lower = description.toLowerCase()
-  const TRANSFORM_KEYWORDS = ['transform', 'migrate', 'upgrade']
   if (lower.includes('report')) {
     return (
       <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">

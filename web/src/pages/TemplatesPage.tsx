@@ -4,11 +4,9 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import type { Template } from '@/api/types'
 import { FileCode, Search, Loader2, AlertCircle, ArrowRight } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, formatTemplateName, TRANSFORM_KEYWORDS } from '@/lib/utils'
 
 type ModeFilter = 'all' | 'transform' | 'report'
-
-const TRANSFORM_KEYWORDS = ['transform', 'migrate', 'upgrade']
 
 export function TemplatesPage() {
   const navigate = useNavigate()
@@ -144,7 +142,7 @@ export function TemplatesPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium truncate">
-                      {formatName(t.name)}
+                      {formatTemplateName(t.name)}
                     </span>
                     <ModeBadge description={t.description} />
                   </div>
@@ -164,7 +162,7 @@ export function TemplatesPage() {
           <>
             <div className="flex items-center justify-between border-b px-6 py-4">
               <div>
-                <h2 className="text-sm font-semibold">{formatName(selected.name)}</h2>
+                <h2 className="text-sm font-semibold">{formatTemplateName(selected.name)}</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">{selected.description}</p>
               </div>
               <button
@@ -204,10 +202,6 @@ export function TemplatesPage() {
       </div>
     </div>
   )
-}
-
-function formatName(name: string): string {
-  return name.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 }
 
 function ModeBadge({ description }: { description: string }) {
