@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api, streamChat } from '@/api/client'
 import type { ChatMessage, Template } from '@/api/types'
@@ -31,6 +31,24 @@ export function TaskCreatePage() {
     queryKey: ['templates'],
     queryFn: () => api.listTemplates(),
   })
+
+  const [searchParams] = useSearchParams()
+
+  useEffect(() => {
+    const templateName = searchParams.get('template')
+    if (!templateName) return
+    api.getTemplate(templateName)
+      .then((t) => {
+        if (t.content) {
+          setGeneratedYAML(t.content)
+          setYamlWarning(null)
+        }
+      })
+      .catch(() => {
+        // silently ignore unknown template param
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // run once on mount
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -357,11 +375,17 @@ function TemplateGallery({
 }) {
   return (
     <div className="flex-1 overflow-y-auto p-4">
-      <div className="mb-4">
-        <h2 className="text-sm font-medium">Task Templates</h2>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Start from a pre-built template and customize for your repos
-        </p>
+      <div className="mb-4 flex items-start justify-between">
+        <div>
+          <h2 className="text-sm font-medium">Task Templates</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Start from a pre-built template and customize for your repos
+          </p>
+        </div>
+        <Link to="/templates" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+          Browse all
+          <ChevronRight className="h-3 w-3" />
+        </Link>
       </div>
       <div className="grid gap-3">
         {templates.map((t) => (
@@ -376,7 +400,8 @@ function TemplateGallery({
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium">{formatTemplateName(t.name)}</span>
-                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 group-hover:text-muted-foreground transition-colors" />
+                <InlineModeBadge description={t.description} />
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50 group-hover:text-muted-foreground ml-auto transition-colors" />
               </div>
               <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{t.description}</p>
             </div>
@@ -395,4 +420,24 @@ function TemplateGallery({
 
 function formatTemplateName(name: string): string {
   return name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+}
+
+function InlineModeBadge({ description }: { description: string }) {
+  const lower = description.toLowerCase()
+  const TRANSFORM_KEYWORDS = ['transform', 'migrate', 'upgrade']
+  if (lower.includes('report')) {
+    return (
+      <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+        report
+      </span>
+    )
+  }
+  if (TRANSFORM_KEYWORDS.some((k) => lower.includes(k))) {
+    return (
+      <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+        transform
+      </span>
+    )
+  }
+  return null
 }
