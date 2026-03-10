@@ -123,3 +123,58 @@ export interface Template {
   description: string
   content?: string
 }
+
+// Knowledge types
+
+export type KnowledgeType = 'pattern' | 'correction' | 'gotcha' | 'context'
+export type KnowledgeSource = 'auto_captured' | 'steering_extracted' | 'manual'
+export type KnowledgeStatus = 'pending' | 'approved'
+
+export interface KnowledgeOrigin {
+  task_id: string
+  repository?: string
+  steering_prompt?: string
+  iteration?: number
+}
+
+export interface KnowledgeItem {
+  id: string
+  type: KnowledgeType
+  summary: string
+  details: string
+  source: KnowledgeSource
+  tags?: string[]
+  confidence: number
+  created_from?: KnowledgeOrigin
+  created_at: string
+  status: KnowledgeStatus
+}
+
+export interface KnowledgeFilters {
+  task_id?: string
+  type?: KnowledgeType
+  tag?: string
+  status?: KnowledgeStatus
+}
+
+export interface CreateKnowledgeRequest {
+  type: KnowledgeType
+  summary: string
+  details?: string
+  tags?: string[]
+  confidence?: number
+  task_id?: string
+}
+
+export interface UpdateKnowledgeRequest {
+  summary?: string
+  details?: string
+  tags?: string[]
+  status?: KnowledgeStatus
+  confidence?: number
+}
+
+export interface BulkAction {
+  id: string
+  action: 'approve' | 'delete'
+}
