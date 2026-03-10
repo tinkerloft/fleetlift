@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -27,6 +28,7 @@ type Server struct {
 	allowedOrigins []string
 	conversations  *create.ConversationStore
 	knowledgeStore *knowledge.Store
+	taskYAMLsMu    sync.RWMutex
 	taskYAMLs      map[string]string
 }
 

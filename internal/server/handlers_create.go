@@ -135,7 +135,9 @@ func (s *Server) handleSubmitTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.taskYAMLsMu.Lock()
 	s.taskYAMLs[workflowID] = req.YAML
+	s.taskYAMLsMu.Unlock()
 
 	writeJSON(w, http.StatusOK, submitResponse{WorkflowID: workflowID})
 }
@@ -294,12 +296,14 @@ func (s *Server) handleApplyTemplate(w http.ResponseWriter, r *http.Request) {
 // handleGetTaskYAML handles GET /api/v1/tasks/{id}/yaml.
 func (s *Server) handleGetTaskYAML(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	yaml, ok := s.taskYAMLs[id]
+	s.taskYAMLsMu.RLock()
+	yamlStr, ok := s.taskYAMLs[id]
+	s.taskYAMLsMu.RUnlock()
 	if !ok {
 		writeError(w, http.StatusNotFound, "no YAML found for task "+id)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"yaml": yaml})
+	writeJSON(w, http.StatusOK, map[string]string{"yaml": yamlStr})
 }
 
 func sendSSE(w http.ResponseWriter, flusher http.Flusher, event string, data any) {
