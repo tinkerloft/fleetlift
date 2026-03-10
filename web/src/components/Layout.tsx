@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import {
-  LayoutDashboard, Inbox, List, ExternalLink, Plus, LayoutTemplate,
+  LayoutDashboard, Inbox, List, ExternalLink, Plus, LayoutTemplate, BookOpen,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { href: '/inbox',     label: 'Inbox',     icon: Inbox },
   { href: '/tasks',     label: 'Tasks',     icon: List },
   { href: '/templates', label: 'Templates', icon: LayoutTemplate },
+  { href: '/knowledge', label: 'Knowledge', icon: BookOpen },
 ]
 
 function NavLink({ href, label, icon: Icon, active, badge }: {
@@ -51,6 +52,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
     refetchInterval: 5000,
   })
   const inboxCount = inboxData?.items?.length ?? 0
+
+  const { data: knowledgeData } = useQuery({
+    queryKey: ['knowledge', '', 'pending', ''],
+    queryFn: () => api.listKnowledge({ status: 'pending' }),
+    refetchInterval: 30000,
+  })
+  const knowledgePendingCount = knowledgeData?.items?.length ?? 0
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/'
@@ -96,7 +104,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               label={label}
               icon={icon}
               active={isActive(href)}
-              badge={label === 'Inbox' ? inboxCount : undefined}
+              badge={label === 'Inbox' ? inboxCount : label === 'Knowledge' ? knowledgePendingCount : undefined}
             />
           ))}
         </nav>
