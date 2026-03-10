@@ -164,6 +164,29 @@ The `status` command only works for **running** workflows. Use `result` for comp
 
 ## Claude Code Issues
 
+### "claude code failed: exit code -1" with empty output
+
+**Symptoms:**
+- Workflow status is `Completed` (from Temporal's perspective) but result shows `"status":"failed"`
+- Error: `transformation failed: claude code failed: exit code -1: \nOutput: `
+- Workflow ran for ~14 minutes before failing (activity timeout, not an immediate failure)
+
+**Cause:**
+The `ANTHROPIC_API_KEY` was not set in the worker's environment. The container starts and runs Claude Code, which outputs "Not logged in · Please run /login" and exits. The empty `Output:` field is the giveaway.
+
+**Solution:**
+Create a `.env` file in the project root with your API key:
+```bash
+echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
+```
+Then restart the worker (`scripts/integration/start-worker.sh` loads `.env` automatically).
+
+**Fast check:**
+```bash
+# Worker logs at startup will warn if key is missing:
+grep "CONFIG WARNING.*ANTHROPIC" /tmp/fleetlift-worker.log
+```
+
 ### "Claude Code exceeds iteration limit"
 
 **Symptoms:**
@@ -459,6 +482,56 @@ mode: transform  # Correct
 3. **Test schema locally:**
    - Use JSON Schema validator
    - Verify example frontmatter passes
+
+## `fleetlift stream` Issues
+
+### "unknown queryType get_sandbox_id" on multi-repo workflow
+
+**Symptoms:**
+```
+Error: failed to get sandbox ID: failed to query sandbox ID: unknown queryType get_sandbox_id.
+KnownQueryTypes=[__stack_trace __open_sessions get_execution_progress]
+```
+
+**Cause:**
+`stream` was given the top-level `Transform` workflow ID (e.g. `transform-task-XXXX-YYYY`). The `get_sandbox_id` query is only registered on `TransformV2` *execution* child workflows. Multi-repo tasks use a parent → group → exec hierarchy.
+
+**Solution:**
+Use `--group` to target a specific repo's agent:
+```bash
+# The CLI will list available groups if you omit --group:
+./bin/fleetlift stream --workflow-id transform-task-XXXX-YYYY
+# Output:
+#   fleetlift stream --workflow-id transform-task-XXXX-YYYY --group express
+#   fleetlift stream --workflow-id transform-task-XXXX-YYYY --group fastify
+#   fleetlift stream --workflow-id transform-task-XXXX-YYYY --group koa
+
+# Then pick one:
+./bin/fleetlift stream --workflow-id transform-task-XXXX-YYYY --group express
+```
+
+For single-repo tasks, the CLI auto-selects the only group.
+
+### "dial tcp: lookup host.docker.internal: no such host"
+
+**Symptoms:**
+```
+Error: stream error: execd tail /workspace/.fleetlift/agent.log:
+  Post "http://host.docker.internal:XXXXX/proxy/44772/command": dial tcp: lookup host.docker.internal: no such host
+```
+
+**Cause:**
+With `OPEN_SANDBOX_USE_SERVER_PROXY=false` (the old default), the OpenSandbox lifecycle server returns a direct container endpoint using `host.docker.internal` as the hostname. This doesn't resolve reliably on the macOS host.
+
+**Solution (already fixed in CLI):**
+The `stream` command now defaults to server proxy mode (`useServerProxy=true`), which routes through `localhost:8090` instead. If you see this error with a custom build, set:
+```bash
+OPEN_SANDBOX_USE_SERVER_PROXY=true ./bin/fleetlift stream --workflow-id ...
+```
+Or explicitly opt out (if you know direct access works in your environment):
+```bash
+OPEN_SANDBOX_USE_SERVER_PROXY=false ./bin/fleetlift stream --workflow-id ...
+```
 
 ## Getting More Help
 

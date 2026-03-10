@@ -149,9 +149,10 @@ func (a *SandboxActivities) ProvisionAgentSandbox(ctx context.Context, input Pro
 		BasePath:     fleetproto.DefaultBasePath,
 		WorkingDir:   WorkspacePath,
 		Env: map[string]string{
-			"ANTHROPIC_API_KEY": os.Getenv("ANTHROPIC_API_KEY"),
-			"GITHUB_TOKEN":      os.Getenv("GITHUB_TOKEN"),
-			"TASK_ID":           input.TaskID,
+			"ANTHROPIC_API_KEY":       os.Getenv("ANTHROPIC_API_KEY"),
+			"CLAUDE_CODE_OAUTH_TOKEN": os.Getenv("CLAUDE_CODE_OAUTH_TOKEN"),
+			"GITHUB_TOKEN":            os.Getenv("GITHUB_TOKEN"),
+			"TASK_ID":                 input.TaskID,
 		},
 		Resources: sandbox.ResourceLimits{
 			MemoryBytes: memLimitBytes,
@@ -197,9 +198,10 @@ func (a *SandboxActivities) ProvisionSandbox(ctx context.Context, taskID string)
 		Image:      sandboxImage,
 		WorkingDir: WorkspacePath,
 		Env: map[string]string{
-			"ANTHROPIC_API_KEY": os.Getenv("ANTHROPIC_API_KEY"),
-			"GITHUB_TOKEN":      os.Getenv("GITHUB_TOKEN"),
-			"TASK_ID":           taskID,
+			"ANTHROPIC_API_KEY":       os.Getenv("ANTHROPIC_API_KEY"),
+			"CLAUDE_CODE_OAUTH_TOKEN": os.Getenv("CLAUDE_CODE_OAUTH_TOKEN"),
+			"GITHUB_TOKEN":            os.Getenv("GITHUB_TOKEN"),
+			"TASK_ID":                 taskID,
 		},
 		Resources: sandbox.ResourceLimits{
 			MemoryBytes: memLimitBytes,

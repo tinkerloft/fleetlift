@@ -398,3 +398,27 @@ func GetSandboxID(ctx context.Context, workflowID string) (string, error) {
 	}
 	return id, nil
 }
+
+// ListExecWorkflows returns the IDs of running TransformV2 exec child workflows for a task.
+// taskID is the bare task ID (e.g. "task-66375"); exec workflows are named "{taskID}-{group}-exec".
+func ListExecWorkflows(ctx context.Context, taskID string) ([]string, error) {
+	c, err := NewClient()
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+
+	query := fmt.Sprintf(`WorkflowType = "TransformV2" AND WorkflowId STARTS_WITH %q`, taskID+"-")
+	resp, err := c.temporal.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
+		Query: query,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list exec workflows: %w", err)
+	}
+
+	var ids []string
+	for _, wf := range resp.Executions {
+		ids = append(ids, wf.Execution.WorkflowId)
+	}
+	return ids, nil
+}

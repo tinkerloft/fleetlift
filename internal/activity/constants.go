@@ -104,10 +104,10 @@ func ValidateConfig() []ConfigIssue {
 		})
 	}
 
-	// Anthropic API key
-	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+	// Anthropic auth: either API key or OAuth token required
+	if os.Getenv("ANTHROPIC_API_KEY") == "" && os.Getenv("CLAUDE_CODE_OAUTH_TOKEN") == "" {
 		issues = append(issues, ConfigIssue{
-			Name:        "ANTHROPIC_API_KEY",
+			Name:        "ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN",
 			Description: "Required for Claude Code execution",
 			Required:    true,
 		})

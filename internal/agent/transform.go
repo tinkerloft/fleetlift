@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,14 +14,15 @@ import (
 
 // blockedEnvVars are environment variable names that manifest env overrides cannot set.
 var blockedEnvVars = map[string]bool{
-	"PATH":              true,
-	"HOME":              true,
-	"USER":              true,
-	"SHELL":             true,
-	"LD_PRELOAD":        true,
-	"LD_LIBRARY_PATH":   true,
-	"ANTHROPIC_API_KEY": true,
-	"GITHUB_TOKEN":      true,
+	"PATH":                    true,
+	"HOME":                    true,
+	"USER":                    true,
+	"SHELL":                   true,
+	"LD_PRELOAD":              true,
+	"LD_LIBRARY_PATH":         true,
+	"ANTHROPIC_API_KEY":       true,
+	"CLAUDE_CODE_OAUTH_TOKEN": true,
+	"GITHUB_TOKEN":            true,
 }
 
 // filterEnv removes blocked keys from an environment slice.
@@ -56,7 +59,7 @@ func (p *Pipeline) runAgenticTransformation(ctx context.Context, manifest *fleet
 
 	args := []string{
 		"-p", prompt,
-		"--output-format", "text",
+		"--output-format", "stream-json",
 		"--dangerously-skip-permissions",
 		"--verbose",
 	}
@@ -75,12 +78,12 @@ func (p *Pipeline) runAgenticTransformation(ctx context.Context, manifest *fleet
 	if err != nil {
 		output := ""
 		if result != nil {
-			output = result.Stdout + result.Stderr
+			output = extractStreamJSONText(result.Stdout + result.Stderr)
 		}
 		return output, fmt.Errorf("claude code failed: %w\nOutput: %s", err, output)
 	}
 
-	return result.Stdout + result.Stderr, nil
+	return extractStreamJSONText(result.Stdout + result.Stderr), nil
 }
 
 // runDeterministicTransformation runs the command specified in the manifest directly in the sandbox.
@@ -137,7 +140,7 @@ func (p *Pipeline) runSteeringTransformation(ctx context.Context, manifest *flee
 
 	args := []string{
 		"-p", prompt,
-		"--output-format", "text",
+		"--output-format", "stream-json",
 		"--dangerously-skip-permissions",
 		"--verbose",
 	}
@@ -147,20 +150,46 @@ func (p *Pipeline) runSteeringTransformation(ctx context.Context, manifest *flee
 
 	p.logger.Info("Running Claude Code (steering)", "iteration", iteration)
 	result, err := p.exec.Run(ctx, CommandOpts{
-		Name: "claude",
-		Args: args,
-		Dir:  fleetproto.WorkspacePath,
-		Env:  claudeEnv,
+		Name:    "claude",
+		Args:    args,
+		Dir:     fleetproto.WorkspacePath,
+		Env:     claudeEnv,
+		LogFile: filepath.Join(p.basePath, "agent.log"),
 	})
 	if err != nil {
 		output := ""
 		if result != nil {
-			output = result.Stdout + result.Stderr
+			output = extractStreamJSONText(result.Stdout + result.Stderr)
 		}
 		return output, fmt.Errorf("claude code steering failed: %w", err)
 	}
 
-	return result.Stdout + result.Stderr, nil
+	return extractStreamJSONText(result.Stdout + result.Stderr), nil
+}
+
+// extractStreamJSONText parses claude --output-format=stream-json output and returns
+// the final result text. Falls back to the raw output if parsing fails.
+func extractStreamJSONText(raw string) string {
+	type resultEvent struct {
+		Type   string `json:"type"`
+		Result string `json:"result"`
+	}
+	scanner := bufio.NewScanner(strings.NewReader(raw))
+	var last string
+	for scanner.Scan() {
+		line := scanner.Text()
+		var ev resultEvent
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			continue
+		}
+		if ev.Type == "result" && ev.Result != "" {
+			last = ev.Result
+		}
+	}
+	if last != "" {
+		return last
+	}
+	return raw
 }
 
 func (p *Pipeline) buildTransformPrompt(manifest *fleetproto.TaskManifest) string {
@@ -200,9 +229,17 @@ func (p *Pipeline) buildTransformPrompt(manifest *fleetproto.TaskManifest) strin
 	if manifest.Mode == "report" {
 		sb.WriteString("\n## Output Requirements\n\n")
 		if len(manifest.ForEach) > 0 {
-			sb.WriteString("Write per-target reports as REPORT-{target}.md with YAML frontmatter.\n")
+			// Instruct Claude to write per-target reports alongside the repo.
+			for _, repo := range repos {
+				repoPath := manifest.RepoPath(repo.Name)
+				sb.WriteString(fmt.Sprintf("Write per-target reports as %s/REPORT-{target}.md with YAML frontmatter.\n", repoPath))
+			}
 		} else {
-			sb.WriteString("Write your report to REPORT.md with YAML frontmatter.\n")
+			// Instruct Claude to write REPORT.md inside each repo directory, not the workspace root.
+			for _, repo := range repos {
+				repoPath := manifest.RepoPath(repo.Name)
+				sb.WriteString(fmt.Sprintf("Write your report for %s to %s/REPORT.md with YAML frontmatter.\n", repo.Name, repoPath))
+			}
 		}
 	}
 

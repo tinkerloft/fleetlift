@@ -208,6 +208,7 @@ func init() {
 
 	// Stream command flags
 	streamCmd.Flags().String("workflow-id", "", "Workflow ID (defaults to last run)")
+	streamCmd.Flags().String("group", "", "Group name to stream (for multi-repo workflows, e.g. 'express')")
 
 	// Add commands
 	rootCmd.AddCommand(runCmd)
@@ -830,11 +831,6 @@ func displayReport(report *model.ReportOutput, indent string, frontmatterOnly bo
 	if !frontmatterOnly && report.Body != "" {
 		fmt.Printf("%sBody:\n", indent)
 		body := report.Body
-		// Use rune slicing to avoid splitting multi-byte UTF-8 characters
-		bodyRunes := []rune(body)
-		if len(bodyRunes) > 200 {
-			body = string(bodyRunes[:200]) + "..."
-		}
 		fmt.Printf("%s  %s\n", indent, strings.ReplaceAll(body, "\n", "\n"+indent+"  "))
 	}
 }
@@ -1136,19 +1132,64 @@ func runStream(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	sandboxID, err := client.GetSandboxID(context.Background(), workflowID)
-	if err != nil {
-		return fmt.Errorf("failed to get sandbox ID: %w", err)
+	group, _ := cmd.Flags().GetString("group")
+
+	// If --group is specified, derive the exec child workflow ID directly.
+	targetWorkflowID := workflowID
+	if group != "" {
+		// Extract task ID: parent workflow is "transform-{taskID}-{unix}"
+		// Child exec workflow is "{taskID}-{group}-exec"
+		taskID := extractTaskID(workflowID)
+		if taskID != "" {
+			targetWorkflowID = taskID + "-" + group + "-exec"
+		}
 	}
+
+	sandboxID, err := client.GetSandboxID(context.Background(), targetWorkflowID)
+	if err != nil {
+		// If the workflow doesn't have get_sandbox_id, it may be a grouped parent.
+		// List exec child workflows and guide the user.
+		taskID := extractTaskID(workflowID)
+		if taskID != "" {
+			execIDs, listErr := client.ListExecWorkflows(context.Background(), taskID)
+			if listErr == nil && len(execIDs) > 0 {
+				if len(execIDs) == 1 {
+					// Auto-select the single exec workflow.
+					targetWorkflowID = execIDs[0]
+					sandboxID, err = client.GetSandboxID(context.Background(), targetWorkflowID)
+					if err != nil {
+						return fmt.Errorf("failed to get sandbox ID from %s: %w", targetWorkflowID, err)
+					}
+				} else {
+					fmt.Fprintf(os.Stderr, "This is a multi-repo workflow. Use --group to select one:\n\n")
+					for _, id := range execIDs {
+						// Strip "-exec" suffix and extract group name
+						groupName := strings.TrimPrefix(id, taskID+"-")
+						groupName = strings.TrimSuffix(groupName, "-exec")
+						fmt.Fprintf(os.Stderr, "  fleetlift stream --workflow-id %s --group %s\n", workflowID, groupName)
+					}
+					return fmt.Errorf("multiple groups running — specify --group <name>")
+				}
+			} else {
+				return fmt.Errorf("failed to get sandbox ID: %w", err)
+			}
+		} else {
+			return fmt.Errorf("failed to get sandbox ID: %w", err)
+		}
+	}
+
 	if sandboxID == "" {
-		return fmt.Errorf("no sandbox ID available for workflow %s (is it still in the provisioning phase?)", workflowID)
+		return fmt.Errorf("no sandbox ID available for workflow %s (is it still in the provisioning phase?)", targetWorkflowID)
 	}
 
 	domain := os.Getenv("OPEN_SANDBOX_DOMAIN")
 	if domain == "" {
 		domain = "http://localhost:8090"
 	}
-	useServerProxy := os.Getenv("OPEN_SANDBOX_USE_SERVER_PROXY") == "true"
+	// Default to server proxy mode: the CLI runs on the host where direct container
+	// endpoints (host.docker.internal) may not resolve. Can be overridden with
+	// OPEN_SANDBOX_USE_SERVER_PROXY=false.
+	useServerProxy := os.Getenv("OPEN_SANDBOX_USE_SERVER_PROXY") != "false"
 
 	fmt.Fprintf(os.Stderr, "Streaming logs from sandbox %s...\n", sandboxID)
 	fmt.Fprintln(os.Stderr, "Press Ctrl+C to stop")
@@ -1157,12 +1198,108 @@ func runStream(cmd *cobra.Command, args []string) error {
 	defer cancel()
 
 	err = opensandbox.StreamSandboxLog(ctx, domain, sandboxID, "/workspace/.fleetlift/agent.log", useServerProxy, func(line string) {
-		fmt.Print(line)
+		if formatted, ok := formatStreamLine(line); ok {
+			fmt.Println(formatted)
+		}
 	})
 	if err != nil && ctx.Err() == nil {
 		return fmt.Errorf("stream error: %w", err)
 	}
 	return nil
+}
+
+// formatStreamLine parses a Claude Code stream-json line and returns a human-readable string.
+// Returns ("", false) for events that should be suppressed (e.g. raw tool results, system init).
+func formatStreamLine(line string) (string, bool) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(line), &raw); err != nil {
+		// Not JSON — pass through as-is
+		return line, true
+	}
+	var eventType string
+	if err := json.Unmarshal(raw["type"], &eventType); err != nil {
+		return "", false
+	}
+	switch eventType {
+	case "result":
+		var result string
+		if err := json.Unmarshal(raw["result"], &result); err == nil && result != "" {
+			return "✓ " + result, true
+		}
+	case "assistant":
+		// Extract text or tool_use from message.content
+		var msg struct {
+			Content []struct {
+				Type    string          `json:"type"`
+				Text    string          `json:"text"`
+				Name    string          `json:"name"`
+				Input   json.RawMessage `json:"input"`
+				Thinking string         `json:"thinking"`
+			} `json:"content"`
+		}
+		if err := json.Unmarshal(raw["message"], &msg); err != nil {
+			return "", false
+		}
+		var parts []string
+		for _, c := range msg.Content {
+			switch c.Type {
+			case "text":
+				if c.Text != "" {
+					parts = append(parts, c.Text)
+				}
+			case "tool_use":
+				label := formatToolUse(c.Name, c.Input)
+				parts = append(parts, label)
+			}
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, " "), true
+		}
+	}
+	return "", false
+}
+
+// formatToolUse returns a compact human-readable description of a tool call.
+func formatToolUse(name string, input json.RawMessage) string {
+	var params map[string]json.RawMessage
+	if err := json.Unmarshal(input, &params); err != nil {
+		return "[" + name + "]"
+	}
+	// Extract the first meaningful string param as context
+	for _, key := range []string{"command", "file_path", "pattern", "path", "query", "prompt"} {
+		if v, ok := params[key]; ok {
+			var s string
+			if err := json.Unmarshal(v, &s); err == nil && s != "" {
+				if len(s) > 80 {
+					s = s[:77] + "..."
+				}
+				return "[" + name + ": " + s + "]"
+			}
+		}
+	}
+	return "[" + name + "]"
+}
+
+// extractTaskID derives the bare task ID from a parent workflow ID.
+// Parent workflows are named "transform-{taskID}-{unixTimestamp}".
+// Returns "" if the pattern doesn't match.
+func extractTaskID(workflowID string) string {
+	trimmed := strings.TrimPrefix(workflowID, "transform-")
+	if trimmed == workflowID {
+		return "" // no "transform-" prefix — may already be a task/exec ID
+	}
+	// Strip trailing "-{digits}"
+	idx := strings.LastIndex(trimmed, "-")
+	if idx < 0 {
+		return ""
+	}
+	suffix := trimmed[idx+1:]
+	for _, c := range suffix {
+		if c < '0' || c > '9' {
+			return "" // not a pure numeric suffix
+		}
+	}
+	return trimmed[:idx]
 }
 
 func main() {

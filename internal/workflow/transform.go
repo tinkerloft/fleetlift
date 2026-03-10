@@ -204,6 +204,7 @@ func transformGrouped(ctx workflow.Context, task model.Task, groups []model.Repo
 	result := model.TaskResult{
 		TaskID:          task.ID,
 		Status:          overallStatus,
+		Mode:            task.GetMode(),
 		Groups:          allGroupResults,
 		Repositories:    allRepos,
 		DurationSeconds: &duration,

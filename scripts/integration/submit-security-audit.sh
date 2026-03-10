@@ -5,10 +5,10 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 ./bin/fleetlift run \
-  --repo https://github.com/expressjs/express \
-  --repo https://github.com/fastify/fastify \
-  --repo https://github.com/koajs/koa \
+  --repo https://github.com/sindresorhus/p-limit \
+  --repo https://github.com/sindresorhus/p-map \
+  --repo https://github.com/sindresorhus/p-queue \
   --no-approval \
   --parallel \
   --mode report \
-  --prompt "Perform a security audit of these repositories. For each repo: clone it, identify the top 3 security risks in the code, and produce a brief markdown report."
+  --prompt "Quick security audit: look only at the root-level source files and package.json (do not recurse into node_modules or subdirectories). Identify the single most significant security risk, or note if none found. Write a short 2-3 sentence report."

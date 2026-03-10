@@ -127,6 +127,8 @@ func (c *ExecdClient) RunCommand(ctx context.Context, cmd string, args []string)
 	result := &CommandResult{}
 	var commandID string
 	scanner := bufio.NewScanner(resp.Body)
+	// Increase buffer to handle large command output (e.g. base64-encoded files up to 10 MB).
+	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -320,8 +322,10 @@ func (c *ExecdClient) readFileViaCommand(ctx context.Context, path string) ([]by
 // TailFile streams a file from the sandbox by running `tail -f` via execd.
 // Calls onLine for each output line. Blocks until ctx is cancelled or the connection closes.
 func (c *ExecdClient) TailFile(ctx context.Context, path string, onLine func(string)) error {
+	// Use tail -F (capital F): follows by name and retries if the file does not exist yet.
+	// This allows streaming to start before the agent creates the log file.
 	resp, err := c.doJSON(ctx, http.MethodPost, "/command", execdCommandRequest{
-		Command: "tail -f " + path,
+		Command: "tail -F " + path,
 	})
 	if err != nil {
 		return fmt.Errorf("execd tail %s: %w", path, err)
@@ -345,6 +349,10 @@ func (c *ExecdClient) TailFile(ctx context.Context, path string, onLine func(str
 			continue
 		}
 		if (event.Type == "stdout" || event.Type == "stderr") && event.Text != "" {
+			// Filter tail -F status messages (file not found / file appeared notices).
+			if strings.HasPrefix(event.Text, "tail: ") {
+				continue
+			}
 			onLine(event.Text)
 		}
 	}
