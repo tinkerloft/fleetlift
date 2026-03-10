@@ -8,6 +8,7 @@ import {
   ChevronRight, AlertCircle, CheckCircle2,
 } from 'lucide-react'
 import { cn, formatTemplateName, TRANSFORM_KEYWORDS } from '@/lib/utils'
+import { TaskYamlEditor } from '@/components/TaskYamlEditor'
 
 type ViewMode = 'chat' | 'templates'
 
@@ -268,10 +269,11 @@ export function TaskCreatePage() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto bg-muted/30">
-            <pre className="p-4 text-xs font-mono leading-relaxed whitespace-pre-wrap text-foreground">
-              {generatedYAML}
-            </pre>
+          <div className="flex-1 overflow-hidden">
+            <TaskYamlEditor
+              value={generatedYAML}
+              onChange={setGeneratedYAML}
+            />
           </div>
 
           <div className="border-t px-4 py-3">
