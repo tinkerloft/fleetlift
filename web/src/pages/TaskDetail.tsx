@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { api, subscribeToTask } from '@/api/client'
 import type { TaskStatus } from '@/api/types'
@@ -13,13 +13,16 @@ import { SteeringPanel } from '@/components/SteeringPanel'
 import { GroupProgress } from '@/components/GroupProgress'
 import { ResultView } from '@/components/ResultView'
 import { TemporalEmbed } from '@/components/TemporalEmbed'
-import { ArrowLeft, XCircle } from 'lucide-react'
+import { ArrowLeft, XCircle, RefreshCw } from 'lucide-react'
 
 const TERMINAL_STATUSES: TaskStatus[] = ['completed', 'failed', 'cancelled']
 
 export function TaskDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const [liveStatus, setLiveStatus] = useState<TaskStatus | null>(null)
+  const [showRetryDialog, setShowRetryDialog] = useState(false)
+  const [retryError, setRetryError] = useState<string | null>(null)
 
   const { data: task } = useQuery({
     queryKey: ['task', id],
@@ -27,8 +30,28 @@ export function TaskDetailPage() {
     enabled: !!id,
   })
 
+  const { data: progress } = useQuery({
+    queryKey: ['progress', id],
+    queryFn: () => api.getProgress(id!),
+    enabled: !!id,
+  })
+
   const cancelMutation = useMutation({
     mutationFn: () => api.cancel(id!),
+  })
+
+  const retryMutation = useMutation({
+    mutationFn: async () => {
+      const { yaml } = await api.getTaskYAML(id!)
+      return api.retryTask(id!, yaml, true)
+    },
+    onSuccess: (data) => {
+      setShowRetryDialog(false)
+      navigate(`/tasks/${data.workflow_id}`)
+    },
+    onError: (err: Error) => {
+      setRetryError(err.message)
+    },
   })
 
   useEffect(() => {
@@ -41,6 +64,8 @@ export function TaskDetailPage() {
   const isTerminal = status ? TERMINAL_STATUSES.includes(status) : false
   const isRunning = status && !isTerminal
   const showResult = status === 'completed' || status === 'failed'
+  const failedGroups = progress?.failed_group_names ?? []
+  const canRetry = isTerminal && failedGroups.length > 0
 
   return (
     <div className="max-w-6xl">
@@ -66,20 +91,68 @@ export function TaskDetailPage() {
           </div>
 
           {/* Actions */}
-          {isRunning && !isAwaitingApproval && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-red-600 hover:text-red-700 hover:bg-red-50 shrink-0"
-              onClick={() => cancelMutation.mutate()}
-              disabled={cancelMutation.isPending}
-            >
-              <XCircle className="h-3.5 w-3.5 mr-1" />
-              Cancel
-            </Button>
-          )}
+          <div className="flex items-center gap-2 shrink-0">
+            {isRunning && !isAwaitingApproval && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                onClick={() => cancelMutation.mutate()}
+                disabled={cancelMutation.isPending}
+              >
+                <XCircle className="h-3.5 w-3.5 mr-1" />
+                Cancel
+              </Button>
+            )}
+            {canRetry && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => { setRetryError(null); setShowRetryDialog(true) }}
+              >
+                <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                Retry Failed Groups
+              </Button>
+            )}
+          </div>
         </div>
       </div>
+
+      {showRetryDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-background rounded-lg border shadow-lg p-6 w-full max-w-md mx-4">
+            <h2 className="text-sm font-semibold mb-1">Retry Failed Groups</h2>
+            <p className="text-xs text-muted-foreground mb-4">
+              A new workflow will be started for the following failed groups:
+            </p>
+            <ul className="mb-4 space-y-1">
+              {failedGroups.map((g) => (
+                <li key={g} className="text-xs font-mono bg-muted rounded px-2 py-1">{g}</li>
+              ))}
+            </ul>
+            {retryError && (
+              <p className="text-xs text-destructive mb-3">{retryError}</p>
+            )}
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowRetryDialog(false)}
+                disabled={retryMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => retryMutation.mutate()}
+                disabled={retryMutation.isPending}
+              >
+                {retryMutation.isPending ? 'Starting...' : 'Retry'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Execution timeline */}
       {status && (
