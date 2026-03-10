@@ -24,15 +24,13 @@ function FileSection({
   file,
   splitView,
   open,
-  openKey,
 }: {
   file: FileDiff
   splitView: boolean
   open: boolean
-  openKey: number
 }) {
   return (
-    <details key={openKey} className="mb-2 border rounded overflow-hidden" open={open}>
+    <details className="mb-2 border rounded overflow-hidden" open={open}>
       <summary className="px-3 py-2 text-sm font-mono cursor-pointer bg-muted/30 hover:bg-muted/50 flex items-center gap-3">
         <span className="flex-1">{file.path}</span>
         <span className="text-xs text-green-600">+{file.additions}</span>
@@ -80,11 +78,10 @@ function RepoSection({
       </div>
       {files.map((file) => (
         <FileSection
-          key={file.path}
+          key={`${file.path}-${openKey}`}
           file={file}
           splitView={splitView}
           open={allOpen}
-          openKey={openKey}
         />
       ))}
     </div>
