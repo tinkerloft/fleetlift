@@ -97,25 +97,19 @@ func (c *Client) GetWorkflowStatus(ctx context.Context, workflowID string) (mode
 	if err != nil {
 		return "", fmt.Errorf("failed to describe workflow: %w", err)
 	}
-	execStatus := desc.WorkflowExecutionInfo.Status.String()
-	fmt.Printf("[DEBUG] GetWorkflowStatus %s: DescribeWorkflowExecution status=%q\n", workflowID, execStatus)
-	switch execStatus {
+	switch desc.WorkflowExecutionInfo.Status.String() {
 	case "Failed", "TimedOut":
 		return model.TaskStatusFailed, nil
 	case "Canceled", "Terminated":
 		return model.TaskStatusCancelled, nil
 	case "Completed":
-		// Workflow ran to completion — still query for fine-grained internal status
-		// (e.g. the workflow may have set a more specific terminal state).
-		resp, qerr := c.temporal.QueryWorkflow(ctx, workflowID, "", workflow.QueryStatus)
-		if qerr != nil {
+		// Get the fine-grained status from the workflow's return value.
+		// The query handler is unreliable for already-completed workflows.
+		result, err := c.GetWorkflowResult(ctx, workflowID)
+		if err != nil || result == nil {
 			return model.TaskStatusCompleted, nil
 		}
-		var status model.TaskStatus
-		if err := resp.Get(&status); err != nil {
-			return model.TaskStatusCompleted, nil
-		}
-		return status, nil
+		return result.Status, nil
 	}
 
 	// Workflow is still running — query the internal handler for fine-grained status.
