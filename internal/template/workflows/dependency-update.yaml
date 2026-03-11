@@ -1,0 +1,69 @@
+version: 1
+id: dependency-update
+title: Dependency Update
+description: Research phase identifies affected repos; transform phase targets only those repos.
+tags:
+  - dependency
+  - fleet
+  - transform
+parameters:
+  - name: repos
+    type: json
+    required: true
+    description: "JSON array of repo objects to scan"
+  - name: dependency_name
+    type: string
+    required: true
+    description: "Name of the dependency to update"
+  - name: current_version
+    type: string
+    required: true
+    description: "Current version of the dependency"
+  - name: target_version
+    type: string
+    required: true
+    description: "Target version to update to"
+  - name: verifiers
+    type: json
+    required: false
+    description: "Verification commands to run after update"
+steps:
+  - id: identify
+    title: Identify affected repos
+    mode: report
+    repositories: "{{ .Params.repos }}"
+    max_parallel: 10
+    execution:
+      agent: claude-code
+      prompt: |
+        Check if this repository uses {{ .Params.dependency_name }} at version {{ .Params.current_version }}.
+
+        Report which files reference this dependency and whether an update to {{ .Params.target_version }} is needed.
+      output:
+        schema:
+          affected: "boolean"
+          files: "array"
+
+  - id: transform
+    title: Update dependency
+    depends_on:
+      - identify
+    mode: transform
+    repositories: "{{ .Params.repos }}"
+    max_parallel: 5
+    condition: "steps.identify.output.affected == true"
+    execution:
+      agent: claude-code
+      prompt: |
+        Update {{ .Params.dependency_name }} from {{ .Params.current_version }} to {{ .Params.target_version }}.
+
+        Affected files from analysis:
+        {{ .Steps.identify.output | toJSON }}
+
+        Update all references, run dependency resolution, and verify the build passes.
+      verifiers: "{{ .Params.verifiers }}"
+    pull_request:
+      branch_prefix: "dep-update/{{ .Params.dependency_name }}"
+      title: "Update {{ .Params.dependency_name }} to {{ .Params.target_version }}"
+      labels:
+        - dependencies

@@ -1,0 +1,128 @@
+package handlers
+
+import (
+	"encoding/hex"
+	"encoding/json"
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/jmoiron/sqlx"
+
+	"github.com/tinkerloft/fleetlift/internal/activity"
+	"github.com/tinkerloft/fleetlift/internal/auth"
+)
+
+// CredentialsHandler handles team credential management endpoints.
+type CredentialsHandler struct {
+	db            *sqlx.DB
+	encryptionKey []byte
+}
+
+// NewCredentialsHandler creates a new CredentialsHandler.
+func NewCredentialsHandler(db *sqlx.DB, encryptionKeyHex string) (*CredentialsHandler, error) {
+	key, err := hex.DecodeString(encryptionKeyHex)
+	if err != nil {
+		return nil, err
+	}
+	return &CredentialsHandler{db: db, encryptionKey: key}, nil
+}
+
+type credentialEntry struct {
+	Name      string `db:"name" json:"name"`
+	CreatedAt string `db:"created_at" json:"created_at"`
+	UpdatedAt string `db:"updated_at" json:"updated_at"`
+}
+
+// List returns credential names (not values) for the user's team.
+func (h *CredentialsHandler) List(w http.ResponseWriter, r *http.Request) {
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	teamID := firstTeamID(claims)
+	var creds []credentialEntry
+	err := h.db.SelectContext(r.Context(), &creds,
+		`SELECT name, created_at, updated_at FROM credentials WHERE team_id = $1 ORDER BY name`,
+		teamID)
+	if err != nil {
+		http.Error(w, "failed to list credentials", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, creds)
+}
+
+type setCredentialRequest struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// Set creates or updates a team credential.
+func (h *CredentialsHandler) Set(w http.ResponseWriter, r *http.Request) {
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req setCredentialRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == "" || req.Value == "" {
+		http.Error(w, "name and value are required", http.StatusBadRequest)
+		return
+	}
+
+	teamID := firstTeamID(claims)
+
+	encrypted, err := activity.EncryptAESGCM(h.encryptionKey, []byte(req.Value))
+	if err != nil {
+		http.Error(w, "encryption failed", http.StatusInternalServerError)
+		return
+	}
+
+	_, err = h.db.ExecContext(r.Context(),
+		`INSERT INTO credentials (team_id, name, value_enc)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (team_id, name) DO UPDATE SET value_enc = $3, updated_at = now()`,
+		teamID, req.Name, encrypted)
+	if err != nil {
+		http.Error(w, "failed to save credential", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// Delete removes a team credential.
+func (h *CredentialsHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	teamID := firstTeamID(claims)
+	name := chi.URLParam(r, "name")
+
+	result, err := h.db.ExecContext(r.Context(),
+		`DELETE FROM credentials WHERE team_id = $1 AND name = $2`,
+		teamID, name)
+	if err != nil {
+		http.Error(w, "failed to delete credential", http.StatusInternalServerError)
+		return
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		http.Error(w, "credential not found", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

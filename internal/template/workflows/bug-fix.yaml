@@ -1,0 +1,90 @@
+version: 1
+id: bug-fix
+title: Bug Fix
+description: Sequential analysis, fix, and self-review in a shared sandbox with agent-driven approval.
+tags:
+  - bug
+  - fix
+  - single-repo
+parameters:
+  - name: repo_url
+    type: string
+    required: true
+    description: "Repository URL to fix"
+  - name: issue_body
+    type: string
+    required: true
+    description: "Description of the bug to fix"
+  - name: verifiers
+    type: json
+    required: false
+    description: "Verification commands to run after fix"
+  - name: slack_channel
+    type: string
+    required: false
+    description: "Slack channel for notifications"
+steps:
+  - id: analyze
+    title: Analyze bug
+    sandbox_group: main
+    mode: report
+    repositories:
+      - url: "{{ .Params.repo_url }}"
+    execution:
+      agent: claude-code
+      prompt: |
+        Analyze this bug report and identify the root cause.
+
+        Bug report:
+        {{ .Params.issue_body }}
+
+        Provide a clear analysis of the root cause, affected files, and proposed fix approach.
+
+  - id: fix
+    title: Apply fix
+    depends_on:
+      - analyze
+    sandbox_group: main
+    mode: transform
+    approval_policy: agent
+    execution:
+      agent: claude-code
+      prompt: |
+        Apply the fix based on your analysis.
+
+        Bug report:
+        {{ .Params.issue_body }}
+
+        Analysis:
+        {{ .Steps.analyze.output | toJSON }}
+
+        Make the minimal code changes needed to fix this bug. Run tests to verify.
+      verifiers: "{{ .Params.verifiers }}"
+
+  - id: self-review
+    title: Self-review changes
+    depends_on:
+      - fix
+    sandbox_group: main
+    mode: report
+    execution:
+      agent: claude-code
+      prompt: |
+        Review the changes you just made. Check for:
+        1. Correctness of the fix
+        2. No regressions introduced
+        3. Code quality and style consistency
+        4. Test coverage
+
+        Provide a summary of the review.
+
+  - id: notify
+    title: Send notification
+    depends_on:
+      - self-review
+    optional: true
+    action:
+      type: slack_notify
+      config:
+        channel: "{{ .Params.slack_channel }}"
+        message: "Bug fix complete for {{ .Params.repo_url }}"

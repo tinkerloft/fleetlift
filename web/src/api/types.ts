@@ -1,185 +1,124 @@
-export type TaskStatus =
-  | 'pending' | 'provisioning' | 'cloning' | 'running'
-  | 'awaiting_approval' | 'creating_prs' | 'completed' | 'failed' | 'cancelled'
+// Run & Step statuses
+export type RunStatus = 'pending' | 'running' | 'awaiting_input' | 'complete' | 'failed' | 'cancelled'
+export type StepStatus = 'pending' | 'cloning' | 'running' | 'verifying' | 'awaiting_input' | 'complete' | 'failed' | 'skipped'
 
-export type InboxType = 'awaiting_approval' | 'paused' | 'steering_requested' | 'completed_review'
-
-export interface TaskSummary {
-  workflow_id: string
-  run_id?: string
-  status: TaskStatus
-  start_time: string
-  inbox_type?: InboxType
-  is_paused?: boolean
-}
-
-export interface FileDiff {
-  path: string
-  status: 'modified' | 'added' | 'deleted'
-  additions: number
-  deletions: number
-  diff: string
-}
-
-export interface DiffOutput {
-  repository: string
-  files: FileDiff[]
-  summary: string
-  total_lines: number
-  truncated: boolean
-}
-
-export interface VerifierOutput {
-  verifier: string
-  exit_code: number
-  stdout: string
-  stderr: string
-  success: boolean
-}
-
-export interface SteeringIteration {
-  iteration_number: number
-  prompt: string
-  timestamp: string
-  files_modified?: string[]
-  output?: string
-}
-
-export interface SteeringState {
-  current_iteration: number
-  max_iterations: number
-  history: SteeringIteration[]
-}
-
-export interface ExecutionProgress {
-  total_groups: number
-  completed_groups: number
-  failed_groups: number
-  failure_percent: number
-  is_paused: boolean
-  paused_reason?: string
-  failed_group_names?: string[]
-}
-
-// Result types
-
-export interface PullRequest {
-  repo_name: string
-  pr_url: string
-  pr_number: number
-  branch_name: string
+// Workflow templates
+export interface WorkflowTemplate {
+  id: string
+  team_id: string
+  slug: string
   title: string
+  description: string
+  tags: string[]
+  yaml_body: string
+  builtin: boolean
+  created_at: string
+  updated_at: string
 }
 
-export interface ReportOutput {
-  frontmatter?: Record<string, unknown>
-  body?: string
-  raw: string
-  error?: string
-  validation_errors?: string[]
+export interface WorkflowDef {
+  version: number
+  id: string
+  title: string
+  description: string
+  tags: string[]
+  parameters: ParameterDef[]
+  steps: StepDef[]
 }
 
-export interface RepositoryResult {
-  repository: string
-  status: string
-  files_modified?: string[]
-  pull_request?: PullRequest
-  report?: ReportOutput
-  error?: string
+export interface ParameterDef {
+  name: string
+  type: string
+  required: boolean
+  default?: unknown
+  description?: string
 }
 
-export interface GroupResult {
-  group_name: string
-  status: string
-  repositories?: RepositoryResult[]
-  error?: string
-}
-
-export interface TaskResult {
-  task_id: string
-  status: TaskStatus
+export interface StepDef {
+  id: string
+  title?: string
+  depends_on?: string[]
   mode?: string
-  repositories?: RepositoryResult[]
-  groups?: GroupResult[]
+  execution?: { agent: string; prompt: string }
+  approval_policy?: string
+  optional?: boolean
+  action?: { type: string; config: Record<string, unknown> }
+}
+
+// Runs
+export interface Run {
+  id: string
+  team_id: string
+  workflow_id: string
+  workflow_title: string
+  parameters: Record<string, unknown>
+  status: RunStatus
+  temporal_id?: string
+  triggered_by?: string
   started_at?: string
   completed_at?: string
-  error?: string
-  duration_seconds?: number
-  pull_requests?: PullRequest[]
-}
-
-export interface AppConfig {
-  temporal_ui_url: string
-}
-
-// AI Chat / Create types
-
-export interface ChatMessage {
-  role: 'user' | 'assistant'
-  content: string
-}
-
-export interface Template {
-  name: string
-  description: string
-  content?: string
-}
-
-// Knowledge types
-
-export type KnowledgeType = 'pattern' | 'correction' | 'gotcha' | 'context'
-export type KnowledgeSource = 'auto_captured' | 'steering_extracted' | 'manual'
-export type KnowledgeStatus = 'pending' | 'approved'
-
-export interface KnowledgeOrigin {
-  task_id: string
-  repository?: string
-  steering_prompt?: string
-  iteration?: number
-}
-
-export interface KnowledgeItem {
-  id: string
-  type: KnowledgeType
-  summary: string
-  details: string
-  source: KnowledgeSource
-  tags?: string[]
-  confidence: number
-  created_from?: KnowledgeOrigin
   created_at: string
-  status: KnowledgeStatus
+  steps?: StepRun[]
 }
 
-export interface KnowledgeFilters {
-  task_id?: string
-  type?: KnowledgeType
-  tag?: string
-  status?: KnowledgeStatus
-}
-
-export interface CreateKnowledgeRequest {
-  type: KnowledgeType
-  summary: string
-  details?: string
-  tags?: string[]
-  confidence?: number
-  task_id?: string
-}
-
-export interface UpdateKnowledgeRequest {
-  summary?: string
-  details?: string
-  tags?: string[]
-  status?: KnowledgeStatus
-  confidence?: number
-}
-
-export interface BulkAction {
+export interface StepRun {
   id: string
-  action: 'approve' | 'delete'
+  run_id: string
+  step_id: string
+  step_title: string
+  status: StepStatus
+  sandbox_id?: string
+  sandbox_group?: string
+  output?: Record<string, unknown>
+  diff?: string
+  pr_url?: string
+  branch_name?: string
+  error_message?: string
+  started_at?: string
+  completed_at?: string
+  created_at: string
 }
 
-export interface AppHealth {
-  status: string
+export interface StepRunLog {
+  id: number
+  step_run_id: string
+  seq: number
+  stream: string
+  content: string
+  ts: string
+}
+
+// Inbox
+export interface InboxItem {
+  id: string
+  team_id: string
+  run_id: string
+  step_run_id?: string
+  kind: string
+  title: string
+  summary?: string
+  created_at: string
+  read?: boolean
+}
+
+// Reports / Artifacts
+export interface Artifact {
+  id: string
+  step_run_id: string
+  name: string
+  path: string
+  size_bytes: number
+  content_type: string
+  storage: string
+  created_at: string
+}
+
+// API responses
+export interface ListResponse<T> {
+  items: T[]
+}
+
+export interface RunStatusUpdate {
+  run: Run
+  steps: StepRun[]
 }

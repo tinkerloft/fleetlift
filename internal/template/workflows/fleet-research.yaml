@@ -1,0 +1,58 @@
+version: 1
+id: fleet-research
+title: Fleet Research
+description: Parallel codebase research across a fleet of repos. Results collated and delivered to Inbox.
+tags:
+  - fleet
+  - research
+  - report
+parameters:
+  - name: repos
+    type: json
+    required: true
+    description: "JSON array of repo objects with url and optional branch"
+  - name: prompt
+    type: string
+    required: true
+    description: "Research prompt to run against each repo"
+  - name: output_schema
+    type: json
+    required: false
+    description: "Optional JSON schema for structured output"
+  - name: max_parallel
+    type: int
+    required: false
+    default: 5
+    description: "Max concurrent sandbox executions"
+steps:
+  - id: research
+    title: Research repositories
+    mode: report
+    repositories: "{{ .Params.repos }}"
+    max_parallel: 5
+    execution:
+      agent: claude-code
+      prompt: "{{ .Params.prompt }}"
+    outputs:
+      artifacts:
+        - path: /workspace/report.json
+          name: research-report
+
+  - id: collate
+    title: Collate results
+    depends_on:
+      - research
+    mode: report
+    execution:
+      agent: claude-code
+      prompt: |
+        Collate these per-repo research results into a single summary report.
+
+        Results:
+        {{ .Steps.research.outputs | toJSON }}
+
+        Produce a clear, structured summary highlighting key findings across all repos.
+    outputs:
+      artifacts:
+        - path: /workspace/summary.json
+          name: collated-summary

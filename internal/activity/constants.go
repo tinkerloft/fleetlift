@@ -24,12 +24,14 @@ const (
 	// Report activities
 	ActivityValidateSchema = "ValidateSchema"
 
-	// Agent-mode activities (sidecar agent pattern)
-	ActivityProvisionAgentSandbox = "ProvisionAgentSandbox"
-	ActivitySubmitTaskManifest    = "SubmitTaskManifest"
-	ActivityWaitForAgentPhase     = "WaitForAgentPhase"
-	ActivityReadAgentResult       = "ReadAgentResult"
-	ActivitySubmitSteeringAction  = "SubmitSteeringAction"
+	// Core execution activities (platform-v2)
+	ActivityExecuteStep    = "ExecuteStep"
+	ActivityVerifyStep     = "VerifyStep"
+	ActivityCollectArtifacts = "CollectArtifacts"
+	ActivityUpdateStepStatus = "UpdateStepStatus"
+	ActivityUpdateRunStatus  = "UpdateRunStatus"
+	ActivityCreateInboxItem  = "CreateInboxItem"
+	ActivityExecuteAction    = "ExecuteAction"
 
 	// Knowledge capture and prompt enrichment activities
 	ActivityCaptureKnowledge = "CaptureKnowledge"

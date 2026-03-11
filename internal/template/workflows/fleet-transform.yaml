@@ -1,0 +1,62 @@
+version: 1
+id: fleet-transform
+title: Fleet Transform
+description: Parallel code transformation across a fleet of repos with approval gate before PRs.
+tags:
+  - fleet
+  - transform
+parameters:
+  - name: repos
+    type: json
+    required: true
+    description: "JSON array of repo objects with url and optional branch"
+  - name: prompt
+    type: string
+    required: true
+    description: "Transformation prompt to apply to each repo"
+  - name: verifiers
+    type: json
+    required: false
+    description: "Verification commands to run after transformation"
+  - name: pr_config
+    type: json
+    required: false
+    description: "Pull request configuration (branch_prefix, title, labels)"
+  - name: max_parallel
+    type: int
+    required: false
+    default: 5
+  - name: failure_threshold
+    type: int
+    required: false
+    default: 3
+    description: "Pause fan-out after this many failures"
+steps:
+  - id: transform
+    title: Transform repositories
+    mode: transform
+    repositories: "{{ .Params.repos }}"
+    max_parallel: 5
+    failure_threshold: 3
+    execution:
+      agent: claude-code
+      prompt: "{{ .Params.prompt }}"
+      verifiers: "{{ .Params.verifiers }}"
+
+  - id: review
+    title: Review changes
+    depends_on:
+      - transform
+    approval_policy: always
+
+  - id: create-prs
+    title: Create pull requests
+    depends_on:
+      - review
+    mode: transform
+    action:
+      type: create_pr
+      config:
+        branch_prefix: "fleet-transform"
+        title: "Fleet transform"
+        draft: true

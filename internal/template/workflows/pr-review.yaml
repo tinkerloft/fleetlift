@@ -1,0 +1,76 @@
+version: 1
+id: pr-review
+title: PR Review
+description: Automated code review — fetch PR diff, run agent review, post comments to GitHub.
+tags:
+  - review
+  - automation
+  - single-repo
+parameters:
+  - name: repo_url
+    type: string
+    required: true
+    description: "Repository URL"
+  - name: pr_number
+    type: int
+    required: true
+    description: "Pull request number to review"
+steps:
+  - id: fetch-pr
+    title: Fetch PR details
+    sandbox_group: main
+    mode: report
+    repositories:
+      - url: "{{ .Params.repo_url }}"
+    execution:
+      agent: claude-code
+      prompt: |
+        Fetch the diff and description for PR #{{ .Params.pr_number }} in this repository.
+
+        Use git to check out the PR branch and generate the diff against the base branch.
+        Output the diff content and PR metadata.
+      output:
+        schema:
+          diff: "string"
+          title: "string"
+          base_branch: "string"
+
+  - id: review
+    title: Review code changes
+    depends_on:
+      - fetch-pr
+    sandbox_group: main
+    mode: report
+    execution:
+      agent: claude-code
+      prompt: |
+        Review the code changes in this PR thoroughly.
+
+        PR diff:
+        {{ .Steps.fetch-pr.output | toJSON }}
+
+        Check for:
+        1. Bugs or logic errors
+        2. Security vulnerabilities
+        3. Performance issues
+        4. Style and convention violations
+        5. Missing tests
+
+        Provide specific, actionable feedback with file paths and line numbers.
+      output:
+        schema:
+          comments: "array"
+          summary: "string"
+          approval: "string"
+
+  - id: post-comments
+    title: Post review comments
+    depends_on:
+      - review
+    action:
+      type: github_pr_review
+      config:
+        repo_url: "{{ .Params.repo_url }}"
+        pr_number: "{{ .Params.pr_number }}"
+        comments: "{{ .Steps.review.output.comments | toJSON }}"
+        summary: "{{ .Steps.review.output.summary }}"

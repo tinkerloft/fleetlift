@@ -1,13 +1,42 @@
-// Package main is the CLI entry point.
-// TODO: Implement in Phase 12 per docs/plans/2026-03-11-platform-redesign-impl.md
 package main
 
 import (
-	"fmt"
 	"os"
+
+	"github.com/spf13/cobra"
+)
+
+var (
+	serverURL  string
+	outputJSON bool
 )
 
 func main() {
-	fmt.Fprintln(os.Stderr, "fleetlift CLI: not yet implemented (Phase 12)")
-	os.Exit(1)
+	root := &cobra.Command{
+		Use:   "fleetlift",
+		Short: "Fleetlift CLI — multi-tenant agentic workflow platform",
+	}
+
+	root.PersistentFlags().StringVar(&serverURL, "server", envOr("FLEETLIFT_SERVER", "http://localhost:8080"), "Fleetlift server URL")
+	root.PersistentFlags().BoolVar(&outputJSON, "output-json", false, "Output in JSON format")
+
+	root.AddCommand(
+		authCmd(),
+		workflowCmd(),
+		runCmd(),
+		inboxCmd(),
+		credentialCmd(),
+	)
+
+	if err := root.Execute(); err != nil {
+		os.Exit(1)
+	}
 }
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+

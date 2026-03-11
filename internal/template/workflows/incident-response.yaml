@@ -1,0 +1,110 @@
+version: 1
+id: incident-response
+title: Incident Response
+description: Analyze logs, propose fix, apply fix with approval, verify deployment.
+tags:
+  - incident
+  - fix
+  - single-repo
+parameters:
+  - name: repo_url
+    type: string
+    required: true
+    description: "Repository URL of the affected service"
+  - name: log_excerpt
+    type: string
+    required: true
+    description: "Relevant log output showing the incident"
+  - name: incident_description
+    type: string
+    required: true
+    description: "Description of the incident"
+  - name: deploy_check_command
+    type: string
+    required: false
+    description: "Command to verify deployment health"
+steps:
+  - id: analyze-logs
+    title: Analyze logs
+    sandbox_group: main
+    mode: report
+    repositories:
+      - url: "{{ .Params.repo_url }}"
+    execution:
+      agent: claude-code
+      prompt: |
+        Analyze these logs and the codebase to identify the root cause of this incident.
+
+        Incident:
+        {{ .Params.incident_description }}
+
+        Logs:
+        {{ .Params.log_excerpt }}
+
+        Trace the error through the code. Identify the root cause and affected components.
+      output:
+        schema:
+          root_cause: "string"
+          affected_files: "array"
+          severity: "string"
+
+  - id: propose-fix
+    title: Propose fix
+    depends_on:
+      - analyze-logs
+    sandbox_group: main
+    mode: report
+    execution:
+      agent: claude-code
+      prompt: |
+        Based on the root cause analysis, propose a fix.
+
+        Root cause:
+        {{ .Steps.analyze-logs.output | toJSON }}
+
+        Describe the exact changes needed. Include which files to modify and what the changes should be.
+        Consider the minimal safe fix that addresses the immediate issue.
+
+  - id: fix
+    title: Apply fix
+    depends_on:
+      - propose-fix
+    sandbox_group: main
+    mode: transform
+    approval_policy: always
+    allow_mid_execution_pause: true
+    execution:
+      agent: claude-code
+      prompt: |
+        Apply the proposed fix for this incident.
+
+        Root cause analysis:
+        {{ .Steps.analyze-logs.output | toJSON }}
+
+        Make the minimal code changes needed. Run tests to verify the fix.
+
+  - id: deploy-check
+    title: Verify deployment readiness
+    depends_on:
+      - fix
+    sandbox_group: main
+    mode: report
+    execution:
+      agent: claude-code
+      prompt: |
+        Verify the fix is ready for deployment.
+
+        Run the deployment check and confirm the service would be healthy after deploy.
+        Deploy check command: {{ .Params.deploy_check_command }}
+
+  - id: notify
+    title: Post incident summary
+    depends_on:
+      - deploy-check
+    action:
+      type: slack_notify
+      config:
+        message: |
+          Incident response complete for {{ .Params.repo_url }}.
+          Root cause: {{ .Steps.analyze-logs.output.root_cause }}
+          Fix applied and verified.

@@ -1,0 +1,142 @@
+package workflow
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/tinkerloft/fleetlift/internal/model"
+)
+
+func TestFindReady(t *testing.T) {
+	pending := map[string]model.StepDef{
+		"a": {ID: "a", DependsOn: nil},
+		"b": {ID: "b", DependsOn: []string{"a"}},
+		"c": {ID: "c", DependsOn: []string{"a"}},
+		"d": {ID: "d", DependsOn: []string{"b", "c"}},
+	}
+	done := map[string]*model.StepOutput{}
+
+	// Only "a" has no dependencies
+	ready := findReady(pending, done)
+	assert.Len(t, ready, 1)
+	assert.Equal(t, "a", ready[0].ID)
+
+	// After "a" completes, "b" and "c" are ready
+	done["a"] = &model.StepOutput{StepID: "a", Status: model.StepStatusComplete}
+	delete(pending, "a")
+	ready = findReady(pending, done)
+	assert.Len(t, ready, 2)
+	ids := []string{ready[0].ID, ready[1].ID}
+	assert.ElementsMatch(t, []string{"b", "c"}, ids)
+
+	// After "b" and "c" complete, "d" is ready
+	done["b"] = &model.StepOutput{StepID: "b", Status: model.StepStatusComplete}
+	done["c"] = &model.StepOutput{StepID: "c", Status: model.StepStatusComplete}
+	delete(pending, "b")
+	delete(pending, "c")
+	ready = findReady(pending, done)
+	assert.Len(t, ready, 1)
+	assert.Equal(t, "d", ready[0].ID)
+}
+
+func TestFindReady_EmptyPending(t *testing.T) {
+	pending := map[string]model.StepDef{}
+	done := map[string]*model.StepOutput{}
+	ready := findReady(pending, done)
+	assert.Empty(t, ready)
+}
+
+func TestShouldPause(t *testing.T) {
+	tests := []struct {
+		name   string
+		policy string
+		output *model.StepOutput
+		want   bool
+	}{
+		{"never policy", "never", &model.StepOutput{}, false},
+		{"empty policy", "", &model.StepOutput{}, false},
+		{"always policy", "always", &model.StepOutput{}, true},
+		{"on_changes with diff", "on_changes", &model.StepOutput{Diff: "some diff"}, true},
+		{"on_changes no diff", "on_changes", &model.StepOutput{Diff: ""}, false},
+		{"agent needs review", "agent", &model.StepOutput{Output: map[string]any{"needs_review": true}}, true},
+		{"agent no review", "agent", &model.StepOutput{Output: map[string]any{"needs_review": false}}, false},
+		{"agent nil output", "agent", &model.StepOutput{}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			def := model.StepDef{ApprovalPolicy: tt.policy}
+			got := shouldPause(def, tt.output)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestIsOptional(t *testing.T) {
+	steps := []model.StepDef{
+		{ID: "a", Optional: false},
+		{ID: "b", Optional: true},
+	}
+	assert.False(t, isOptional(steps, "a"))
+	assert.True(t, isOptional(steps, "b"))
+	assert.False(t, isOptional(steps, "nonexistent"))
+}
+
+func TestSkipDownstream(t *testing.T) {
+	allSteps := []model.StepDef{
+		{ID: "a"},
+		{ID: "b", DependsOn: []string{"a"}},
+		{ID: "c", DependsOn: []string{"b"}},
+		{ID: "d"},
+	}
+	pending := map[string]model.StepDef{
+		"b": allSteps[1],
+		"c": allSteps[2],
+		"d": allSteps[3],
+	}
+	outputs := map[string]*model.StepOutput{}
+
+	skipDownstream(pending, "a", allSteps, outputs)
+
+	// "b" depends on "a", should be skipped
+	assert.Equal(t, model.StepStatusSkipped, outputs["b"].Status)
+	// "c" depends on "b", should also be skipped (recursive)
+	assert.Equal(t, model.StepStatusSkipped, outputs["c"].Status)
+	// "d" has no dependency on "a", should still be pending
+	_, stillPending := pending["d"]
+	assert.True(t, stillPending)
+}
+
+func TestResolveStep_NilExecution(t *testing.T) {
+	step := model.StepDef{ID: "action-step"}
+	opts, err := resolveStep(step, nil, nil)
+	assert.NoError(t, err)
+	assert.Empty(t, opts.Prompt)
+}
+
+func TestResolveStep_WithPrompt(t *testing.T) {
+	step := model.StepDef{
+		ID: "analyze",
+		Execution: &model.ExecutionDef{
+			Agent:  "claude-code",
+			Prompt: "Analyze the repo",
+		},
+	}
+	opts, err := resolveStep(step, map[string]any{}, map[string]*model.StepOutput{})
+	assert.NoError(t, err)
+	assert.Equal(t, "Analyze the repo", opts.Prompt)
+	assert.Equal(t, "claude-code", opts.Agent)
+}
+
+func TestResolveStep_DefaultAgent(t *testing.T) {
+	step := model.StepDef{
+		ID: "s1",
+		Execution: &model.ExecutionDef{
+			Prompt: "Do something",
+		},
+	}
+	opts, err := resolveStep(step, map[string]any{}, map[string]*model.StepOutput{})
+	assert.NoError(t, err)
+	assert.Equal(t, "claude-code", opts.Agent)
+}

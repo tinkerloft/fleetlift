@@ -1,0 +1,113 @@
+version: 1
+id: migration
+title: Migration
+description: Analyze impact across fleet, transform affected repos, validate, create PRs, and notify.
+tags:
+  - migration
+  - fleet
+  - transform
+parameters:
+  - name: repos
+    type: json
+    required: true
+    description: "JSON array of repo objects to migrate"
+  - name: migration_description
+    type: string
+    required: true
+    description: "Description of the migration to perform"
+  - name: verifiers
+    type: json
+    required: false
+    description: "Verification commands to run after migration"
+  - name: notify_channel
+    type: string
+    required: false
+    description: "Slack channel for notifications"
+steps:
+  - id: analyze
+    title: Analyze migration impact
+    mode: report
+    repositories: "{{ .Params.repos }}"
+    max_parallel: 10
+    execution:
+      agent: claude-code
+      prompt: |
+        Analyze the impact of this migration on the repository.
+
+        Migration:
+        {{ .Params.migration_description }}
+
+        Identify all affected files, potential breaking changes, and estimated effort.
+      output:
+        schema:
+          affected: "boolean"
+          impact_level: "string"
+          affected_files: "array"
+
+  - id: transform
+    title: Apply migration
+    depends_on:
+      - analyze
+    mode: transform
+    repositories: "{{ .Params.repos }}"
+    max_parallel: 5
+    condition: "steps.analyze.output.affected == true"
+    execution:
+      agent: claude-code
+      prompt: |
+        Apply this migration to the repository.
+
+        Migration:
+        {{ .Params.migration_description }}
+
+        Impact analysis:
+        {{ .Steps.analyze.output | toJSON }}
+
+        Make all necessary code changes to complete the migration.
+      verifiers: "{{ .Params.verifiers }}"
+
+  - id: validate
+    title: Validate migration
+    depends_on:
+      - transform
+    mode: report
+    repositories: "{{ .Params.repos }}"
+    max_parallel: 5
+    execution:
+      agent: claude-code
+      prompt: |
+        Validate the migration was applied correctly.
+
+        Check that:
+        1. All affected files were updated
+        2. No references to the old pattern remain
+        3. Tests pass
+        4. Build succeeds
+
+  - id: review
+    title: Review all changes
+    depends_on:
+      - validate
+    approval_policy: always
+
+  - id: create-prs
+    title: Create pull requests
+    depends_on:
+      - review
+    action:
+      type: create_pr
+      config:
+        branch_prefix: "migration"
+        title: "Migration: {{ .Params.migration_description }}"
+        draft: true
+
+  - id: notify
+    title: Notify teams
+    depends_on:
+      - create-prs
+    optional: true
+    action:
+      type: slack_notify
+      config:
+        channel: "{{ .Params.notify_channel }}"
+        message: "Migration PRs created for: {{ .Params.migration_description }}"

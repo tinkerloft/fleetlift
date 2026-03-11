@@ -62,7 +62,7 @@ func (a *activityInterceptor) ExecuteActivity(ctx context.Context, in *intercept
 	// Per-metric tracking for specific activities
 	if err == nil {
 		switch name {
-		case internalactivity.ActivityProvisionSandbox, internalactivity.ActivityProvisionAgentSandbox:
+		case internalactivity.ActivityProvisionSandbox:
 			a.m.SandboxProvisionDuration.Observe(duration)
 		case internalactivity.ActivityCreatePullRequest:
 			a.m.PRsCreatedTotal.Inc()
