@@ -12,6 +12,34 @@
 
 ---
 
+## Progress
+
+**Status:** ✅ COMPLETE — 2026-03-11
+**Branch:** `platform-v2`
+**Commit:** `e027bd6` — 114 files changed, 7644 insertions, 3593 deletions
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| 1 — Strip old architecture | ✅ | Branch created, sidecar/file-protocol removed, go.mod updated |
+| 2 — Database schema | ✅ | 13-table PostgreSQL schema, sqlx connection helper |
+| 3 — Core models | ✅ | All entity types (Team, User, WorkflowTemplate, Run, StepRun, Artifact, InboxItem) |
+| 4 — Auth layer | ✅ | JWT (HS256), GitHub OAuth, HTTP middleware |
+| 5 — Template provider | ✅ | BuiltinProvider + DBProvider + Registry; 9 builtin YAML workflows |
+| 6 — AgentRunner | ✅ | Runner interface + ClaudeCodeRunner (stream-json parser) |
+| 7 — OpenSandbox client | ✅ | Full REST client (Create/Exec/ExecStream/WriteFile/ReadFile/Kill) |
+| 8 — DAG Workflow | ✅ | DAGWorkflow + StepWorkflow with HITL signals; 16 tests |
+| 9 — Activities | ✅ | ProvisionSandbox, ExecuteStep, RunVerifiers, CreatePR, CollectArtifacts, AES-256-GCM credential store, action catalog |
+| 10 — Worker | ✅ | Full registration of workflows + activities |
+| 11 — API Server | ✅ | chi router, all REST handlers, SSE streaming, GitHub OAuth callback |
+| 12 — CLI | ✅ | cobra CLI: auth, workflow, run, inbox, credential commands |
+| 13 — Web UI | ✅ | React SPA rebuilt: DAGGraph (ReactFlow), StepPanel, HITLPanel, LogStream, ReportViewer |
+| 14 — Integration tests | ✅ | Skeleton in place; full e2e skipped without live infra |
+| 15 — Lint + final | ✅ | `make lint`, `go test ./...`, `go build ./...`, `npm run build` all pass |
+
+**Remaining v1 holdover:** `internal/knowledge/` and `internal/activity/knowledge.go` are present but not yet wired into the v2 execution flow.
+
+---
+
 ## Phase 1: New Branch + Project Skeleton
 
 ### Task 1.1: Create branch and strip old architecture
