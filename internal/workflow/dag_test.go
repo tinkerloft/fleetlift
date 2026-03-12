@@ -160,3 +160,78 @@ func TestResolveStep_DefaultAgent(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "claude-code", opts.Agent)
 }
+
+func TestResolveStep_WithStaticRepos(t *testing.T) {
+	step := model.StepDef{
+		ID: "transform",
+		Repositories: []any{
+			map[string]any{"url": "https://github.com/acme/api", "branch": "main"},
+			map[string]any{"url": "https://github.com/acme/web"},
+		},
+		Execution: &model.ExecutionDef{
+			Agent:  "claude-code",
+			Prompt: "Fix TODOs",
+		},
+	}
+	opts, err := resolveStep(step, map[string]any{}, map[string]*model.StepOutput{})
+	assert.NoError(t, err)
+	assert.Len(t, opts.Repos, 2)
+	assert.Equal(t, "https://github.com/acme/api", opts.Repos[0].URL)
+	assert.Equal(t, "main", opts.Repos[0].Branch)
+	assert.Equal(t, "https://github.com/acme/web", opts.Repos[1].URL)
+}
+
+func TestResolveStep_NilRepositories(t *testing.T) {
+	step := model.StepDef{
+		ID: "no-repos",
+		Execution: &model.ExecutionDef{
+			Agent:  "claude-code",
+			Prompt: "Fix TODOs",
+		},
+	}
+	opts, err := resolveStep(step, map[string]any{}, map[string]*model.StepOutput{})
+	assert.NoError(t, err)
+	assert.Empty(t, opts.Repos)
+}
+
+// toJSON is registered in internal/template/render.go, so we use it here.
+func TestResolveStep_WithTemplatedRepos(t *testing.T) {
+	step := model.StepDef{
+		ID:           "transform",
+		Repositories: `{{ toJSON .Params.repos }}`,
+		Execution: &model.ExecutionDef{
+			Agent:  "claude-code",
+			Prompt: "Fix TODOs",
+		},
+	}
+	params := map[string]any{
+		"repos": []any{
+			map[string]any{"url": "https://github.com/acme/api"},
+		},
+	}
+	opts, err := resolveStep(step, params, map[string]*model.StepOutput{})
+	assert.NoError(t, err)
+	assert.Len(t, opts.Repos, 1)
+	assert.Equal(t, "https://github.com/acme/api", opts.Repos[0].URL)
+}
+
+func TestAggregateFanOut_AllComplete(t *testing.T) {
+	results := []*model.StepOutput{
+		{StepID: "transform", Status: model.StepStatusComplete, Diff: "diff1"},
+		{StepID: "transform", Status: model.StepStatusComplete, Diff: "diff2"},
+	}
+	agg := aggregateFanOut("transform", results)
+	assert.Equal(t, model.StepStatusComplete, agg.Status)
+	assert.Len(t, agg.Outputs, 2)
+	assert.Equal(t, "transform", agg.StepID)
+}
+
+func TestAggregateFanOut_WithFailure(t *testing.T) {
+	results := []*model.StepOutput{
+		{StepID: "transform", Status: model.StepStatusComplete},
+		{StepID: "transform", Status: model.StepStatusFailed, Error: "timeout"},
+	}
+	agg := aggregateFanOut("transform", results)
+	assert.Equal(t, model.StepStatusFailed, agg.Status)
+	assert.Len(t, agg.Outputs, 2)
+}

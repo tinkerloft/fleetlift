@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"text/template"
@@ -88,30 +89,74 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) error {
 					return
 				}
 
-				// Agent step — run as child StepWorkflow
-				cwo := workflow.ChildWorkflowOptions{
-					WorkflowID: fmt.Sprintf("%s-%s", input.RunID, step.ID),
-				}
-				var out model.StepOutput
-				err = workflow.ExecuteChildWorkflow(
-					workflow.WithChildOptions(gCtx, cwo),
-					StepWorkflow,
-					StepInput{
-						RunID:        input.RunID,
-						StepDef:      step,
-						ResolvedOpts: resolved,
-						SandboxID:    sandboxes[step.SandboxGroup],
-					},
-				).Get(gCtx, &out)
-				if err != nil {
-					results[i] = &model.StepOutput{
-						StepID: step.ID,
-						Status: model.StepStatusFailed,
-						Error:  err.Error(),
+				// Agent step — run as child StepWorkflow(s)
+				// Fan-out: one child per repo if repos are specified.
+				repos := resolved.Repos
+				if len(repos) == 0 {
+					// Single execution (no fan-out)
+					cwo := workflow.ChildWorkflowOptions{
+						WorkflowID: fmt.Sprintf("%s-%s", input.RunID, step.ID),
 					}
+					var out model.StepOutput
+					err = workflow.ExecuteChildWorkflow(
+						workflow.WithChildOptions(gCtx, cwo),
+						StepWorkflow,
+						StepInput{
+							RunID:        input.RunID,
+							StepDef:      step,
+							ResolvedOpts: resolved,
+							SandboxID:    sandboxes[step.SandboxGroup],
+						},
+					).Get(gCtx, &out)
+					if err != nil {
+						results[i] = &model.StepOutput{
+							StepID: step.ID,
+							Status: model.StepStatusFailed,
+							Error:  err.Error(),
+						}
+						return
+					}
+					results[i] = &out
 					return
 				}
-				results[i] = &out
+
+				// Fan-out: one child per repo
+				fanResults := make([]*model.StepOutput, len(repos))
+				fanWg := workflow.NewWaitGroup(gCtx)
+				for j, repo := range repos {
+					j, repo := j, repo
+					fanWg.Add(1)
+					workflow.Go(gCtx, func(rCtx workflow.Context) {
+						defer fanWg.Done()
+						repoResolved := resolved
+						repoResolved.Repos = []model.RepoRef{repo}
+						cwo := workflow.ChildWorkflowOptions{
+							WorkflowID: fmt.Sprintf("%s-%s-%d", input.RunID, step.ID, j),
+						}
+						var out model.StepOutput
+						err := workflow.ExecuteChildWorkflow(
+							workflow.WithChildOptions(rCtx, cwo),
+							StepWorkflow,
+							StepInput{
+								RunID:        input.RunID,
+								StepDef:      step,
+								ResolvedOpts: repoResolved,
+								SandboxID:    sandboxes[step.SandboxGroup],
+							},
+						).Get(rCtx, &out)
+						if err != nil {
+							fanResults[j] = &model.StepOutput{
+								StepID: step.ID,
+								Status: model.StepStatusFailed,
+								Error:  err.Error(),
+							}
+							return
+						}
+						fanResults[j] = &out
+					})
+				}
+				fanWg.Wait(gCtx)
+				results[i] = aggregateFanOut(step.ID, fanResults)
 			})
 		}
 		wg.Wait(ctx)
@@ -183,7 +228,66 @@ func resolveStep(step model.StepDef, params map[string]any, outputs map[string]*
 	opts.Credentials = step.Execution.Credentials
 	opts.PRConfig = step.PullRequest
 
+	// Resolve repositories
+	if step.Repositories != nil {
+		repos, err := resolveRepos(step.Repositories, params, outputs)
+		if err != nil {
+			return opts, fmt.Errorf("resolve repos for step %s: %w", step.ID, err)
+		}
+		opts.Repos = repos
+	}
+
 	return opts, nil
+}
+
+// resolveRepos converts step.Repositories (any) into []model.RepoRef.
+// Handles two cases:
+//   - string: treated as a Go template or literal JSON, result parsed as JSON array of RepoRef
+//   - []any (from YAML parsing): marshalled to JSON then unmarshalled as []RepoRef
+func resolveRepos(raw any, params map[string]any, outputs map[string]*model.StepOutput) ([]model.RepoRef, error) {
+	var jsonBytes []byte
+
+	switch v := raw.(type) {
+	case string:
+		rendered, err := fltemplate.RenderPrompt(v, fltemplate.RenderContext{
+			Params: params,
+			Steps:  outputs,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("render repositories template: %w", err)
+		}
+		jsonBytes = []byte(rendered)
+	default:
+		b, err := json.Marshal(v)
+		if err != nil {
+			return nil, fmt.Errorf("marshal repositories: %w", err)
+		}
+		jsonBytes = b
+	}
+
+	var repos []model.RepoRef
+	if err := json.Unmarshal(jsonBytes, &repos); err != nil {
+		return nil, fmt.Errorf("parse repositories as []RepoRef: %w", err)
+	}
+	return repos, nil
+}
+
+// aggregateFanOut merges per-repo StepOutput results into one aggregate StepOutput.
+// Status is complete only if all sub-outputs are complete.
+func aggregateFanOut(stepID string, results []*model.StepOutput) *model.StepOutput {
+	agg := &model.StepOutput{
+		StepID:  stepID,
+		Status:  model.StepStatusComplete,
+		Outputs: make([]model.StepOutput, len(results)),
+	}
+	for i, r := range results {
+		agg.Outputs[i] = *r
+		if r.Status == model.StepStatusFailed {
+			agg.Status = model.StepStatusFailed
+			agg.Error = r.Error
+		}
+	}
+	return agg
 }
 
 // evalCondition evaluates a Go template condition string against step outputs and params.
