@@ -6,65 +6,57 @@ import "time"
 type KnowledgeType string
 
 const (
-	// KnowledgeTypePattern is a reusable approach that worked.
-	KnowledgeTypePattern KnowledgeType = "pattern"
-	// KnowledgeTypeCorrection is extracted from steering (agent went wrong, was corrected).
+	KnowledgeTypePattern    KnowledgeType = "pattern"
 	KnowledgeTypeCorrection KnowledgeType = "correction"
-	// KnowledgeTypeGotcha is a non-obvious failure mode.
-	KnowledgeTypeGotcha KnowledgeType = "gotcha"
-	// KnowledgeTypeContext is repo-specific knowledge.
-	KnowledgeTypeContext KnowledgeType = "context"
+	KnowledgeTypeGotcha     KnowledgeType = "gotcha"
+	KnowledgeTypeContext    KnowledgeType = "context"
 )
 
 // KnowledgeSource describes how a knowledge item was created.
 type KnowledgeSource string
 
 const (
-	KnowledgeSourceAutoCaptured      KnowledgeSource = "auto_captured"
-	KnowledgeSourceSteeringExtracted KnowledgeSource = "steering_extracted"
-	KnowledgeSourceManual            KnowledgeSource = "manual"
+	KnowledgeSourceAutoCaptured KnowledgeSource = "auto_captured"
+	KnowledgeSourceManual       KnowledgeSource = "manual"
 )
 
 // KnowledgeStatus represents the curation state of a knowledge item.
 type KnowledgeStatus string
 
 const (
-	// KnowledgeStatusPending is the default state — item awaits review.
-	KnowledgeStatusPending KnowledgeStatus = "pending"
-	// KnowledgeStatusApproved means the item has been reviewed and approved for promotion.
+	KnowledgeStatusPending  KnowledgeStatus = "pending"
 	KnowledgeStatusApproved KnowledgeStatus = "approved"
+	KnowledgeStatusRejected KnowledgeStatus = "rejected"
 )
 
-// KnowledgeOrigin links a knowledge item back to its source execution.
-type KnowledgeOrigin struct {
-	TaskID         string `json:"task_id" yaml:"task_id"`
-	Repository     string `json:"repository,omitempty" yaml:"repository,omitempty"`
-	SteeringPrompt string `json:"steering_prompt,omitempty" yaml:"steering_prompt,omitempty"`
-	Iteration      int    `json:"iteration,omitempty" yaml:"iteration,omitempty"`
-}
-
-// KnowledgeItem is a reusable piece of knowledge extracted from a transformation.
+// KnowledgeItem is a reusable piece of knowledge extracted from a step run.
 type KnowledgeItem struct {
-	ID          string           `json:"id" yaml:"id"`
-	Type        KnowledgeType    `json:"type" yaml:"type"`
-	Summary     string           `json:"summary" yaml:"summary"`
-	Details     string           `json:"details" yaml:"details"`
-	Source      KnowledgeSource  `json:"source" yaml:"source"`
-	Tags        []string         `json:"tags,omitempty" yaml:"tags,omitempty"`
-	Confidence  float64          `json:"confidence" yaml:"confidence"`
-	CreatedFrom *KnowledgeOrigin `json:"created_from,omitempty" yaml:"created_from,omitempty"`
-	CreatedAt   time.Time        `json:"created_at" yaml:"created_at"`
-	Status      KnowledgeStatus  `json:"status,omitempty" yaml:"status,omitempty"`
+	ID                 string          `db:"id" json:"id"`
+	TeamID             string          `db:"team_id" json:"team_id"`
+	WorkflowTemplateID string          `db:"workflow_template_id" json:"workflow_template_id,omitempty"`
+	StepRunID          string          `db:"step_run_id" json:"step_run_id,omitempty"`
+	Type               KnowledgeType   `db:"type" json:"type"`
+	Summary            string          `db:"summary" json:"summary"`
+	Details            string          `db:"details" json:"details,omitempty"`
+	Source             KnowledgeSource `db:"source" json:"source"`
+	Tags               []string        `db:"tags" json:"tags,omitempty"`
+	Confidence         float64         `db:"confidence" json:"confidence"`
+	Status             KnowledgeStatus `db:"status" json:"status"`
+	CreatedAt          time.Time       `db:"created_at" json:"created_at"`
 }
 
-// KnowledgeConfig is the optional knowledge section in a Task YAML.
-type KnowledgeConfig struct {
-	// CaptureDisabled disables auto-capture after approval (default: false = capture enabled).
-	CaptureDisabled bool `json:"capture_disabled,omitempty" yaml:"capture_disabled,omitempty"`
-	// EnrichDisabled disables prompt enrichment before agent execution (default: false = enrich enabled).
-	EnrichDisabled bool `json:"enrich_disabled,omitempty" yaml:"enrich_disabled,omitempty"`
-	// MaxItems caps how many knowledge items are injected into the prompt (default: 10).
-	MaxItems int `json:"max_items,omitempty" yaml:"max_items,omitempty"`
-	// Tags are additional tags for filtering/matching knowledge items.
-	Tags []string `json:"tags,omitempty" yaml:"tags,omitempty"`
+// KnowledgeDef is the optional knowledge config block in a StepDef YAML.
+type KnowledgeDef struct {
+	Capture  bool     `yaml:"capture,omitempty"`
+	Enrich   bool     `yaml:"enrich,omitempty"`
+	MaxItems int      `yaml:"max_items,omitempty"`
+	Tags     []string `yaml:"tags,omitempty"`
+}
+
+// CaptureKnowledgeInput is the input for the CaptureKnowledge Temporal activity.
+type CaptureKnowledgeInput struct {
+	SandboxID          string `json:"sandbox_id"`
+	TeamID             string `json:"team_id"`
+	WorkflowTemplateID string `json:"workflow_template_id,omitempty"`
+	StepRunID          string `json:"step_run_id,omitempty"`
 }

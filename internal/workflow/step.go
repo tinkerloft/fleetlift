@@ -11,11 +11,13 @@ import (
 
 // StepInput is the input to a StepWorkflow child workflow.
 type StepInput struct {
-	RunID        string           `json:"run_id"`
-	StepRunID    string           `json:"step_run_id"`
-	StepDef      model.StepDef    `json:"step_def"`
-	ResolvedOpts ResolvedStepOpts `json:"resolved_opts"` // templates already rendered by DAGWorkflow
-	SandboxID    string           `json:"sandbox_id"`    // non-empty if sandbox_group reuse
+	RunID              string           `json:"run_id"`
+	StepRunID          string           `json:"step_run_id"`
+	TeamID             string           `json:"team_id"`
+	WorkflowTemplateID string           `json:"workflow_template_id,omitempty"`
+	StepDef            model.StepDef    `json:"step_def"`
+	ResolvedOpts       ResolvedStepOpts `json:"resolved_opts"` // templates already rendered by DAGWorkflow
+	SandboxID          string           `json:"sandbox_id"`    // non-empty if sandbox_group reuse
 }
 
 // ResolvedStepOpts holds step options after template rendering.
@@ -54,11 +56,12 @@ type SteerPayload struct {
 // Activity function references — these are registered in the worker and resolved at runtime.
 // They are declared as variables so tests can substitute them.
 var (
-	ProvisionSandboxActivity = "ProvisionSandbox"
-	ExecuteStepActivity      = "ExecuteStep"
-	UpdateStepStatusActivity = "UpdateStepStatus"
-	CreatePRActivity         = "CreatePullRequest"
-	CleanupSandboxActivity   = "CleanupSandbox"
+	ProvisionSandboxActivity  = "ProvisionSandbox"
+	ExecuteStepActivity       = "ExecuteStep"
+	UpdateStepStatusActivity  = "UpdateStepStatus"
+	CreatePRActivity          = "CreatePullRequest"
+	CleanupSandboxActivity    = "CleanupSandbox"
+	CaptureKnowledgeActivity  = "CaptureKnowledge"
 )
 
 // StepWorkflow orchestrates a single step: provision sandbox, run agent, handle HITL signals, optionally create PR.
@@ -164,7 +167,22 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 		).Get(ctx, &output.PRUrl)
 	}
 
-	// 7. Cleanup (unless sandbox_group — DAGWorkflow handles that)
+	// 7. Capture knowledge if configured
+	if input.StepDef.Knowledge != nil && input.StepDef.Knowledge.Capture {
+		captureAO := workflow.ActivityOptions{StartToCloseTimeout: 2 * time.Minute}
+		captureInput := model.CaptureKnowledgeInput{
+			SandboxID:          sandboxID,
+			TeamID:             input.TeamID,
+			WorkflowTemplateID: input.WorkflowTemplateID,
+			StepRunID:          input.StepRunID,
+		}
+		_ = workflow.ExecuteActivity(
+			workflow.WithActivityOptions(ctx, captureAO),
+			CaptureKnowledgeActivity, captureInput,
+		).Get(ctx, nil)
+	}
+
+	// 8. Cleanup (unless sandbox_group — DAGWorkflow handles that)
 	if input.StepDef.SandboxGroup == "" && input.SandboxID == "" {
 		cleanupAO := workflow.ActivityOptions{StartToCloseTimeout: 2 * time.Minute}
 		_ = workflow.ExecuteActivity(

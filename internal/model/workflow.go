@@ -59,6 +59,7 @@ type StepDef struct {
 	Inputs            *StepInputsDef  `yaml:"inputs,omitempty"`
 	Action            *ActionDef      `yaml:"action,omitempty"`
 	Sandbox           *SandboxSpec    `yaml:"sandbox,omitempty"`
+	Knowledge         *KnowledgeDef   `yaml:"knowledge,omitempty"`
 	Timeout           string          `yaml:"timeout,omitempty"`
 }
 

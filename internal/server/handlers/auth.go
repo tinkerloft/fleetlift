@@ -102,6 +102,20 @@ func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})
 }
 
+// HandleMe returns the authenticated user's identity.
+func (h *AuthHandler) HandleMe(w http.ResponseWriter, r *http.Request) {
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user_id":        claims.UserID,
+		"team_roles":     claims.TeamRoles,
+		"platform_admin": claims.PlatformAdmin,
+	})
+}
+
 func randomState() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)

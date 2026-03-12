@@ -20,6 +20,7 @@ type Deps struct {
 	Inbox       *handlers.InboxHandler
 	Reports     *handlers.ReportsHandler
 	Credentials *handlers.CredentialsHandler
+	Knowledge   *handlers.KnowledgeHandler
 }
 
 // NewRouter creates the HTTP router with all API routes.
@@ -37,6 +38,9 @@ func NewRouter(deps Deps) http.Handler {
 	// Authenticated API
 	r.Group(func(r chi.Router) {
 		r.Use(auth.Middleware(deps.JWTSecret))
+
+		// Identity
+		r.Get("/api/me", deps.Auth.HandleMe)
 
 		// Workflows (templates)
 		r.Get("/api/workflows", deps.Workflows.List)
@@ -72,6 +76,11 @@ func NewRouter(deps Deps) http.Handler {
 		r.Get("/api/credentials", deps.Credentials.List)
 		r.Post("/api/credentials", deps.Credentials.Set)
 		r.Delete("/api/credentials/{name}", deps.Credentials.Delete)
+
+		// Knowledge
+		r.Get("/api/knowledge", deps.Knowledge.List)
+		r.Patch("/api/knowledge/{id}", deps.Knowledge.UpdateStatus)
+		r.Delete("/api/knowledge/{id}", deps.Knowledge.Delete)
 	})
 
 	// Serve embedded React SPA

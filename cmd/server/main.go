@@ -13,6 +13,7 @@ import (
 
 	"github.com/tinkerloft/fleetlift/internal/auth"
 	"github.com/tinkerloft/fleetlift/internal/db"
+	"github.com/tinkerloft/fleetlift/internal/knowledge"
 	"github.com/tinkerloft/fleetlift/internal/server"
 	"github.com/tinkerloft/fleetlift/internal/server/handlers"
 	"github.com/tinkerloft/fleetlift/internal/template"
@@ -65,6 +66,9 @@ func main() {
 		log.Fatalf("init credentials handler: %v", err)
 	}
 
+	// Knowledge store
+	knowledgeStore := knowledge.NewDBStore(database)
+
 	// Build router
 	deps := server.Deps{
 		JWTSecret:   jwtSecret,
@@ -74,6 +78,7 @@ func main() {
 		Inbox:       handlers.NewInboxHandler(database),
 		Reports:     handlers.NewReportsHandler(database),
 		Credentials: credHandler,
+		Knowledge:   handlers.NewKnowledgeHandler(knowledgeStore),
 	}
 
 	addr := envOr("LISTEN_ADDR", ":8080")

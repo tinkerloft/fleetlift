@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"net/http"
+	"text/template"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jmoiron/sqlx"
@@ -62,22 +64,70 @@ func (h *ReportsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Export exports a report as a downloadable format.
+// Export exports a report as a downloadable format. Supports ?format=markdown.
 func (h *ReportsHandler) Export(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "runID")
+	format := r.URL.Query().Get("format")
 
-	var steps []model.StepRun
-	err := h.db.SelectContext(r.Context(), &steps,
-		`SELECT * FROM step_runs WHERE run_id = $1 ORDER BY created_at`, runID)
-	if err != nil {
-		http.Error(w, "failed to export report", http.StatusInternalServerError)
+	var run model.Run
+	if err := h.db.GetContext(r.Context(), &run, `SELECT * FROM runs WHERE id=$1`, runID); err != nil {
+		http.Error(w, "run not found", http.StatusNotFound)
 		return
 	}
 
-	// Export as JSON for now; could add CSV/PDF later
+	var steps []model.StepRun
+	if err := h.db.SelectContext(r.Context(), &steps,
+		`SELECT * FROM step_runs WHERE run_id=$1 ORDER BY created_at`, runID); err != nil {
+		http.Error(w, "failed to get steps", http.StatusInternalServerError)
+		return
+	}
+
+	if format == "markdown" {
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.Header().Set("Content-Disposition", "attachment; filename=report-"+runID+".md")
+		renderMarkdownReport(w, run, steps)
+		return
+	}
+
 	w.Header().Set("Content-Disposition", "attachment; filename=report-"+runID+".json")
-	writeJSON(w, http.StatusOK, map[string]any{
-		"run_id": runID,
-		"steps":  steps,
-	})
+	writeJSON(w, http.StatusOK, map[string]any{"run_id": runID, "run": run, "steps": steps})
+}
+
+const markdownReportTmpl = `# Report: {{.Run.WorkflowTitle}}
+
+**Run ID:** {{.Run.ID}}
+**Status:** {{.Run.Status}}
+**Started:** {{.Run.StartedAt}}
+**Completed:** {{.Run.CompletedAt}}
+
+---
+
+## Steps
+
+| Step | Status | Duration |
+|------|--------|----------|
+{{- range .Steps}}
+| {{.StepTitle}} | {{.Status}} | {{stepDuration .}} |
+{{- end}}
+
+{{range .Steps}}
+### {{.StepTitle}}
+
+**Status:** {{.Status}}
+{{if .ErrorMessage}}**Error:** {{.ErrorMessage}}{{end}}
+{{if .PRUrl}}**PR:** {{.PRUrl}}{{end}}
+{{end}}
+`
+
+func renderMarkdownReport(w http.ResponseWriter, run model.Run, steps []model.StepRun) {
+	funcMap := template.FuncMap{
+		"stepDuration": func(s model.StepRun) string {
+			if s.StartedAt == nil || s.CompletedAt == nil {
+				return "—"
+			}
+			return s.CompletedAt.Sub(*s.StartedAt).Round(time.Second).String()
+		},
+	}
+	tmpl := template.Must(template.New("report").Funcs(funcMap).Parse(markdownReportTmpl))
+	_ = tmpl.Execute(w, map[string]any{"Run": run, "Steps": steps})
 }

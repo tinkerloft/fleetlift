@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import {
-  Inbox, List, LayoutTemplate, FileText, Activity,
+  Inbox, List, LayoutTemplate, FileText, Activity, BookOpen,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { href: '/workflows', label: 'Workflows', icon: LayoutTemplate },
   { href: '/inbox',     label: 'Inbox',     icon: Inbox },
   { href: '/reports',   label: 'Reports',   icon: FileText },
+  { href: '/knowledge', label: 'Knowledge', icon: BookOpen },
 ]
 
 function NavLink({ href, label, icon: Icon, active, badge }: {

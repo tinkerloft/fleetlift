@@ -7,6 +7,7 @@ import (
 	"go.temporal.io/sdk/activity"
 
 	"github.com/tinkerloft/fleetlift/internal/agent"
+	"github.com/tinkerloft/fleetlift/internal/knowledge"
 	"github.com/tinkerloft/fleetlift/internal/model"
 	"github.com/tinkerloft/fleetlift/internal/workflow"
 )
@@ -48,6 +49,28 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 	prompt := input.Prompt
 	if input.ConversationHistory != "" {
 		prompt = input.ConversationHistory + "\n\n" + prompt
+	}
+
+	// Enrich prompt with approved knowledge items if configured
+	if stepInput.StepDef.Knowledge != nil && stepInput.StepDef.Knowledge.Enrich && a.KnowledgeStore != nil {
+		maxItems := stepInput.StepDef.Knowledge.MaxItems
+		if maxItems == 0 {
+			maxItems = 10
+		}
+		knowledgeItems, err := a.KnowledgeStore.ListApprovedByWorkflow(ctx,
+			stepInput.TeamID,
+			stepInput.WorkflowTemplateID,
+			maxItems,
+		)
+		if err == nil && len(knowledgeItems) > 0 {
+			enrichBlock := knowledge.FormatEnrichmentBlock(knowledgeItems)
+			prompt = enrichBlock + "\n\n" + prompt
+		}
+	}
+
+	// Instruct agent to capture knowledge if configured
+	if stepInput.StepDef.Knowledge != nil && stepInput.StepDef.Knowledge.Capture {
+		prompt += "\n\n## Knowledge Capture\n\nBefore exiting, write `fleetlift-knowledge.json` to the current directory with any insights you gained. Format:\n```json\n[\n  {\"type\": \"pattern|correction|gotcha|context\", \"summary\": \"brief insight\", \"details\": \"optional detail\", \"confidence\": 0.9}\n]\n```\nOnly include non-obvious insights worth sharing with future runs."
 	}
 
 	events, err := runner.Run(ctx, input.SandboxID, agent.RunOpts{

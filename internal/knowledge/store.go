@@ -1,239 +1,206 @@
-// Package knowledge provides local persistent storage for knowledge items.
+// Package knowledge provides storage for knowledge items.
 package knowledge
 
 import (
+	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
-	"gopkg.in/yaml.v3"
+	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 
 	"github.com/tinkerloft/fleetlift/internal/model"
 )
 
-// Store manages knowledge items on the local filesystem.
-// Layout: {BaseDir}/{task-id}/item-{item-id}.yaml
-type Store struct {
-	baseDir string
+// Store is the interface for knowledge item persistence.
+type Store interface {
+	Save(ctx context.Context, item model.KnowledgeItem) (model.KnowledgeItem, error)
+	ListByTeam(ctx context.Context, teamID, status string) ([]model.KnowledgeItem, error)
+	ListApprovedByWorkflow(ctx context.Context, teamID, workflowTemplateID string, maxItems int) ([]model.KnowledgeItem, error)
+	UpdateStatus(ctx context.Context, id string, status model.KnowledgeStatus) error
+	Delete(ctx context.Context, id string) error
 }
 
-// NewStore creates a Store using the given base directory.
-func NewStore(baseDir string) *Store {
-	return &Store{baseDir: baseDir}
+// DBStore is the production PostgreSQL-backed Store.
+type DBStore struct {
+	db *sqlx.DB
 }
 
-// DefaultStore creates a Store using ~/.fleetlift/knowledge.
-func DefaultStore() *Store {
-	home, _ := os.UserHomeDir()
-	return NewStore(filepath.Join(home, ".fleetlift", "knowledge"))
+// NewDBStore creates a new DBStore.
+func NewDBStore(db *sqlx.DB) *DBStore {
+	return &DBStore{db: db}
 }
 
-// BaseDir returns the base directory for this store.
-func (s *Store) BaseDir() string {
-	return s.baseDir
-}
-
-// Write persists a knowledge item for the given task ID.
-func (s *Store) Write(taskID string, item model.KnowledgeItem) error {
-	dir := filepath.Join(s.baseDir, taskID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("creating knowledge dir: %w", err)
+func (s *DBStore) Save(ctx context.Context, item model.KnowledgeItem) (model.KnowledgeItem, error) {
+	if item.ID == "" {
+		item.ID = uuid.New().String()
 	}
-	path := filepath.Join(dir, "item-"+item.ID+".yaml")
-	data, err := yaml.Marshal(item)
+	item.CreatedAt = time.Now()
+	if item.Status == "" {
+		item.Status = model.KnowledgeStatusPending
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO knowledge_items (id, team_id, workflow_template_id, step_run_id, type, summary, details, source, tags, confidence, status, created_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		item.ID, item.TeamID, nullStr(item.WorkflowTemplateID), nullStr(item.StepRunID),
+		string(item.Type), item.Summary, item.Details, string(item.Source),
+		item.Tags, item.Confidence, string(item.Status), item.CreatedAt,
+	)
 	if err != nil {
-		return fmt.Errorf("marshaling knowledge item: %w", err)
+		return item, fmt.Errorf("save knowledge item: %w", err)
 	}
-	return os.WriteFile(path, data, 0o644)
+	return item, nil
 }
 
-// List returns all knowledge items for a given task ID.
-func (s *Store) List(taskID string) ([]model.KnowledgeItem, error) {
-	dir := filepath.Join(s.baseDir, taskID)
-	entries, err := os.ReadDir(dir)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("reading knowledge dir: %w", err)
-	}
-
+func (s *DBStore) ListByTeam(ctx context.Context, teamID, status string) ([]model.KnowledgeItem, error) {
 	var items []model.KnowledgeItem
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
-			continue
-		}
-		item, err := readItem(filepath.Join(dir, e.Name()))
-		if err != nil {
-			continue // skip malformed items
-		}
-		items = append(items, item)
+	var err error
+	if status != "" {
+		err = s.db.SelectContext(ctx, &items,
+			`SELECT * FROM knowledge_items WHERE team_id=$1 AND status=$2 ORDER BY created_at DESC`,
+			teamID, status)
+	} else {
+		err = s.db.SelectContext(ctx, &items,
+			`SELECT * FROM knowledge_items WHERE team_id=$1 ORDER BY created_at DESC`, teamID)
 	}
-	return items, nil
+	return items, err
 }
 
-// ListAll returns all knowledge items across all tasks.
-func (s *Store) ListAll() ([]model.KnowledgeItem, error) {
-	entries, err := os.ReadDir(s.baseDir)
-	if os.IsNotExist(err) {
-		return nil, nil
+func (s *DBStore) ListApprovedByWorkflow(ctx context.Context, teamID, workflowTemplateID string, maxItems int) ([]model.KnowledgeItem, error) {
+	if maxItems <= 0 {
+		maxItems = 10
 	}
-	if err != nil {
-		return nil, fmt.Errorf("reading knowledge base dir: %w", err)
-	}
-
-	var all []model.KnowledgeItem
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		items, err := s.List(e.Name())
-		if err != nil {
-			continue
-		}
-		all = append(all, items...)
-	}
-	return all, nil
+	var items []model.KnowledgeItem
+	err := s.db.SelectContext(ctx, &items,
+		`SELECT * FROM knowledge_items
+		 WHERE team_id=$1 AND status='approved'
+		   AND (workflow_template_id=$2 OR workflow_template_id IS NULL)
+		 ORDER BY confidence DESC LIMIT $3`,
+		teamID, workflowTemplateID, maxItems)
+	return items, err
 }
 
-// Delete removes a knowledge item by its ID (searches all task subdirs).
-func (s *Store) Delete(itemID string) error {
-	taskDirs, err := os.ReadDir(s.baseDir)
-	if os.IsNotExist(err) {
+func (s *DBStore) UpdateStatus(ctx context.Context, id string, status model.KnowledgeStatus) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE knowledge_items SET status=$1 WHERE id=$2`, string(status), id)
+	return err
+}
+
+func (s *DBStore) Delete(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM knowledge_items WHERE id=$1`, id)
+	return err
+}
+
+func nullStr(s string) any {
+	if s == "" {
 		return nil
 	}
-	if err != nil {
-		return fmt.Errorf("reading knowledge base dir: %w", err)
-	}
+	return s
+}
 
-	target := "item-" + itemID + ".yaml"
-	for _, td := range taskDirs {
-		if !td.IsDir() {
+// MemoryStore is an in-memory Store for unit tests.
+type MemoryStore struct {
+	mu    sync.Mutex
+	items []model.KnowledgeItem
+}
+
+// NewMemoryStore creates a new in-memory Store.
+func NewMemoryStore() *MemoryStore {
+	return &MemoryStore{}
+}
+
+func (s *MemoryStore) Save(_ context.Context, item model.KnowledgeItem) (model.KnowledgeItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if item.ID == "" {
+		item.ID = uuid.New().String()
+	}
+	if item.CreatedAt.IsZero() {
+		item.CreatedAt = time.Now()
+	}
+	s.items = append(s.items, item)
+	return item, nil
+}
+
+func (s *MemoryStore) ListByTeam(_ context.Context, teamID, status string) ([]model.KnowledgeItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []model.KnowledgeItem
+	for _, item := range s.items {
+		if item.TeamID != teamID {
 			continue
 		}
-		path := filepath.Join(s.baseDir, td.Name(), target)
-		if err := os.Remove(path); err == nil {
+		if status != "" && string(item.Status) != status {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func (s *MemoryStore) ListApprovedByWorkflow(_ context.Context, teamID, workflowTemplateID string, maxItems int) ([]model.KnowledgeItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []model.KnowledgeItem
+	for _, item := range s.items {
+		if item.TeamID != teamID {
+			continue
+		}
+		if item.Status != model.KnowledgeStatusApproved {
+			continue
+		}
+		if item.WorkflowTemplateID != "" && item.WorkflowTemplateID != workflowTemplateID {
+			continue
+		}
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Confidence > out[j].Confidence })
+	if maxItems > 0 && len(out) > maxItems {
+		out = out[:maxItems]
+	}
+	return out, nil
+}
+
+func (s *MemoryStore) UpdateStatus(_ context.Context, id string, status model.KnowledgeStatus) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, item := range s.items {
+		if item.ID == id {
+			s.items[i].Status = status
 			return nil
 		}
 	}
-	return fmt.Errorf("knowledge item %q not found", itemID)
+	return fmt.Errorf("item %s not found", id)
 }
 
-// Update finds a knowledge item by ID across all task directories and rewrites it in-place.
-func (s *Store) Update(item model.KnowledgeItem) error {
-	entries, err := os.ReadDir(s.baseDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("item %s not found", item.ID)
+func (s *MemoryStore) Delete(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, item := range s.items {
+		if item.ID == id {
+			s.items = append(s.items[:i], s.items[i+1:]...)
+			return nil
 		}
-		return err
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		itemPath := filepath.Join(s.baseDir, entry.Name(), "item-"+item.ID+".yaml")
-		if _, err := os.Stat(itemPath); os.IsNotExist(err) {
-			continue
-		}
-		data, err := yaml.Marshal(item)
-		if err != nil {
-			return fmt.Errorf("marshaling item: %w", err)
-		}
-		return os.WriteFile(itemPath, data, 0o644)
-	}
-	return fmt.Errorf("item %s not found", item.ID)
+	return nil
 }
 
-// ListApproved returns all knowledge items with Status == KnowledgeStatusApproved.
-func (s *Store) ListApproved() ([]model.KnowledgeItem, error) {
-	all, err := s.ListAll()
-	if err != nil {
-		return nil, err
+// FormatEnrichmentBlock formats approved knowledge items as a prompt context block.
+func FormatEnrichmentBlock(items []model.KnowledgeItem) string {
+	if len(items) == 0 {
+		return ""
 	}
-	var approved []model.KnowledgeItem
-	for _, item := range all {
-		if item.Status == model.KnowledgeStatusApproved {
-			approved = append(approved, item)
+	var sb strings.Builder
+	sb.WriteString("## Knowledge Base\n\nThe following insights from previous runs may be relevant:\n\n")
+	for _, item := range items {
+		sb.WriteString(fmt.Sprintf("**[%s]** %s\n", item.Type, item.Summary))
+		if item.Details != "" {
+			sb.WriteString(fmt.Sprintf("  %s\n", item.Details))
 		}
+		sb.WriteString("\n")
 	}
-	return approved, nil
-}
-
-// FilterByTags returns up to maxItems knowledge items whose tags overlap with filterTags.
-// If filterTags is empty, returns all items up to maxItems, sorted by confidence descending.
-// Only approved items are returned.
-func (s *Store) FilterByTags(filterTags []string, maxItems int) ([]model.KnowledgeItem, error) {
-	all, err := s.ListApproved()
-	if err != nil {
-		return nil, err
-	}
-
-	tagSet := make(map[string]bool, len(filterTags))
-	for _, t := range filterTags {
-		tagSet[strings.ToLower(t)] = true
-	}
-
-	var matched []model.KnowledgeItem
-	for _, item := range all {
-		if len(tagSet) == 0 {
-			matched = append(matched, item)
-			continue
-		}
-		for _, t := range item.Tags {
-			if tagSet[strings.ToLower(t)] {
-				matched = append(matched, item)
-				break
-			}
-		}
-	}
-
-	sort.Slice(matched, func(i, j int) bool {
-		return matched[i].Confidence > matched[j].Confidence
-	})
-
-	if maxItems > 0 && len(matched) > maxItems {
-		matched = matched[:maxItems]
-	}
-	return matched, nil
-}
-
-// LoadFromRepo loads knowledge items from a transformation repository's
-// .fleetlift/knowledge/items/ directory.
-func LoadFromRepo(repoPath string) ([]model.KnowledgeItem, error) {
-	dir := filepath.Join(repoPath, ".fleetlift", "knowledge", "items")
-	entries, err := os.ReadDir(dir)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("reading repo knowledge dir: %w", err)
-	}
-
-	var items []model.KnowledgeItem
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
-			continue
-		}
-		item, err := readItem(filepath.Join(dir, e.Name()))
-		if err != nil {
-			continue
-		}
-		items = append(items, item)
-	}
-	return items, nil
-}
-
-func readItem(path string) (model.KnowledgeItem, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return model.KnowledgeItem{}, err
-	}
-	var item model.KnowledgeItem
-	if err := yaml.Unmarshal(data, &item); err != nil {
-		return model.KnowledgeItem{}, err
-	}
-	return item, nil
+	return sb.String()
 }

@@ -57,6 +57,21 @@ func (c *apiClient) delete(path string) error {
 	return c.do(req, nil)
 }
 
+func (c *apiClient) patch(path string, body any) error {
+	var buf bytes.Buffer
+	if body != nil {
+		if err := json.NewEncoder(&buf).Encode(body); err != nil {
+			return err
+		}
+	}
+	req, err := http.NewRequest(http.MethodPatch, c.base+path, &buf)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return c.do(req, nil)
+}
+
 func (c *apiClient) do(req *http.Request, out any) error {
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)

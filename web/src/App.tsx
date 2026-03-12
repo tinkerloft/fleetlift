@@ -7,6 +7,7 @@ import { RunDetailPage } from './pages/RunDetail'
 import { InboxPage } from './pages/Inbox'
 import { ReportListPage } from './pages/ReportList'
 import { ReportDetailPage } from './pages/ReportDetail'
+import { KnowledgePage } from './pages/KnowledgePage'
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
         <Route path="/inbox" element={<InboxPage />} />
         <Route path="/reports" element={<ReportListPage />} />
         <Route path="/reports/:runId" element={<ReportDetailPage />} />
+        <Route path="/knowledge" element={<KnowledgePage />} />
       </Routes>
     </Layout>
   )

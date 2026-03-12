@@ -1,13 +1,16 @@
 package workflow
 
 import (
+	"bytes"
 	"fmt"
+	"strings"
+	"text/template"
 	"time"
 
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/tinkerloft/fleetlift/internal/model"
-	"github.com/tinkerloft/fleetlift/internal/template"
+	fltemplate "github.com/tinkerloft/fleetlift/internal/template"
 )
 
 // DAGInput is the top-level input for the DAGWorkflow.
@@ -163,7 +166,7 @@ func resolveStep(step model.StepDef, params map[string]any, outputs map[string]*
 		return opts, nil
 	}
 
-	prompt, err := template.RenderPrompt(step.Execution.Prompt, template.RenderContext{
+	prompt, err := fltemplate.RenderPrompt(step.Execution.Prompt, fltemplate.RenderContext{
 		Params: params,
 		Steps:  outputs,
 	})
@@ -183,15 +186,39 @@ func resolveStep(step model.StepDef, params map[string]any, outputs map[string]*
 	return opts, nil
 }
 
-// evalCondition evaluates a simple condition string. Currently supports checking
-// if a prior step completed or failed via "steps.<id>.status == '<status>'" patterns.
-// Returns true by default for unrecognized conditions.
-func evalCondition(condition string, _ map[string]any, outputs map[string]*model.StepOutput) bool {
-	// Simple implementation: if condition references a step output, check it
-	// Full expression evaluation would be added later
-	_ = condition
-	_ = outputs
-	return true
+// evalCondition evaluates a Go template condition string against step outputs and params.
+// Returns true if the condition is empty, fails to parse, or evaluates to "true".
+func evalCondition(condition string, params map[string]any, outputs map[string]*model.StepOutput) bool {
+	if condition == "" {
+		return true
+	}
+
+	steps := map[string]map[string]any{}
+	for id, out := range outputs {
+		if out != nil {
+			steps[id] = map[string]any{
+				"status": string(out.Status),
+				"error":  out.Error,
+			}
+		}
+	}
+
+	data := map[string]any{
+		"steps":  steps,
+		"params": params,
+	}
+
+	tmpl, err := template.New("cond").Parse(condition)
+	if err != nil {
+		return true
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return true
+	}
+
+	return strings.TrimSpace(buf.String()) == "true"
 }
 
 // executeAction runs a non-agent action step (e.g., slack notification, GitHub action).

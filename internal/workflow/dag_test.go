@@ -108,6 +108,26 @@ func TestSkipDownstream(t *testing.T) {
 	assert.True(t, stillPending)
 }
 
+func TestEvalCondition_Always(t *testing.T) {
+	assert.True(t, evalCondition("true", nil, nil))
+}
+
+func TestEvalCondition_StepStatus(t *testing.T) {
+	outputs := map[string]*model.StepOutput{
+		"step-a": {Status: model.StepStatusComplete},
+	}
+	assert.True(t, evalCondition(`{{eq (index .steps "step-a").status "complete"}}`, nil, outputs))
+	assert.False(t, evalCondition(`{{eq (index .steps "step-a").status "failed"}}`, nil, outputs))
+}
+
+func TestEvalCondition_Empty(t *testing.T) {
+	assert.True(t, evalCondition("", nil, nil))
+}
+
+func TestEvalCondition_InvalidTemplate(t *testing.T) {
+	assert.True(t, evalCondition("{{broken", nil, nil))
+}
+
 func TestResolveStep_NilExecution(t *testing.T) {
 	step := model.StepDef{ID: "action-step"}
 	opts, err := resolveStep(step, nil, nil)

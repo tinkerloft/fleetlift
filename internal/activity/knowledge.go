@@ -1,27 +1,63 @@
-// Package activity contains Temporal activity implementations.
-// TODO: Knowledge capture activities will be adapted in Phase 9.
 package activity
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
 
-	"go.temporal.io/sdk/activity"
-
-	"github.com/tinkerloft/fleetlift/internal/knowledge"
+	"github.com/tinkerloft/fleetlift/internal/model"
 )
 
-// KnowledgeActivities contains Temporal activities for knowledge capture and enrichment.
-type KnowledgeActivities struct {
-	Store *knowledge.Store
-}
+// CaptureKnowledge reads fleetlift-knowledge.json from the sandbox and persists items to the DB.
+func (a *Activities) CaptureKnowledge(ctx context.Context, input model.CaptureKnowledgeInput) error {
+	if a.KnowledgeStore == nil {
+		slog.WarnContext(ctx, "KnowledgeStore not configured, skipping capture")
+		return nil
+	}
 
-// NewKnowledgeActivities creates a new KnowledgeActivities instance.
-func NewKnowledgeActivities(store *knowledge.Store) *KnowledgeActivities {
-	return &KnowledgeActivities{Store: store}
-}
+	data, err := a.Sandbox.ReadBytes(ctx, input.SandboxID, "fleetlift-knowledge.json")
+	if err != nil {
+		slog.InfoContext(ctx, "no fleetlift-knowledge.json found in sandbox", "sandbox_id", input.SandboxID)
+		return nil
+	}
 
-// CaptureKnowledge is a placeholder for the knowledge capture activity.
-func (a *KnowledgeActivities) CaptureKnowledge(ctx context.Context) error {
-	_ = activity.GetLogger(ctx)
+	type rawItem struct {
+		Type       string   `json:"type"`
+		Summary    string   `json:"summary"`
+		Details    string   `json:"details"`
+		Tags       []string `json:"tags"`
+		Confidence float64  `json:"confidence"`
+	}
+	var raw []rawItem
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("parse fleetlift-knowledge.json: %w", err)
+	}
+
+	for _, r := range raw {
+		if r.Summary == "" {
+			continue
+		}
+		conf := r.Confidence
+		if conf == 0 {
+			conf = 1.0
+		}
+		item := model.KnowledgeItem{
+			TeamID:             input.TeamID,
+			WorkflowTemplateID: input.WorkflowTemplateID,
+			StepRunID:          input.StepRunID,
+			Type:               model.KnowledgeType(r.Type),
+			Summary:            r.Summary,
+			Details:            r.Details,
+			Source:             model.KnowledgeSourceAutoCaptured,
+			Tags:               r.Tags,
+			Confidence:         conf,
+			Status:             model.KnowledgeStatusPending,
+		}
+		if _, err := a.KnowledgeStore.Save(ctx, item); err != nil {
+			slog.ErrorContext(ctx, "failed to save knowledge item", "error", err)
+		}
+	}
+
 	return nil
 }
