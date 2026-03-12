@@ -17,7 +17,7 @@ var schema string
 func Connect(ctx context.Context) (*sqlx.DB, error) {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		dsn = "postgres://fleetlift:fleetlift@localhost:5432/fleetlift?sslmode=disable"
+		return nil, fmt.Errorf("DATABASE_URL environment variable is required")
 	}
 	db, err := sqlx.ConnectContext(ctx, "postgres", dsn)
 	if err != nil {

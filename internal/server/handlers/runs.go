@@ -249,20 +249,23 @@ func (h *RunsHandler) Output(w http.ResponseWriter, r *http.Request) {
 
 // IssueSSETicket issues a short-lived single-use ticket for SSE connections.
 // EventSource does not support custom headers, so Bearer auth cannot be used directly.
+// The ticket is bound to the resource ID in the URL ({id} path param).
 func (h *RunsHandler) IssueSSETicket(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	ticket := auth.IssueSSETicket(claims)
+	resourceID := chi.URLParam(r, "id")
+	ticket := auth.IssueSSETicket(claims, resourceID)
 	writeJSON(w, http.StatusOK, map[string]string{"ticket": ticket})
 }
 
 // claimsFromSSERequest resolves claims from a ticket query param (for SSE) or from the request context.
-func claimsFromSSERequest(r *http.Request) (*auth.Claims, bool) {
+// resourceID is the run or step run ID the ticket must be bound to.
+func claimsFromSSERequest(r *http.Request, resourceID string) (*auth.Claims, bool) {
 	if ticket := r.URL.Query().Get("ticket"); ticket != "" {
-		c, ok := auth.ConsumeSSETicket(ticket)
+		c, ok := auth.ConsumeSSETicket(ticket, resourceID)
 		return c, ok
 	}
 	c := auth.ClaimsFromContext(r.Context())
@@ -271,13 +274,12 @@ func claimsFromSSERequest(r *http.Request) (*auth.Claims, bool) {
 
 // Stream sends SSE events for a run's logs and status updates.
 func (h *RunsHandler) Stream(w http.ResponseWriter, r *http.Request) {
-	claims, ok := claimsFromSSERequest(r)
+	runID := chi.URLParam(r, "id")
+	claims, ok := claimsFromSSERequest(r, runID)
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-
-	runID := chi.URLParam(r, "id")
 	teamID := teamIDFromRequest(w, r, claims)
 	if teamID == "" {
 		return // error already written
@@ -342,13 +344,12 @@ func (h *RunsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 
 // StepLogs sends SSE log lines for a specific step run.
 func (h *RunsHandler) StepLogs(w http.ResponseWriter, r *http.Request) {
-	claims, ok := claimsFromSSERequest(r)
+	stepRunID := chi.URLParam(r, "id")
+	claims, ok := claimsFromSSERequest(r, stepRunID)
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-
-	stepRunID := chi.URLParam(r, "id")
 	teamID := teamIDFromRequest(w, r, claims)
 	if teamID == "" {
 		return // error already written

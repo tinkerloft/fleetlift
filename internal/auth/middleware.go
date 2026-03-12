@@ -33,28 +33,36 @@ var (
 )
 
 type sseTicket struct {
-	claims  *Claims
-	expires time.Time
+	claims     *Claims
+	resourceID string // run ID or step run ID the ticket is valid for
+	expires    time.Time
 }
 
 // IssueSSETicket creates a short-lived ticket that can be exchanged for a session in SSE endpoints.
-func IssueSSETicket(claims *Claims) string {
+// The ticket is bound to resourceID (a run ID or step run ID) and will be rejected if presented
+// for a different resource.
+func IssueSSETicket(claims *Claims, resourceID string) string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	ticket := hex.EncodeToString(b)
 	sseTicketMu.Lock()
-	sseTickets[ticket] = sseTicket{claims: claims, expires: time.Now().Add(60 * time.Second)}
+	sseTickets[ticket] = sseTicket{claims: claims, resourceID: resourceID, expires: time.Now().Add(60 * time.Second)}
 	sseTicketMu.Unlock()
 	return ticket
 }
 
 // ConsumeSSETicket validates and removes a ticket, returning its claims.
-func ConsumeSSETicket(ticket string) (*Claims, bool) {
+// resourceID must match what was provided to IssueSSETicket; a mismatch returns false.
+func ConsumeSSETicket(ticket, resourceID string) (*Claims, bool) {
 	sseTicketMu.Lock()
 	defer sseTicketMu.Unlock()
 	t, ok := sseTickets[ticket]
 	if !ok || time.Now().After(t.expires) {
 		delete(sseTickets, ticket)
+		return nil, false
+	}
+	if t.resourceID != resourceID {
+		// Do not consume — mismatched resource; leave ticket in place to avoid timing side-channels.
 		return nil, false
 	}
 	delete(sseTickets, ticket)
