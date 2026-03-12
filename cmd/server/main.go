@@ -16,6 +16,7 @@ import (
 	"github.com/tinkerloft/fleetlift/internal/knowledge"
 	"github.com/tinkerloft/fleetlift/internal/server"
 	"github.com/tinkerloft/fleetlift/internal/server/handlers"
+	"github.com/tinkerloft/fleetlift/internal/server/notify"
 	"github.com/tinkerloft/fleetlift/internal/template"
 )
 
@@ -69,12 +70,20 @@ func main() {
 	// Knowledge store
 	knowledgeStore := knowledge.NewDBStore(database)
 
+	// Notify listener — fan-outs PostgreSQL LISTEN/NOTIFY to SSE subscribers.
+	nl := notify.New(envOr("DATABASE_URL", "postgres://fleetlift:fleetlift@localhost:5432/fleetlift"))
+	go func() {
+		if err := nl.Start(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("notify listener exited: %v", err)
+		}
+	}()
+
 	// Build router
 	deps := server.Deps{
 		JWTSecret:   jwtSecret,
 		Auth:        handlers.NewAuthHandler(database, ghProvider, jwtSecret),
 		Workflows:   handlers.NewWorkflowsHandler(registry),
-		Runs:        handlers.NewRunsHandler(database, temporalClient, registry),
+		Runs:        handlers.NewRunsHandler(database, temporalClient, registry, nl),
 		Inbox:       handlers.NewInboxHandler(database),
 		Reports:     handlers.NewReportsHandler(database),
 		Credentials: credHandler,

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/tinkerloft/fleetlift/internal/auth"
 	"github.com/tinkerloft/fleetlift/internal/model"
+	"github.com/tinkerloft/fleetlift/internal/server/notify"
 	"github.com/tinkerloft/fleetlift/internal/template"
 	"github.com/tinkerloft/fleetlift/internal/workflow"
 )
@@ -22,11 +22,12 @@ type RunsHandler struct {
 	db       *sqlx.DB
 	temporal client.Client
 	registry *template.Registry
+	Notify   *notify.Listener
 }
 
 // NewRunsHandler creates a new RunsHandler.
-func NewRunsHandler(db *sqlx.DB, temporal client.Client, registry *template.Registry) *RunsHandler {
-	return &RunsHandler{db: db, temporal: temporal, registry: registry}
+func NewRunsHandler(db *sqlx.DB, temporal client.Client, registry *template.Registry, nl *notify.Listener) *RunsHandler {
+	return &RunsHandler{db: db, temporal: temporal, registry: registry, Notify: nl}
 }
 
 type createRunRequest struct {
@@ -272,6 +273,39 @@ func claimsFromSSERequest(r *http.Request, resourceID string) (*auth.Claims, boo
 	return c, c != nil
 }
 
+// streamFlush queries and emits new log lines and a status event for the run.
+// Returns true if the run has reached a terminal state.
+func (h *RunsHandler) streamFlush(w http.ResponseWriter, r *http.Request, flusher http.Flusher, runID string, cursor *int64) bool {
+	// Stream new log lines
+	var logs []model.StepRunLog
+	err := h.db.SelectContext(r.Context(), &logs,
+		`SELECT l.* FROM step_run_logs l
+		 JOIN step_runs s ON l.step_run_id = s.id
+		 WHERE s.run_id = $1 AND l.id > $2 ORDER BY l.id`, runID, *cursor)
+	if err == nil {
+		for _, log := range logs {
+			fmt.Fprintf(w, "data: %s\n\n", mustJSON(log))
+			if log.ID > *cursor {
+				*cursor = log.ID
+			}
+		}
+		if len(logs) > 0 {
+			flusher.Flush()
+		}
+	}
+
+	// Send status update
+	var run model.Run
+	if h.db.GetContext(r.Context(), &run, `SELECT * FROM runs WHERE id = $1`, runID) == nil {
+		fmt.Fprintf(w, "event: status\ndata: %s\n\n", mustJSON(map[string]string{
+			"status": string(run.Status),
+		}))
+		flusher.Flush()
+		return isRunTerminal(run.Status)
+	}
+	return false
+}
+
 // Stream sends SSE events for a run's logs and status updates.
 func (h *RunsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "id")
@@ -298,48 +332,65 @@ func (h *RunsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var cursor int64
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
+
+	// If the notify listener is not available, fall back to nil and the loop below
+	// will block on context cancellation only (tests or degraded mode).
+	if h.Notify == nil {
+		// Nil listener — just do one flush and block until client disconnects.
+		h.streamFlush(w, r, flusher, runID, &cursor)
+		<-r.Context().Done()
+		return
+	}
+
+	ch := h.Notify.Subscribe(runID)
+	defer h.Notify.Unsubscribe(runID, ch)
+
+	// Immediately flush current state before waiting for notifications.
+	if h.streamFlush(w, r, flusher, runID, &cursor) {
+		return
+	}
 
 	for {
 		select {
+		case <-ch:
+			if h.streamFlush(w, r, flusher, runID, &cursor) {
+				return
+			}
 		case <-r.Context().Done():
 			return
-		case <-ticker.C:
-			// Stream new log lines
-			var logs []model.StepRunLog
-			err := h.db.SelectContext(r.Context(), &logs,
-				`SELECT l.* FROM step_run_logs l
-				 JOIN step_runs s ON l.step_run_id = s.id
-				 WHERE s.run_id = $1 AND l.id > $2 ORDER BY l.id`, runID, cursor)
-			if err != nil {
-				continue
-			}
-			for _, log := range logs {
-				fmt.Fprintf(w, "data: %s\n\n", mustJSON(log))
-				if log.ID > cursor {
-					cursor = log.ID
-				}
-			}
-			if len(logs) > 0 {
-				flusher.Flush()
-			}
-
-			// Send status update
-			var run model.Run
-			if h.db.GetContext(r.Context(), &run, `SELECT * FROM runs WHERE id = $1`, runID) == nil {
-				fmt.Fprintf(w, "event: status\ndata: %s\n\n", mustJSON(map[string]string{
-					"status": string(run.Status),
-				}))
-				flusher.Flush()
-
-				// Stop streaming if run is terminal
-				if isRunTerminal(run.Status) {
-					return
-				}
-			}
 		}
 	}
+}
+
+// stepLogsFlush queries and emits new log lines for the step run.
+// Returns true if the step run has reached a terminal state.
+func (h *RunsHandler) stepLogsFlush(w http.ResponseWriter, r *http.Request, flusher http.Flusher, stepRunID string, cursor *int64) bool {
+	var logs []model.StepRunLog
+	err := h.db.SelectContext(r.Context(), &logs,
+		`SELECT * FROM step_run_logs WHERE step_run_id = $1 AND id > $2 ORDER BY id`,
+		stepRunID, *cursor)
+	if err == nil {
+		for _, log := range logs {
+			fmt.Fprintf(w, "data: %s\n\n", mustJSON(log))
+			if log.ID > *cursor {
+				*cursor = log.ID
+			}
+		}
+		if len(logs) > 0 {
+			flusher.Flush()
+		}
+	}
+
+	// Stop once the step run is terminal
+	var status string
+	if h.db.QueryRowContext(r.Context(),
+		`SELECT status FROM step_runs WHERE id = $1`, stepRunID).Scan(&status) == nil {
+		switch status {
+		case "complete", "failed", "cancelled":
+			return true
+		}
+	}
+	return false
 }
 
 // StepLogs sends SSE log lines for a specific step run.
@@ -355,11 +406,12 @@ func (h *RunsHandler) StepLogs(w http.ResponseWriter, r *http.Request) {
 		return // error already written
 	}
 
-	// Verify the step_run belongs to a run owned by this team.
-	var count int
+	// Verify the step_run belongs to a run owned by this team, and retrieve the run_id
+	// so we can subscribe to the run-level notify channel.
+	var runID string
 	if err := h.db.QueryRowContext(r.Context(),
-		`SELECT COUNT(*) FROM step_runs s JOIN runs r ON s.run_id = r.id WHERE s.id = $1 AND r.team_id = $2`,
-		stepRunID, teamID).Scan(&count); err != nil || count == 0 {
+		`SELECT r.id FROM step_runs s JOIN runs r ON s.run_id = r.id WHERE s.id = $1 AND r.team_id = $2`,
+		stepRunID, teamID).Scan(&runID); err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
@@ -375,40 +427,31 @@ func (h *RunsHandler) StepLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var cursor int64
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
+
+	if h.Notify == nil {
+		// Nil listener — just do one flush and block until client disconnects.
+		h.stepLogsFlush(w, r, flusher, stepRunID, &cursor)
+		<-r.Context().Done()
+		return
+	}
+
+	// Subscribe on the run_id — log insert and step status updates both notify on run_id.
+	ch := h.Notify.Subscribe(runID)
+	defer h.Notify.Unsubscribe(runID, ch)
+
+	// Immediately flush current state before waiting for notifications.
+	if h.stepLogsFlush(w, r, flusher, stepRunID, &cursor) {
+		return
+	}
 
 	for {
 		select {
+		case <-ch:
+			if h.stepLogsFlush(w, r, flusher, stepRunID, &cursor) {
+				return
+			}
 		case <-r.Context().Done():
 			return
-		case <-ticker.C:
-			var logs []model.StepRunLog
-			err := h.db.SelectContext(r.Context(), &logs,
-				`SELECT * FROM step_run_logs WHERE step_run_id = $1 AND id > $2 ORDER BY id`,
-				stepRunID, cursor)
-			if err != nil {
-				continue
-			}
-			for _, log := range logs {
-				fmt.Fprintf(w, "data: %s\n\n", mustJSON(log))
-				if log.ID > cursor {
-					cursor = log.ID
-				}
-			}
-			if len(logs) > 0 {
-				flusher.Flush()
-			}
-
-			// Stop once the step run is terminal
-			var status string
-			if h.db.QueryRowContext(r.Context(),
-				`SELECT status FROM step_runs WHERE id = $1`, stepRunID).Scan(&status) == nil {
-				switch status {
-				case "complete", "failed", "cancelled":
-					return
-				}
-			}
 		}
 	}
 }

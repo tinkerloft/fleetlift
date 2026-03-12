@@ -190,3 +190,26 @@ CREATE INDEX IF NOT EXISTS runs_team_created
 -- Added 2026-03-12; apply via: psql $DATABASE_URL -f internal/db/schema.sql
 CREATE INDEX IF NOT EXISTS runs_team_completed
     ON runs (team_id, status, completed_at DESC);
+
+-- LISTEN/NOTIFY for SSE streaming (replaces 500ms polling)
+-- Added 2026-03-12; apply triggers via: psql $DATABASE_URL -f internal/db/schema.sql
+CREATE OR REPLACE FUNCTION notify_run_event() RETURNS trigger AS $$
+BEGIN
+  IF TG_TABLE_NAME = 'step_run_logs' THEN
+    PERFORM pg_notify('run_events',
+      (SELECT run_id::text FROM step_runs WHERE id = NEW.step_run_id));
+  ELSIF TG_TABLE_NAME = 'step_runs' THEN
+    PERFORM pg_notify('run_events', NEW.run_id::text);
+  ELSIF TG_TABLE_NAME = 'runs' THEN
+    PERFORM pg_notify('run_events', NEW.id::text);
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER step_run_logs_notify
+  AFTER INSERT ON step_run_logs FOR EACH ROW EXECUTE FUNCTION notify_run_event();
+CREATE OR REPLACE TRIGGER step_runs_notify
+  AFTER UPDATE OF status ON step_runs FOR EACH ROW EXECUTE FUNCTION notify_run_event();
+CREATE OR REPLACE TRIGGER runs_notify
+  AFTER UPDATE OF status ON runs FOR EACH ROW EXECUTE FUNCTION notify_run_event();
