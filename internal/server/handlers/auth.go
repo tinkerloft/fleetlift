@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 
@@ -113,13 +114,33 @@ func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Reques
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   3600,
 	})
+
+	refreshToken, err := auth.IssueRefreshToken(r.Context(), h.db, userID)
+	if err == nil {
+		http.SetCookie(w, &http.Cookie{
+			Name:     "refresh_token",
+			Value:    refreshToken,
+			Path:     "/auth/refresh",
+			HttpOnly: true,
+			Secure:   r.TLS != nil,
+			SameSite: http.SameSiteStrictMode,
+			MaxAge:   int(30 * 24 * time.Hour / time.Second),
+		})
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})
 }
 
-// HandleRefresh refreshes an expired JWT token.
+// HandleRefresh rotates the refresh token and issues a new access JWT.
 func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
-	claims := auth.ClaimsFromContext(r.Context())
-	if claims == nil {
+	cookie, err := r.Cookie("refresh_token")
+	if err != nil {
+		http.Error(w, "missing refresh token", http.StatusUnauthorized)
+		return
+	}
+
+	newRefreshToken, userID, err := auth.RotateRefreshToken(r.Context(), h.db, cookie.Value)
+	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -127,7 +148,7 @@ func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	// Re-query current roles from DB to prevent stale claim perpetuation
 	teamRoles := map[string]string{}
 	rows, err := h.db.QueryxContext(r.Context(),
-		`SELECT team_id, role FROM team_members WHERE user_id = $1`, claims.UserID)
+		`SELECT team_id, role FROM team_members WHERE user_id = $1`, userID)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -140,13 +161,24 @@ func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 
 	var platformAdmin bool
 	_ = h.db.GetContext(r.Context(), &platformAdmin,
-		`SELECT platform_admin FROM users WHERE id = $1`, claims.UserID)
+		`SELECT platform_admin FROM users WHERE id = $1`, userID)
 
-	token, err := auth.IssueToken(h.jwtSecret, claims.UserID, teamRoles, platformAdmin)
+	token, err := auth.IssueToken(h.jwtSecret, userID, teamRoles, platformAdmin)
 	if err != nil {
 		http.Error(w, "failed to issue token", http.StatusInternalServerError)
 		return
 	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    newRefreshToken,
+		Path:     "/auth/refresh",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int(30 * 24 * time.Hour / time.Second),
+	})
+
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})
 }
 
