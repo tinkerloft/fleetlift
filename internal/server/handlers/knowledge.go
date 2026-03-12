@@ -27,7 +27,10 @@ func (h *KnowledgeHandler) List(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	status := r.URL.Query().Get("status")
 
 	items, err := h.store.ListByTeam(r.Context(), teamID, status)
@@ -44,7 +47,10 @@ func (h *KnowledgeHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	id := chi.URLParam(r, "id")
 
 	var body struct {
@@ -74,7 +80,10 @@ func (h *KnowledgeHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	id := chi.URLParam(r, "id")
 	if err := h.store.Delete(r.Context(), id, teamID); err != nil {
 		http.Error(w, "failed to delete knowledge item", http.StatusInternalServerError)

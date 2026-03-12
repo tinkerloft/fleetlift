@@ -45,7 +45,10 @@ func (h *CredentialsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	var creds []credentialEntry
 	err := h.db.SelectContext(r.Context(), &creds,
 		`SELECT name, created_at, updated_at FROM credentials WHERE team_id = $1 ORDER BY name`,
@@ -82,7 +85,10 @@ func (h *CredentialsHandler) Set(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 
 	encrypted, err := activity.EncryptAESGCM(h.encryptionKey, []byte(req.Value))
 	if err != nil {
@@ -111,7 +117,10 @@ func (h *CredentialsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	name := chi.URLParam(r, "name")
 
 	result, err := h.db.ExecContext(r.Context(),

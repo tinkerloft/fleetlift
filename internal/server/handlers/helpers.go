@@ -32,12 +32,29 @@ func mustMarshal(v any) []byte {
 	return b
 }
 
-// firstTeamID extracts the first team ID from JWT claims.
-// In a multi-team setup, the client would specify which team via header/query param.
-func firstTeamID(claims *auth.Claims) string {
-	for teamID := range claims.TeamRoles {
+// teamIDFromRequest extracts and validates the team ID from the request.
+// Accepts X-Team-ID header or ?team_id= query param.
+// Falls back to the sole team for single-team users.
+// Returns "" and writes 400/403 if ambiguous or the team is not in the JWT.
+func teamIDFromRequest(w http.ResponseWriter, r *http.Request, claims *auth.Claims) string {
+	teamID := r.Header.Get("X-Team-ID")
+	if teamID == "" {
+		teamID = r.URL.Query().Get("team_id")
+	}
+	if teamID != "" {
+		if _, ok := claims.TeamRoles[teamID]; !ok {
+			http.Error(w, "team not found in token", http.StatusForbidden)
+			return ""
+		}
 		return teamID
 	}
+	// Convenience: single-team users don't need the header/param.
+	if len(claims.TeamRoles) == 1 {
+		for id := range claims.TeamRoles {
+			return id
+		}
+	}
+	http.Error(w, "X-Team-ID header (or ?team_id= param) required for multi-team accounts", http.StatusBadRequest)
 	return ""
 }
 

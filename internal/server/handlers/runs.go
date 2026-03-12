@@ -48,7 +48,10 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 
 	// Look up workflow template
 	t, err := h.registry.Get(r.Context(), teamID, req.WorkflowID)
@@ -109,7 +112,10 @@ func (h *RunsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	var runs []model.Run
 	err := h.db.SelectContext(r.Context(), &runs,
 		`SELECT * FROM runs WHERE team_id = $1 ORDER BY created_at DESC LIMIT 50`, teamID)
@@ -128,7 +134,10 @@ func (h *RunsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	runID := chi.URLParam(r, "id")
 
 	run := getRunForTeam(r.Context(), h.db, w, runID, teamID)
@@ -153,7 +162,10 @@ func (h *RunsHandler) Logs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	runID := chi.URLParam(r, "id")
 
 	if getRunForTeam(r.Context(), h.db, w, runID, teamID) == nil {
@@ -180,7 +192,10 @@ func (h *RunsHandler) Diff(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	runID := chi.URLParam(r, "id")
 
 	if getRunForTeam(r.Context(), h.db, w, runID, teamID) == nil {
@@ -208,7 +223,10 @@ func (h *RunsHandler) Output(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	runID := chi.URLParam(r, "id")
 
 	if getRunForTeam(r.Context(), h.db, w, runID, teamID) == nil {
@@ -260,7 +278,10 @@ func (h *RunsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	runID := chi.URLParam(r, "id")
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	if getRunForTeam(r.Context(), h.db, w, runID, teamID) == nil {
 		return
 	}
@@ -328,7 +349,10 @@ func (h *RunsHandler) StepLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stepRunID := chi.URLParam(r, "id")
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 
 	// Verify the step_run belongs to a run owned by this team.
 	var count int
@@ -423,7 +447,10 @@ func (h *RunsHandler) signalRun(w http.ResponseWriter, r *http.Request, signalNa
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	runID := chi.URLParam(r, "id")
 
 	if getRunForTeam(r.Context(), h.db, w, runID, teamID) == nil {

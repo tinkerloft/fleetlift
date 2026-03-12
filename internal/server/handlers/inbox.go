@@ -29,7 +29,10 @@ func (h *InboxHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	var items []model.InboxItem
 	err := h.db.SelectContext(r.Context(), &items,
 		`SELECT i.* FROM inbox_items i

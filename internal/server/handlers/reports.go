@@ -30,7 +30,10 @@ func (h *ReportsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	var runs []model.Run
 	err := h.db.SelectContext(r.Context(), &runs,
 		`SELECT r.* FROM runs r
@@ -53,7 +56,10 @@ func (h *ReportsHandler) Get(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	runID := chi.URLParam(r, "runID")
 
 	var count int
@@ -84,7 +90,10 @@ func (h *ReportsHandler) Export(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	runID := chi.URLParam(r, "runID")
 	format := r.URL.Query().Get("format")
 

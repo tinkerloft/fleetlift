@@ -34,7 +34,10 @@ func (h *WorkflowsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	templates, err := h.registry.List(r.Context(), teamID)
 	if err != nil {
 		http.Error(w, "failed to list workflows", http.StatusInternalServerError)
@@ -53,7 +56,10 @@ func (h *WorkflowsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slug := chi.URLParam(r, "id")
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	t, err := h.registry.Get(r.Context(), teamID, slug)
 	if err != nil {
 		http.Error(w, "workflow not found", http.StatusNotFound)
@@ -88,7 +94,10 @@ func (h *WorkflowsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	t.TeamID = teamID
 	if err := h.writable.Save(r.Context(), teamID, &t); err != nil {
 		http.Error(w, "failed to save workflow", http.StatusInternalServerError)
@@ -123,7 +132,10 @@ func (h *WorkflowsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	t.TeamID = teamID
 	t.Slug = chi.URLParam(r, "id")
 	if err := h.writable.Save(r.Context(), teamID, &t); err != nil {
@@ -147,7 +159,10 @@ func (h *WorkflowsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	slug := chi.URLParam(r, "id")
 	if err := h.writable.Delete(r.Context(), teamID, slug); err != nil {
 		http.Error(w, "failed to delete workflow", http.StatusInternalServerError)
@@ -170,7 +185,10 @@ func (h *WorkflowsHandler) Fork(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	teamID := firstTeamID(claims)
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
 	slug := chi.URLParam(r, "id")
 	t, err := h.registry.Get(r.Context(), teamID, slug)
 	if err != nil {
