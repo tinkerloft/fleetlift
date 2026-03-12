@@ -58,7 +58,9 @@ type SteerPayload struct {
 var (
 	ProvisionSandboxActivity  = "ProvisionSandbox"
 	ExecuteStepActivity       = "ExecuteStep"
+	VerifyStepActivity        = "VerifyStep"
 	UpdateStepStatusActivity  = "UpdateStepStatus"
+	CreateStepRunActivity     = "CreateStepRun"
 	CreatePRActivity          = "CreatePullRequest"
 	CleanupSandboxActivity    = "CleanupSandbox"
 	CaptureKnowledgeActivity  = "CaptureKnowledge"
@@ -114,12 +116,30 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 			return nil, err
 		}
 
-		// 3. Evaluate approval policy
+		// 3. Run verifiers (if configured)
+		if input.ResolvedOpts.Verifiers != nil {
+			verifyAO := workflow.ActivityOptions{
+				StartToCloseTimeout: 30 * time.Minute,
+				HeartbeatTimeout:    2 * time.Minute,
+			}
+			if verifyErr := workflow.ExecuteActivity(
+				workflow.WithActivityOptions(ctx, verifyAO),
+				VerifyStepActivity, sandboxID, input.StepRunID, input.ResolvedOpts.Verifiers,
+			).Get(ctx, nil); verifyErr != nil {
+				return &model.StepOutput{
+					StepID: input.StepDef.ID,
+					Status: model.StepStatusFailed,
+					Error:  fmt.Sprintf("verification failed: %v", verifyErr),
+				}, nil
+			}
+		}
+
+		// 4. Evaluate approval policy
 		if !shouldPause(input.StepDef, output) {
 			break
 		}
 
-		// 4. Signal: awaiting_input
+		// 5. Signal: awaiting_input
 		statusAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
 		if err := workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, statusAO),
@@ -130,7 +150,7 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 
 		logger.Info("step awaiting input", "step_id", input.StepDef.ID)
 
-		// 5. Wait for signal
+		// 6. Wait for signal
 		var steerPayload SteerPayload
 		selector := workflow.NewSelector(ctx)
 		var approved, rejected, cancelled bool

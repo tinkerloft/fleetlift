@@ -10,6 +10,23 @@ import (
 	"time"
 )
 
+func init() {
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			now := time.Now()
+			sseTicketMu.Lock()
+			for k, t := range sseTickets {
+				if now.After(t.expires) {
+					delete(sseTickets, k)
+				}
+			}
+			sseTicketMu.Unlock()
+		}
+	}()
+}
+
 var (
 	sseTicketMu sync.Mutex
 	sseTickets  = map[string]sseTicket{}

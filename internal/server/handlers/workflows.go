@@ -41,7 +41,7 @@ func (h *WorkflowsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, templates)
+	writeJSON(w, http.StatusOK, map[string]any{"items": templates})
 }
 
 // Get returns a single workflow template by ID/slug.

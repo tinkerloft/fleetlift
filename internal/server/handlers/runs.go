@@ -84,9 +84,11 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		ID:        temporalID,
 		TaskQueue: "fleetlift",
 	}, "DAGWorkflow", workflow.DAGInput{
-		RunID:       runID,
-		WorkflowDef: def,
-		Parameters:  req.Parameters,
+		RunID:              runID,
+		TeamID:             teamID,
+		WorkflowTemplateID: t.ID,
+		WorkflowDef:        def,
+		Parameters:         req.Parameters,
 	})
 	if err != nil {
 		http.Error(w, "failed to start workflow", http.StatusInternalServerError)
@@ -121,7 +123,7 @@ func (h *RunsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, runs)
+	writeJSON(w, http.StatusOK, map[string]any{"items": runs})
 }
 
 // Get returns a single run with its step runs.
@@ -173,7 +175,7 @@ func (h *RunsHandler) Logs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, logs)
+	writeJSON(w, http.StatusOK, map[string]any{"items": logs})
 }
 
 // Diff returns the git diff for a run's transform steps.
@@ -324,12 +326,24 @@ func (h *RunsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 
 // StepLogs sends SSE log lines for a specific step run.
 func (h *RunsHandler) StepLogs(w http.ResponseWriter, r *http.Request) {
-	if _, ok := claimsFromSSERequest(r); !ok {
+	claims, ok := claimsFromSSERequest(r)
+	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	stepRunID := chi.URLParam(r, "id")
+	teamID := firstTeamID(claims)
+
+	// Verify the step_run belongs to a run owned by this team.
+	var count int
+	if err := h.db.QueryRowContext(r.Context(),
+		`SELECT COUNT(*) FROM step_runs s JOIN runs r ON s.run_id = r.id WHERE s.id = $1 AND r.team_id = $2`,
+		stepRunID, teamID).Scan(&count); err != nil || count == 0 {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")

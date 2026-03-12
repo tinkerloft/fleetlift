@@ -139,7 +139,7 @@ func TestEvalCondition_Empty(t *testing.T) {
 }
 
 func TestEvalCondition_InvalidTemplate(t *testing.T) {
-	assert.True(t, evalCondition("{{broken", nil, nil))
+	assert.False(t, evalCondition("{{broken", nil, nil))
 }
 
 func TestResolveStep_NilExecution(t *testing.T) {

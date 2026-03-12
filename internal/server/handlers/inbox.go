@@ -45,7 +45,7 @@ func (h *InboxHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, items)
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 // MarkRead marks an inbox item as read by the current user.

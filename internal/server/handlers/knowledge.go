@@ -35,7 +35,7 @@ func (h *KnowledgeHandler) List(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to list knowledge items", http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, http.StatusOK, items)
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 func (h *KnowledgeHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {

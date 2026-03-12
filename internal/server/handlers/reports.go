@@ -43,7 +43,7 @@ func (h *ReportsHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, runs)
+	writeJSON(w, http.StatusOK, map[string]any{"items": runs})
 }
 
 // Get returns the report output for a specific run.

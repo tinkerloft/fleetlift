@@ -84,9 +84,19 @@ func (s *DBStore) ListApprovedByWorkflow(ctx context.Context, teamID, workflowTe
 }
 
 func (s *DBStore) UpdateStatus(ctx context.Context, id, teamID string, status model.KnowledgeStatus) error {
-	_, err := s.db.ExecContext(ctx,
+	res, err := s.db.ExecContext(ctx,
 		`UPDATE knowledge_items SET status=$1 WHERE id=$2 AND team_id=$3`, string(status), id, teamID)
-	return err
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("knowledge item %s not found", id)
+	}
+	return nil
 }
 
 func (s *DBStore) Delete(ctx context.Context, id, teamID string) error {

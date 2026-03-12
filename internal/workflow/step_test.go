@@ -26,6 +26,7 @@ func TestStepInput_Compile(t *testing.T) {
 	}
 
 	assert.Equal(t, "run-123", input.RunID)
+	assert.Equal(t, "step-run-456", input.StepRunID)
 	assert.Equal(t, "analyze", input.StepDef.ID)
 	assert.Equal(t, "claude-code", input.ResolvedOpts.Agent)
 	assert.Equal(t, "sandbox-789", input.SandboxID)

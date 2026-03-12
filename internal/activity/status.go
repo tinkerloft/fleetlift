@@ -5,8 +5,29 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/tinkerloft/fleetlift/internal/model"
 )
+
+// CreateStepRun inserts a new step_run record for the given run/step and returns its UUID.
+func (a *Activities) CreateStepRun(ctx context.Context, runID, stepID, stepTitle string) (string, error) {
+	id := uuid.New().String()
+	_, err := a.DB.ExecContext(ctx,
+		`INSERT INTO step_runs (id, run_id, step_id, step_title, status) VALUES ($1, $2, $3, $4, $5)`,
+		id, runID, stepID, nullStr(stepTitle), string(model.StepStatusPending))
+	if err != nil {
+		return "", fmt.Errorf("create step run: %w", err)
+	}
+	return id, nil
+}
+
+func nullStr(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
 
 // UpdateStepStatus updates the status of a step run in the database.
 func (a *Activities) UpdateStepStatus(ctx context.Context, stepRunID string, status string) error {

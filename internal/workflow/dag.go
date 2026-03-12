@@ -18,9 +18,11 @@ import (
 
 // DAGInput is the top-level input for the DAGWorkflow.
 type DAGInput struct {
-	RunID       string           `json:"run_id"`
-	WorkflowDef model.WorkflowDef `json:"workflow_def"`
-	Parameters  map[string]any   `json:"parameters"`
+	RunID              string            `json:"run_id"`
+	TeamID             string            `json:"team_id"`
+	WorkflowTemplateID string            `json:"workflow_template_id,omitempty"`
+	WorkflowDef        model.WorkflowDef `json:"workflow_def"`
+	Parameters         map[string]any    `json:"parameters"`
 }
 
 // DAGWorkflow orchestrates a DAG of steps, running independent steps in parallel
@@ -95,7 +97,20 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) error {
 				// Fan-out: one child per repo if repos are specified.
 				repos := resolved.Repos
 				if len(repos) == 0 {
-					// Single execution (no fan-out)
+					// Single execution (no fan-out) — create a step_run record first.
+					createAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
+					var stepRunID string
+					if err = workflow.ExecuteActivity(
+						workflow.WithActivityOptions(gCtx, createAO),
+						CreateStepRunActivity, input.RunID, step.ID, step.Title,
+					).Get(gCtx, &stepRunID); err != nil {
+						results[i] = &model.StepOutput{
+							StepID: step.ID,
+							Status: model.StepStatusFailed,
+							Error:  fmt.Sprintf("create step run: %v", err),
+						}
+						return
+					}
 					cwo := workflow.ChildWorkflowOptions{
 						WorkflowID: fmt.Sprintf("%s-%s", input.RunID, step.ID),
 					}
@@ -104,10 +119,13 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) error {
 						workflow.WithChildOptions(gCtx, cwo),
 						StepWorkflow,
 						StepInput{
-							RunID:        input.RunID,
-							StepDef:      step,
-							ResolvedOpts: resolved,
-							SandboxID:    sandboxes[step.SandboxGroup],
+							RunID:              input.RunID,
+							StepRunID:          stepRunID,
+							TeamID:             input.TeamID,
+							WorkflowTemplateID: input.WorkflowTemplateID,
+							StepDef:            step,
+							ResolvedOpts:       resolved,
+							SandboxID:          sandboxes[step.SandboxGroup],
 						},
 					).Get(gCtx, &out)
 					if err != nil {
@@ -137,6 +155,21 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) error {
 					fanWg.Add(1)
 					workflow.Go(gCtx, func(rCtx workflow.Context) {
 						defer fanWg.Done()
+						// Create a step_run record for each fan-out child.
+						fanStepID := fmt.Sprintf("%s-%d", step.ID, j)
+						createAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
+						var stepRunID string
+						if err := workflow.ExecuteActivity(
+							workflow.WithActivityOptions(rCtx, createAO),
+							CreateStepRunActivity, input.RunID, fanStepID, step.Title,
+						).Get(rCtx, &stepRunID); err != nil {
+							fanResults[j] = &model.StepOutput{
+								StepID: step.ID,
+								Status: model.StepStatusFailed,
+								Error:  fmt.Sprintf("create step run: %v", err),
+							}
+							return
+						}
 						repoResolved := resolved
 						repoResolved.Repos = []model.RepoRef{repo}
 						cwo := workflow.ChildWorkflowOptions{
@@ -147,10 +180,13 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) error {
 							workflow.WithChildOptions(rCtx, cwo),
 							StepWorkflow,
 							StepInput{
-								RunID:        input.RunID,
-								StepDef:      step,
-								ResolvedOpts: repoResolved,
-								SandboxID:    sandboxes[step.SandboxGroup],
+								RunID:              input.RunID,
+								StepRunID:          stepRunID,
+								TeamID:             input.TeamID,
+								WorkflowTemplateID: input.WorkflowTemplateID,
+								StepDef:            step,
+								ResolvedOpts:       repoResolved,
+								SandboxID:          sandboxes[step.SandboxGroup],
 							},
 						).Get(rCtx, &out)
 						if err != nil {
@@ -307,7 +343,7 @@ func aggregateFanOut(stepID string, results []*model.StepOutput) *model.StepOutp
 }
 
 // evalCondition evaluates a Go template condition string against step outputs and params.
-// Returns true if the condition is empty, fails to parse, or evaluates to "true".
+// Returns true if the condition is empty or evaluates to "true"; false on parse/execute error.
 func evalCondition(condition string, params map[string]any, outputs map[string]*model.StepOutput) bool {
 	if condition == "" {
 		return true
@@ -330,16 +366,16 @@ func evalCondition(condition string, params map[string]any, outputs map[string]*
 
 	tmpl, err := template.New("cond").Parse(condition)
 	if err != nil {
-		slog.Warn("condition template parse error — defaulting to true",
+		slog.Warn("condition template parse error — defaulting to false",
 			"condition", condition, "error", err)
-		return true
+		return false
 	}
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
-		slog.Warn("condition template execute error — defaulting to true",
+		slog.Warn("condition template execute error — defaulting to false",
 			"condition", condition, "error", err)
-		return true
+		return false
 	}
 
 	return strings.TrimSpace(buf.String()) == "true"

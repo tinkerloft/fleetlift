@@ -32,7 +32,7 @@ func main() {
 
 	// Temporal client
 	temporalClient, err := client.Dial(client.Options{
-		HostPort: envOr("TEMPORAL_HOST", "localhost:7233"),
+		HostPort: envOr("TEMPORAL_ADDRESS", "localhost:7233"),
 	})
 	if err != nil {
 		log.Fatalf("connect temporal: %v", err)

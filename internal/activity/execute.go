@@ -3,6 +3,7 @@ package activity
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"go.temporal.io/sdk/activity"
 
@@ -24,11 +25,11 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 
 	// 1. Clone repos
 	for _, repo := range stepInput.ResolvedOpts.Repos {
-		cloneCmd := fmt.Sprintf("git clone --depth %s %s /workspace/%s",
-			DefaultCloneDepth, shellQuote(repo.URL), shellQuote(repoName(repo)))
+		cloneCmd := fmt.Sprintf("git clone --depth %s", DefaultCloneDepth)
 		if repo.Branch != "" {
 			cloneCmd += fmt.Sprintf(" --branch %s", shellQuote(repo.Branch))
 		}
+		cloneCmd += fmt.Sprintf(" %s /workspace/%s", shellQuote(repo.URL), shellQuote(repoName(repo)))
 		activity.RecordHeartbeat(ctx, "cloning "+repoName(repo))
 		a.updateStepStatus(ctx, stepInput.StepRunID, model.StepStatusCloning)
 
@@ -95,8 +96,15 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 		}
 	}
 
-	// 3. Extract git diff
-	diff, _, _ := sb.Exec(ctx, input.SandboxID, "git -C /workspace diff", "/")
+	// 3. Extract git diff — run in each repo dir and concatenate
+	var diffParts []string
+	for _, repo := range stepInput.ResolvedOpts.Repos {
+		repoDir := "/workspace/" + repoName(repo)
+		if d, _, err := sb.Exec(ctx, input.SandboxID, "git diff", repoDir); err == nil && d != "" {
+			diffParts = append(diffParts, d)
+		}
+	}
+	diff := strings.Join(diffParts, "\n")
 
 	// 4. Extract structured output from agent
 	structured := extractStructuredOutput(lastOutput)

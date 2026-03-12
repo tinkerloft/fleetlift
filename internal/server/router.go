@@ -1,6 +1,7 @@
 package server
 
 import (
+	"io/fs"
 	"net/http"
 	"os"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/tinkerloft/fleetlift/internal/auth"
 	"github.com/tinkerloft/fleetlift/internal/server/handlers"
+	"github.com/tinkerloft/fleetlift/web"
 )
 
 // Deps holds all handler groups and shared configuration for the server.
@@ -102,7 +104,7 @@ func corsOptions() cors.Options {
 	}
 	return cors.Options{
 		AllowedOrigins:   origins,
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		ExposedHeaders:   []string{"Link"},
 		AllowCredentials: true,
@@ -111,10 +113,26 @@ func corsOptions() cors.Options {
 }
 
 func spaHandler() http.Handler {
+	fsys, err := fs.Sub(web.DistFS, "dist")
+	if err != nil {
+		panic("web: failed to sub dist: " + err.Error())
+	}
+	fileServer := http.FileServer(http.FS(fsys))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// In production, this would serve the embedded React build.
-		// For now, return a simple placeholder.
-		w.Header().Set("Content-Type", "text/html")
-		_, _ = w.Write([]byte(`<!DOCTYPE html><html><body><h1>Fleetlift</h1><p>SPA not yet built.</p></body></html>`))
+		// Serve the file if it exists; otherwise fall back to index.html for SPA routing.
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if path == "" {
+			path = "index.html"
+		}
+		f, err := fsys.Open(path)
+		if err == nil {
+			f.Close()
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		// Fall back to index.html for client-side routing.
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = "/"
+		fileServer.ServeHTTP(w, r2)
 	})
 }

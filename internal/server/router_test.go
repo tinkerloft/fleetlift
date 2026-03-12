@@ -39,7 +39,7 @@ func TestNewRouter_SPAFallback(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
-	assert.Contains(t, w.Body.String(), "Fleetlift")
+	assert.Contains(t, w.Body.String(), "<html")
 }
 
 func TestNewRouter_AuthEndpointsExist(t *testing.T) {
