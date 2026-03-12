@@ -458,23 +458,27 @@ func (h *RunsHandler) signalRun(w http.ResponseWriter, r *http.Request, signalNa
 		return
 	}
 
-	// Find the currently paused step for this run
-	var stepID string
-	err := h.db.GetContext(r.Context(), &stepID,
-		`SELECT step_id FROM step_runs
+	// Find the currently paused step and use its stored temporal_workflow_id for precise routing.
+	// Using temporal_workflow_id avoids reconstructing the ID from step_id, which fails for fan-out
+	// steps (which use indexed IDs like {runID}-{stepID}-{index}).
+	var temporalWFID string
+	err := h.db.QueryRowContext(r.Context(),
+		`SELECT COALESCE(temporal_workflow_id, '') FROM step_runs
 		 WHERE run_id = $1 AND status = 'awaiting_input'
-		 ORDER BY created_at DESC LIMIT 1`, runID)
-	if err != nil {
+		 ORDER BY created_at DESC LIMIT 1`,
+		runID,
+	).Scan(&temporalWFID)
+	if err != nil || temporalWFID == "" {
 		// No awaiting_input step found — fall back to signalling the parent DAGWorkflow.
 		// Note: cancel is registered on StepWorkflow, not DAGWorkflow, so cancel-while-running
 		// will be silently dropped here. Fix: query status='running' step for cancel path.
-		var temporalID string
-		if dbErr := h.db.GetContext(r.Context(), &temporalID,
+		var parentTemporalID string
+		if dbErr := h.db.GetContext(r.Context(), &parentTemporalID,
 			`SELECT temporal_id FROM runs WHERE id = $1`, runID); dbErr != nil {
 			http.Error(w, "run not found", http.StatusNotFound)
 			return
 		}
-		err = h.temporal.SignalWorkflow(r.Context(), temporalID, "", signalName, payload)
+		err = h.temporal.SignalWorkflow(r.Context(), parentTemporalID, "", signalName, payload)
 		if err != nil {
 			http.Error(w, "failed to signal workflow", http.StatusInternalServerError)
 			return
@@ -483,9 +487,8 @@ func (h *RunsHandler) signalRun(w http.ResponseWriter, r *http.Request, signalNa
 		return
 	}
 
-	// Signal the specific child StepWorkflow
-	childID := stepWorkflowID(runID, stepID)
-	err = h.temporal.SignalWorkflow(r.Context(), childID, "", signalName, payload)
+	// Signal the specific child StepWorkflow using its stored workflow ID.
+	err = h.temporal.SignalWorkflow(r.Context(), temporalWFID, "", signalName, payload)
 	if err != nil {
 		http.Error(w, "failed to signal workflow", http.StatusInternalServerError)
 		return

@@ -12,11 +12,13 @@ import (
 )
 
 // CreateStepRun inserts a new step_run record for the given run/step and returns its UUID.
-func (a *Activities) CreateStepRun(ctx context.Context, runID, stepID, stepTitle string) (string, error) {
+// temporalWorkflowID is the Temporal child workflow ID used to route HITL signals.
+func (a *Activities) CreateStepRun(ctx context.Context, runID, stepID, stepTitle, temporalWorkflowID string) (string, error) {
 	id := uuid.New().String()
 	_, err := a.DB.ExecContext(ctx,
-		`INSERT INTO step_runs (id, run_id, step_id, step_title, status) VALUES ($1, $2, $3, $4, $5)`,
-		id, runID, stepID, nullStr(stepTitle), string(model.StepStatusPending))
+		`INSERT INTO step_runs (id, run_id, step_id, step_title, status, temporal_workflow_id)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		id, runID, stepID, nullStr(stepTitle), string(model.StepStatusPending), nullStr(temporalWorkflowID))
 	if err != nil {
 		return "", fmt.Errorf("create step run: %w", err)
 	}

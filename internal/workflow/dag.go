@@ -123,11 +123,12 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 				repos := resolved.Repos
 				if len(repos) == 0 {
 					// Single execution (no fan-out) — create a step_run record first.
+					childWFID := fmt.Sprintf("%s-%s", input.RunID, step.ID)
 					createAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
 					var stepRunID string
 					if err = workflow.ExecuteActivity(
 						workflow.WithActivityOptions(gCtx, createAO),
-						CreateStepRunActivity, input.RunID, step.ID, step.Title,
+						CreateStepRunActivity, input.RunID, step.ID, step.Title, childWFID,
 					).Get(gCtx, &stepRunID); err != nil {
 						results[i] = &model.StepOutput{
 							StepID: step.ID,
@@ -137,7 +138,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 						return
 					}
 					cwo := workflow.ChildWorkflowOptions{
-						WorkflowID: fmt.Sprintf("%s-%s", input.RunID, step.ID),
+						WorkflowID: childWFID,
 					}
 					var out model.StepOutput
 					err = workflow.ExecuteChildWorkflow(
@@ -182,11 +183,12 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 						defer fanWg.Done()
 						// Create a step_run record for each fan-out child.
 						fanStepID := fmt.Sprintf("%s-%d", step.ID, j)
+						fanChildWFID := fmt.Sprintf("%s-%s-%d", input.RunID, step.ID, j)
 						createAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
 						var stepRunID string
 						if err := workflow.ExecuteActivity(
 							workflow.WithActivityOptions(rCtx, createAO),
-							CreateStepRunActivity, input.RunID, fanStepID, step.Title,
+							CreateStepRunActivity, input.RunID, fanStepID, step.Title, fanChildWFID,
 						).Get(rCtx, &stepRunID); err != nil {
 							fanResults[j] = &model.StepOutput{
 								StepID: step.ID,
@@ -198,7 +200,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 						repoResolved := resolved
 						repoResolved.Repos = []model.RepoRef{repo}
 						cwo := workflow.ChildWorkflowOptions{
-							WorkflowID: fmt.Sprintf("%s-%s-%d", input.RunID, step.ID, j),
+							WorkflowID: fanChildWFID,
 						}
 						var out model.StepOutput
 						err := workflow.ExecuteChildWorkflow(

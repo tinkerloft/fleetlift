@@ -177,6 +177,9 @@ CREATE INDEX IF NOT EXISTS knowledge_items_team_status ON knowledge_items(team_i
 CREATE INDEX IF NOT EXISTS knowledge_items_workflow ON knowledge_items(workflow_template_id, status);
 
 -- Added 2026-03-12; apply via: psql $DATABASE_URL -f internal/db/schema.sql
+ALTER TABLE step_runs ADD COLUMN IF NOT EXISTS temporal_workflow_id TEXT;
+
+-- Added 2026-03-12; apply via: psql $DATABASE_URL -f internal/db/schema.sql
 CREATE INDEX IF NOT EXISTS step_run_logs_stream_cursor
     ON step_run_logs (step_run_id, id);
 
