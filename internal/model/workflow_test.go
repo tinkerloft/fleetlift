@@ -26,10 +26,31 @@ steps:
       prompt: "Analyze the code"
 `
 	var def WorkflowDef
-	err := parseWorkflowYAML([]byte(raw), &def)
+	err := ParseWorkflowYAML([]byte(raw), &def)
 	require.NoError(t, err)
 	assert.Equal(t, "test-wf", def.ID)
 	assert.Len(t, def.Parameters, 1)
 	assert.Len(t, def.Steps, 1)
 	assert.Equal(t, "analyze", def.Steps[0].ID)
+}
+
+func TestParseWorkflowYAML_Roundtrip(t *testing.T) {
+	raw := `
+version: 1
+id: fleet-transform
+title: Transform repositories
+steps:
+  - id: transform
+    mode: transform
+    repositories: "{{ .Params.repos }}"
+    execution:
+      agent: claude-code
+      prompt: "Fix all TODO comments"
+`
+	var def WorkflowDef
+	err := ParseWorkflowYAML([]byte(raw), &def)
+	assert.NoError(t, err)
+	assert.Equal(t, "fleet-transform", def.ID)
+	assert.Len(t, def.Steps, 1)
+	assert.Equal(t, "transform", def.Steps[0].ID)
 }

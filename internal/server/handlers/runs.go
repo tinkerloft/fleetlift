@@ -59,8 +59,7 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	// Parse workflow definition
 	var def model.WorkflowDef
-	if err := json.Unmarshal([]byte(t.YAMLBody), &def); err != nil {
-		// Try YAML parse via model
+	if err := model.ParseWorkflowYAML([]byte(t.YAMLBody), &def); err != nil {
 		http.Error(w, "invalid workflow definition", http.StatusInternalServerError)
 		return
 	}

@@ -132,7 +132,7 @@ type RepoRef struct {
 	Name   string `yaml:"name,omitempty"`
 }
 
-func parseWorkflowYAML(data []byte, def *WorkflowDef) error {
+func ParseWorkflowYAML(data []byte, def *WorkflowDef) error {
 	if err := yaml.Unmarshal(data, def); err != nil {
 		return fmt.Errorf("parse workflow YAML: %w", err)
 	}
