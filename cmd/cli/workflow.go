@@ -31,10 +31,13 @@ func workflowListCmd() *cobra.Command {
 		Short: "List available workflow templates",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
-			var workflows []map[string]any
-			if err := c.get("/api/workflows", &workflows); err != nil {
+			var resp struct {
+				Items []map[string]any `json:"items"`
+			}
+			if err := c.get("/api/workflows", &resp); err != nil {
 				return err
 			}
+			workflows := resp.Items
 
 			if outputJSON {
 				return json.NewEncoder(os.Stdout).Encode(workflows)

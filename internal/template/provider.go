@@ -3,6 +3,7 @@ package template
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/tinkerloft/fleetlift/internal/model"
 )
@@ -53,6 +54,9 @@ func (r *Registry) Get(ctx context.Context, teamID, slug string) (*model.Workflo
 		t, err := r.providers[i].Get(ctx, teamID, slug)
 		if err == nil && t != nil {
 			return t, nil
+		}
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			return nil, fmt.Errorf("template provider: %w", err)
 		}
 	}
 	return nil, ErrNotFound

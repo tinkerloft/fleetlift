@@ -48,7 +48,20 @@ func (h *ReportsHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // Get returns the report output for a specific run.
 func (h *ReportsHandler) Get(w http.ResponseWriter, r *http.Request) {
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	teamID := firstTeamID(claims)
 	runID := chi.URLParam(r, "runID")
+
+	var count int
+	if err := h.db.GetContext(r.Context(), &count,
+		`SELECT COUNT(*) FROM runs WHERE id = $1 AND team_id = $2`, runID, teamID); err != nil || count == 0 {
+		http.Error(w, "run not found", http.StatusNotFound)
+		return
+	}
 
 	var steps []model.StepRun
 	err := h.db.SelectContext(r.Context(), &steps,
@@ -66,11 +79,17 @@ func (h *ReportsHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 // Export exports a report as a downloadable format. Supports ?format=markdown.
 func (h *ReportsHandler) Export(w http.ResponseWriter, r *http.Request) {
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	teamID := firstTeamID(claims)
 	runID := chi.URLParam(r, "runID")
 	format := r.URL.Query().Get("format")
 
 	var run model.Run
-	if err := h.db.GetContext(r.Context(), &run, `SELECT * FROM runs WHERE id=$1`, runID); err != nil {
+	if err := h.db.GetContext(r.Context(), &run, `SELECT * FROM runs WHERE id=$1 AND team_id=$2`, runID, teamID); err != nil {
 		http.Error(w, "run not found", http.StatusNotFound)
 		return
 	}

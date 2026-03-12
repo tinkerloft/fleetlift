@@ -24,7 +24,7 @@ parameters:
     required: false
     description: "Command to verify deployment health"
 steps:
-  - id: analyze-logs
+  - id: analyze_logs
     title: Analyze logs
     sandbox_group: main
     mode: report
@@ -48,10 +48,10 @@ steps:
           affected_files: "array"
           severity: "string"
 
-  - id: propose-fix
+  - id: propose_fix
     title: Propose fix
     depends_on:
-      - analyze-logs
+      - analyze_logs
     sandbox_group: main
     mode: report
     execution:
@@ -60,7 +60,7 @@ steps:
         Based on the root cause analysis, propose a fix.
 
         Root cause:
-        {{ .Steps.analyze-logs.output | toJSON }}
+        {{ .Steps.analyze_logs.Output | toJSON }}
 
         Describe the exact changes needed. Include which files to modify and what the changes should be.
         Consider the minimal safe fix that addresses the immediate issue.
@@ -68,7 +68,7 @@ steps:
   - id: fix
     title: Apply fix
     depends_on:
-      - propose-fix
+      - propose_fix
     sandbox_group: main
     mode: transform
     approval_policy: always
@@ -79,11 +79,11 @@ steps:
         Apply the proposed fix for this incident.
 
         Root cause analysis:
-        {{ .Steps.analyze-logs.output | toJSON }}
+        {{ .Steps.analyze_logs.Output | toJSON }}
 
         Make the minimal code changes needed. Run tests to verify the fix.
 
-  - id: deploy-check
+  - id: deploy_check
     title: Verify deployment readiness
     depends_on:
       - fix
@@ -100,11 +100,11 @@ steps:
   - id: notify
     title: Post incident summary
     depends_on:
-      - deploy-check
+      - deploy_check
     action:
       type: slack_notify
       config:
         message: |
           Incident response complete for {{ .Params.repo_url }}.
-          Root cause: {{ .Steps.analyze-logs.output.root_cause }}
+          Root cause: {{ .Steps.analyze_logs.Output.root_cause }}
           Fix applied and verified.

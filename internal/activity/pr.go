@@ -27,10 +27,10 @@ func (a *Activities) CreatePullRequest(ctx context.Context, sandboxID string, in
 
 	// Create branch and push from sandbox
 	cmds := []string{
-		fmt.Sprintf("git -C /workspace checkout -b %s", branchName),
+		fmt.Sprintf("git -C /workspace checkout -b %s", shellQuote(branchName)),
 		"git -C /workspace add -A",
-		fmt.Sprintf("git -C /workspace commit -m %q", prDef.Title),
-		fmt.Sprintf("git -C /workspace push origin %s", branchName),
+		fmt.Sprintf("git -C /workspace commit -m %s", shellQuote(prDef.Title)),
+		fmt.Sprintf("git -C /workspace push origin %s", shellQuote(branchName)),
 	}
 
 	for _, cmd := range cmds {

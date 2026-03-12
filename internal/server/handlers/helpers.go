@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/tinkerloft/fleetlift/internal/auth"
+	"github.com/tinkerloft/fleetlift/internal/model"
 )
 
 // writeJSON encodes v as JSON and writes it to w with the given status code.
@@ -36,4 +39,16 @@ func firstTeamID(claims *auth.Claims) string {
 		return teamID
 	}
 	return ""
+}
+
+// getRunForTeam fetches a run by ID and verifies it belongs to teamID.
+// Returns nil + writes 404 if not found or not owned by the team.
+func getRunForTeam(ctx context.Context, db *sqlx.DB, w http.ResponseWriter, runID, teamID string) *model.Run {
+	var run model.Run
+	err := db.GetContext(ctx, &run, `SELECT * FROM runs WHERE id = $1 AND team_id = $2`, runID, teamID)
+	if err != nil {
+		http.Error(w, "run not found", http.StatusNotFound)
+		return nil
+	}
+	return &run
 }

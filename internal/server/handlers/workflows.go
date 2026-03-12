@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -81,6 +82,12 @@ func (h *WorkflowsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var def model.WorkflowDef
+	if err := model.ParseWorkflowYAML([]byte(t.YAMLBody), &def); err != nil {
+		http.Error(w, fmt.Sprintf("invalid workflow YAML: %s", err.Error()), http.StatusBadRequest)
+		return
+	}
+
 	teamID := firstTeamID(claims)
 	t.TeamID = teamID
 	if err := h.writable.Save(r.Context(), teamID, &t); err != nil {
@@ -107,6 +114,12 @@ func (h *WorkflowsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	var t model.WorkflowTemplate
 	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	var def model.WorkflowDef
+	if err := model.ParseWorkflowYAML([]byte(t.YAMLBody), &def); err != nil {
+		http.Error(w, fmt.Sprintf("invalid workflow YAML: %s", err.Error()), http.StatusBadRequest)
 		return
 	}
 

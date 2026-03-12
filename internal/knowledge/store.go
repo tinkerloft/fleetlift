@@ -20,8 +20,8 @@ type Store interface {
 	Save(ctx context.Context, item model.KnowledgeItem) (model.KnowledgeItem, error)
 	ListByTeam(ctx context.Context, teamID, status string) ([]model.KnowledgeItem, error)
 	ListApprovedByWorkflow(ctx context.Context, teamID, workflowTemplateID string, maxItems int) ([]model.KnowledgeItem, error)
-	UpdateStatus(ctx context.Context, id string, status model.KnowledgeStatus) error
-	Delete(ctx context.Context, id string) error
+	UpdateStatus(ctx context.Context, id, teamID string, status model.KnowledgeStatus) error
+	Delete(ctx context.Context, id, teamID string) error
 }
 
 // DBStore is the production PostgreSQL-backed Store.
@@ -83,14 +83,14 @@ func (s *DBStore) ListApprovedByWorkflow(ctx context.Context, teamID, workflowTe
 	return items, err
 }
 
-func (s *DBStore) UpdateStatus(ctx context.Context, id string, status model.KnowledgeStatus) error {
+func (s *DBStore) UpdateStatus(ctx context.Context, id, teamID string, status model.KnowledgeStatus) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE knowledge_items SET status=$1 WHERE id=$2`, string(status), id)
+		`UPDATE knowledge_items SET status=$1 WHERE id=$2 AND team_id=$3`, string(status), id, teamID)
 	return err
 }
 
-func (s *DBStore) Delete(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM knowledge_items WHERE id=$1`, id)
+func (s *DBStore) Delete(ctx context.Context, id, teamID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM knowledge_items WHERE id=$1 AND team_id=$2`, id, teamID)
 	return err
 }
 
@@ -164,11 +164,11 @@ func (s *MemoryStore) ListApprovedByWorkflow(_ context.Context, teamID, workflow
 	return out, nil
 }
 
-func (s *MemoryStore) UpdateStatus(_ context.Context, id string, status model.KnowledgeStatus) error {
+func (s *MemoryStore) UpdateStatus(_ context.Context, id, teamID string, status model.KnowledgeStatus) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i, item := range s.items {
-		if item.ID == id {
+		if item.ID == id && item.TeamID == teamID {
 			s.items[i].Status = status
 			return nil
 		}
@@ -176,11 +176,11 @@ func (s *MemoryStore) UpdateStatus(_ context.Context, id string, status model.Kn
 	return fmt.Errorf("item %s not found", id)
 }
 
-func (s *MemoryStore) Delete(_ context.Context, id string) error {
+func (s *MemoryStore) Delete(_ context.Context, id, teamID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i, item := range s.items {
-		if item.ID == id {
+		if item.ID == id && item.TeamID == teamID {
 			s.items = append(s.items[:i], s.items[i+1:]...)
 			return nil
 		}

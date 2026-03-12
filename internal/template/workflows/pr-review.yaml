@@ -16,7 +16,7 @@ parameters:
     required: true
     description: "Pull request number to review"
 steps:
-  - id: fetch-pr
+  - id: fetch_pr
     title: Fetch PR details
     sandbox_group: main
     mode: report
@@ -38,7 +38,7 @@ steps:
   - id: review
     title: Review code changes
     depends_on:
-      - fetch-pr
+      - fetch_pr
     sandbox_group: main
     mode: report
     execution:
@@ -47,7 +47,7 @@ steps:
         Review the code changes in this PR thoroughly.
 
         PR diff:
-        {{ .Steps.fetch-pr.output | toJSON }}
+        {{ .Steps.fetch_pr.Output | toJSON }}
 
         Check for:
         1. Bugs or logic errors
@@ -72,5 +72,5 @@ steps:
       config:
         repo_url: "{{ .Params.repo_url }}"
         pr_number: "{{ .Params.pr_number }}"
-        comments: "{{ .Steps.review.output.comments | toJSON }}"
-        summary: "{{ .Steps.review.output.summary }}"
+        comments: "{{ .Steps.review.Output.comments | toJSON }}"
+        summary: "{{ .Steps.review.Output.summary }}"

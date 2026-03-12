@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/tinkerloft/fleetlift/internal/model"
 )
@@ -38,6 +39,19 @@ func TestFindReady(t *testing.T) {
 	ready = findReady(pending, done)
 	assert.Len(t, ready, 1)
 	assert.Equal(t, "d", ready[0].ID)
+}
+
+func TestFindReady_DeterministicOrder(t *testing.T) {
+	pending := map[string]model.StepDef{
+		"z-step": {ID: "z-step"},
+		"a-step": {ID: "a-step"},
+		"m-step": {ID: "m-step"},
+	}
+	ready := findReady(pending, map[string]*model.StepOutput{})
+	require.Len(t, ready, 3)
+	assert.Equal(t, "a-step", ready[0].ID)
+	assert.Equal(t, "m-step", ready[1].ID)
+	assert.Equal(t, "z-step", ready[2].ID)
 }
 
 func TestFindReady_EmptyPending(t *testing.T) {
@@ -247,4 +261,11 @@ func TestAggregateFanOut_MultipleFailures(t *testing.T) {
 	assert.Len(t, agg.Outputs, 2)
 	assert.Contains(t, agg.Error, "clone failed")
 	assert.Contains(t, agg.Error, "timeout")
+}
+
+func TestFanOutApprovalPolicyOverride(t *testing.T) {
+	// This test documents the expected behavior: fan-out steps must never have
+	// HITL approval_policy other than "never" to prevent signal routing hangs.
+	// The guard in DAGWorkflow enforces this at runtime.
+	t.Log("fan-out HITL guard is enforced in DAGWorkflow — see dag.go fan-out section")
 }

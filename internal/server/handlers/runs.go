@@ -126,12 +126,16 @@ func (h *RunsHandler) List(w http.ResponseWriter, r *http.Request) {
 
 // Get returns a single run with its step runs.
 func (h *RunsHandler) Get(w http.ResponseWriter, r *http.Request) {
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	teamID := firstTeamID(claims)
 	runID := chi.URLParam(r, "id")
 
-	var run model.Run
-	err := h.db.GetContext(r.Context(), &run, `SELECT * FROM runs WHERE id = $1`, runID)
-	if err != nil {
-		http.Error(w, "run not found", http.StatusNotFound)
+	run := getRunForTeam(r.Context(), h.db, w, runID, teamID)
+	if run == nil {
 		return
 	}
 
@@ -147,7 +151,17 @@ func (h *RunsHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 // Logs returns log lines for a run.
 func (h *RunsHandler) Logs(w http.ResponseWriter, r *http.Request) {
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	teamID := firstTeamID(claims)
 	runID := chi.URLParam(r, "id")
+
+	if getRunForTeam(r.Context(), h.db, w, runID, teamID) == nil {
+		return
+	}
 
 	var logs []model.StepRunLog
 	err := h.db.SelectContext(r.Context(), &logs,
@@ -164,7 +178,17 @@ func (h *RunsHandler) Logs(w http.ResponseWriter, r *http.Request) {
 
 // Diff returns the git diff for a run's transform steps.
 func (h *RunsHandler) Diff(w http.ResponseWriter, r *http.Request) {
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	teamID := firstTeamID(claims)
 	runID := chi.URLParam(r, "id")
+
+	if getRunForTeam(r.Context(), h.db, w, runID, teamID) == nil {
+		return
+	}
 
 	var diffs []struct {
 		StepID string `db:"step_id" json:"step_id"`
@@ -182,7 +206,17 @@ func (h *RunsHandler) Diff(w http.ResponseWriter, r *http.Request) {
 
 // Output returns the structured output for a run.
 func (h *RunsHandler) Output(w http.ResponseWriter, r *http.Request) {
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	teamID := firstTeamID(claims)
 	runID := chi.URLParam(r, "id")
+
+	if getRunForTeam(r.Context(), h.db, w, runID, teamID) == nil {
+		return
+	}
 
 	var outputs []struct {
 		StepID string         `db:"step_id" json:"step_id"`
@@ -198,9 +232,41 @@ func (h *RunsHandler) Output(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, outputs)
 }
 
+// IssueSSETicket issues a short-lived single-use ticket for SSE connections.
+// EventSource does not support custom headers, so Bearer auth cannot be used directly.
+func (h *RunsHandler) IssueSSETicket(w http.ResponseWriter, r *http.Request) {
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	ticket := auth.IssueSSETicket(claims)
+	writeJSON(w, http.StatusOK, map[string]string{"ticket": ticket})
+}
+
+// claimsFromSSERequest resolves claims from a ticket query param (for SSE) or from the request context.
+func claimsFromSSERequest(r *http.Request) (*auth.Claims, bool) {
+	if ticket := r.URL.Query().Get("ticket"); ticket != "" {
+		c, ok := auth.ConsumeSSETicket(ticket)
+		return c, ok
+	}
+	c := auth.ClaimsFromContext(r.Context())
+	return c, c != nil
+}
+
 // Stream sends SSE events for a run's logs and status updates.
 func (h *RunsHandler) Stream(w http.ResponseWriter, r *http.Request) {
+	claims, ok := claimsFromSSERequest(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	runID := chi.URLParam(r, "id")
+	teamID := firstTeamID(claims)
+	if getRunForTeam(r.Context(), h.db, w, runID, teamID) == nil {
+		return
+	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -256,6 +322,63 @@ func (h *RunsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// StepLogs sends SSE log lines for a specific step run.
+func (h *RunsHandler) StepLogs(w http.ResponseWriter, r *http.Request) {
+	if _, ok := claimsFromSSERequest(r); !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	stepRunID := chi.URLParam(r, "id")
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	var cursor int64
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			var logs []model.StepRunLog
+			err := h.db.SelectContext(r.Context(), &logs,
+				`SELECT * FROM step_run_logs WHERE step_run_id = $1 AND id > $2 ORDER BY id`,
+				stepRunID, cursor)
+			if err != nil {
+				continue
+			}
+			for _, log := range logs {
+				fmt.Fprintf(w, "data: %s\n\n", mustJSON(log))
+				if log.ID > cursor {
+					cursor = log.ID
+				}
+			}
+			if len(logs) > 0 {
+				flusher.Flush()
+			}
+
+			// Stop once the step run is terminal
+			var status string
+			if h.db.QueryRowContext(r.Context(),
+				`SELECT status FROM step_runs WHERE id = $1`, stepRunID).Scan(&status) == nil {
+				switch status {
+				case "complete", "failed", "cancelled":
+					return
+				}
+			}
+		}
+	}
+}
+
 // Approve signals approval for a paused step.
 func (h *RunsHandler) Approve(w http.ResponseWriter, r *http.Request) {
 	h.signalRun(w, r, string(workflow.SignalApprove), nil)
@@ -286,7 +409,17 @@ func stepWorkflowID(runID, stepID string) string {
 }
 
 func (h *RunsHandler) signalRun(w http.ResponseWriter, r *http.Request, signalName string, payload any) {
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	teamID := firstTeamID(claims)
 	runID := chi.URLParam(r, "id")
+
+	if getRunForTeam(r.Context(), h.db, w, runID, teamID) == nil {
+		return
+	}
 
 	// Find the currently paused step for this run
 	var stepID string

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"sort"
 	"strings"
 	"text/template"
 	"time"
@@ -121,6 +123,13 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) error {
 				}
 
 				// Fan-out: one child per repo
+				// IMPORTANT: HITL signals cannot be routed to individual fan-out children
+				// (they use indexed IDs not tracked by the signal router). Override to prevent hangs.
+				if step.ApprovalPolicy != "" && step.ApprovalPolicy != "never" {
+					logger.Warn("fan-out steps do not support HITL approval; overriding to 'never'",
+						"step_id", step.ID, "original_policy", step.ApprovalPolicy)
+					step.ApprovalPolicy = "never"
+				}
 				fanResults := make([]*model.StepOutput, len(repos))
 				fanWg := workflow.NewWaitGroup(gCtx)
 				for j, repo := range repos {
@@ -200,6 +209,7 @@ func findReady(pending map[string]model.StepDef, done map[string]*model.StepOutp
 			ready = append(ready, step)
 		}
 	}
+	sort.Slice(ready, func(i, j int) bool { return ready[i].ID < ready[j].ID })
 	return ready
 }
 
@@ -320,11 +330,15 @@ func evalCondition(condition string, params map[string]any, outputs map[string]*
 
 	tmpl, err := template.New("cond").Parse(condition)
 	if err != nil {
+		slog.Warn("condition template parse error — defaulting to true",
+			"condition", condition, "error", err)
 		return true
 	}
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
+		slog.Warn("condition template execute error — defaulting to true",
+			"condition", condition, "error", err)
 		return true
 	}
 
@@ -338,7 +352,7 @@ func executeAction(ctx workflow.Context, step model.StepDef, _ ResolvedStepOpts)
 	actCtx := workflow.WithActivityOptions(ctx, ao)
 
 	var result map[string]any
-	err := workflow.ExecuteActivity(actCtx, "ExecuteAction", step.Action.Type, step.Action.Config).Get(ctx, &result)
+	err := workflow.ExecuteActivity(actCtx, "ExecuteAction", step.Action.Type, step.Action.Config).Get(actCtx, &result)
 	if err != nil {
 		return &model.StepOutput{
 			StepID: step.ID,

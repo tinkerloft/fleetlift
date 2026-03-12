@@ -22,7 +22,7 @@ export function WorkflowDetailPage() {
   const [params, setParams] = useState<Record<string, string>>({})
 
   const runMutation = useMutation({
-    mutationFn: () => api.createRun(wf!.slug, params),
+    mutationFn: () => api.createRun(wf!.id, params),
     onSuccess: (run) => {
       queryClient.invalidateQueries({ queryKey: ['runs'] })
       navigate(`/runs/${run.id}`)

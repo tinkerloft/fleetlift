@@ -49,8 +49,9 @@ func toJSON(v any) (string, error) {
 }
 
 func truncate(max int, s string) string {
-	if len(s) <= max {
+	runes := []rune(s)
+	if len(runes) <= max {
 		return s
 	}
-	return s[:max]
+	return string(runes[:max])
 }

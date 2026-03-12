@@ -10,23 +10,23 @@ import (
 
 // UpdateStepStatus updates the status of a step run in the database.
 func (a *Activities) UpdateStepStatus(ctx context.Context, stepRunID string, status string) error {
-	query := `UPDATE step_runs SET status = $1 WHERE id = $2`
-	args := []any{status, stepRunID}
+	now := time.Now()
+	var query string
+	var args []any
 
-	// Set started_at on first non-pending status
-	if status != string(model.StepStatusPending) {
-		query = `UPDATE step_runs SET status = $1, started_at = COALESCE(started_at, $3) WHERE id = $2`
-		args = append(args, time.Now())
+	switch {
+	case isTerminal(model.StepStatus(status)):
+		query = `UPDATE step_runs SET status = $1, started_at = COALESCE(started_at, $2), completed_at = $3 WHERE id = $4`
+		args = []any{status, now, now, stepRunID}
+	case status != string(model.StepStatusPending):
+		query = `UPDATE step_runs SET status = $1, started_at = COALESCE(started_at, $2) WHERE id = $3`
+		args = []any{status, now, stepRunID}
+	default:
+		query = `UPDATE step_runs SET status = $1 WHERE id = $2`
+		args = []any{status, stepRunID}
 	}
 
-	// Set completed_at on terminal statuses
-	if isTerminal(model.StepStatus(status)) {
-		query = `UPDATE step_runs SET status = $1, completed_at = $3 WHERE id = $2`
-		args = append(args, time.Now())
-	}
-
-	_, err := a.DB.ExecContext(ctx, query, args...)
-	if err != nil {
+	if _, err := a.DB.ExecContext(ctx, query, args...); err != nil {
 		return fmt.Errorf("update step status: %w", err)
 	}
 	return nil
@@ -34,21 +34,23 @@ func (a *Activities) UpdateStepStatus(ctx context.Context, stepRunID string, sta
 
 // UpdateRunStatus updates the status of a run in the database.
 func (a *Activities) UpdateRunStatus(ctx context.Context, runID string, status string) error {
-	query := `UPDATE runs SET status = $1 WHERE id = $2`
-	args := []any{status, runID}
+	now := time.Now()
+	var query string
+	var args []any
 
-	if status == string(model.RunStatusRunning) {
-		query = `UPDATE runs SET status = $1, started_at = COALESCE(started_at, $3) WHERE id = $2`
-		args = append(args, time.Now())
+	switch {
+	case isRunTerminal(model.RunStatus(status)):
+		query = `UPDATE runs SET status = $1, completed_at = $2 WHERE id = $3`
+		args = []any{status, now, runID}
+	case status == string(model.RunStatusRunning):
+		query = `UPDATE runs SET status = $1, started_at = COALESCE(started_at, $2) WHERE id = $3`
+		args = []any{status, now, runID}
+	default:
+		query = `UPDATE runs SET status = $1 WHERE id = $2`
+		args = []any{status, runID}
 	}
 
-	if isRunTerminal(model.RunStatus(status)) {
-		query = `UPDATE runs SET status = $1, completed_at = $3 WHERE id = $2`
-		args = append(args, time.Now())
-	}
-
-	_, err := a.DB.ExecContext(ctx, query, args...)
-	if err != nil {
+	if _, err := a.DB.ExecContext(ctx, query, args...); err != nil {
 		return fmt.Errorf("update run status: %w", err)
 	}
 	return nil

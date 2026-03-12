@@ -89,8 +89,16 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 	conversationHistory := ""
 
 	for {
+		timeout := 90 * time.Minute
+		if input.StepDef.Timeout != "" {
+			if parsed, err := time.ParseDuration(input.StepDef.Timeout); err == nil {
+				timeout = parsed
+			} else {
+				logger.Warn("invalid step timeout, using default 90m", "timeout", input.StepDef.Timeout)
+			}
+		}
 		ao := workflow.ActivityOptions{
-			StartToCloseTimeout: 90 * time.Minute,
+			StartToCloseTimeout: timeout,
 			HeartbeatTimeout:    2 * time.Minute,
 		}
 		err := workflow.ExecuteActivity(
@@ -113,10 +121,12 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 
 		// 4. Signal: awaiting_input
 		statusAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
-		_ = workflow.ExecuteActivity(
+		if err := workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, statusAO),
 			UpdateStepStatusActivity, input.StepRunID, string(model.StepStatusAwaitingInput),
-		).Get(ctx, nil)
+		).Get(ctx, nil); err != nil {
+			logger.Error("failed to set step status to awaiting_input", "error", err)
+		}
 
 		logger.Info("step awaiting input", "step_id", input.StepDef.ID)
 
@@ -161,10 +171,13 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 	// 6. Create PR if transform mode
 	if input.StepDef.Mode == "transform" && input.StepDef.PullRequest != nil {
 		prAO := workflow.ActivityOptions{StartToCloseTimeout: 5 * time.Minute}
-		_ = workflow.ExecuteActivity(
+		if prErr := workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, prAO),
 			CreatePRActivity, sandboxID, input,
-		).Get(ctx, &output.PRUrl)
+		).Get(ctx, &output.PRUrl); prErr != nil {
+			logger.Error("failed to create pull request", "step_id", input.StepDef.ID, "error", prErr)
+			output.Error = fmt.Sprintf("step completed but PR creation failed: %v", prErr)
+		}
 	}
 
 	// 7. Capture knowledge if configured
@@ -176,19 +189,24 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 			WorkflowTemplateID: input.WorkflowTemplateID,
 			StepRunID:          input.StepRunID,
 		}
-		_ = workflow.ExecuteActivity(
+		if err := workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, captureAO),
 			CaptureKnowledgeActivity, captureInput,
-		).Get(ctx, nil)
+		).Get(ctx, nil); err != nil {
+			logger.Warn("failed to capture knowledge", "step_id", input.StepDef.ID, "error", err)
+		}
 	}
 
 	// 8. Cleanup (unless sandbox_group — DAGWorkflow handles that)
 	if input.StepDef.SandboxGroup == "" && input.SandboxID == "" {
 		cleanupAO := workflow.ActivityOptions{StartToCloseTimeout: 2 * time.Minute}
-		_ = workflow.ExecuteActivity(
+		if err := workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, cleanupAO),
 			CleanupSandboxActivity, sandboxID,
-		).Get(ctx, nil)
+		).Get(ctx, nil); err != nil {
+			logger.Error("failed to cleanup sandbox", "sandbox_id", sandboxID, "error", err)
+			// Sandbox may leak — monitor for orphaned sandboxes
+		}
 	}
 
 	return output, nil

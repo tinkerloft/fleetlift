@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"github.com/lib/pq"
+)
 
 // KnowledgeType classifies the kind of knowledge item.
 type KnowledgeType string
@@ -39,7 +43,7 @@ type KnowledgeItem struct {
 	Summary            string          `db:"summary" json:"summary"`
 	Details            string          `db:"details" json:"details,omitempty"`
 	Source             KnowledgeSource `db:"source" json:"source"`
-	Tags               []string        `db:"tags" json:"tags,omitempty"`
+	Tags               pq.StringArray  `db:"tags" json:"tags,omitempty"`
 	Confidence         float64         `db:"confidence" json:"confidence"`
 	Status             KnowledgeStatus `db:"status" json:"status"`
 	CreatedAt          time.Time       `db:"created_at" json:"created_at"`

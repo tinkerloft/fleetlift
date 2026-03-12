@@ -61,7 +61,7 @@ steps:
         {{ .Params.migration_description }}
 
         Impact analysis:
-        {{ .Steps.analyze.output | toJSON }}
+        {{ .Steps.analyze.Output | toJSON }}
 
         Make all necessary code changes to complete the migration.
       verifiers: "{{ .Params.verifiers }}"
@@ -90,7 +90,7 @@ steps:
       - validate
     approval_policy: always
 
-  - id: create-prs
+  - id: create_prs
     title: Create pull requests
     depends_on:
       - review
@@ -104,7 +104,7 @@ steps:
   - id: notify
     title: Notify teams
     depends_on:
-      - create-prs
+      - create_prs
     optional: true
     action:
       type: slack_notify

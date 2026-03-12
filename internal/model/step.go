@@ -23,7 +23,7 @@ type StepRun struct {
 	Status       StepStatus     `db:"status" json:"status"`
 	SandboxID    string         `db:"sandbox_id" json:"sandbox_id,omitempty"`
 	SandboxGroup string         `db:"sandbox_group" json:"sandbox_group,omitempty"`
-	Output       map[string]any `db:"output" json:"output,omitempty"`
+	Output       JSONMap        `db:"output" json:"output,omitempty"`
 	Diff         string         `db:"diff" json:"diff,omitempty"`
 	PRUrl        string         `db:"pr_url" json:"pr_url,omitempty"`
 	BranchName   string         `db:"branch_name" json:"branch_name,omitempty"`

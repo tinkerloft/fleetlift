@@ -4,9 +4,9 @@ import { Button } from './ui/button'
 
 interface HITLPanelProps {
   stepRun: StepRun
-  onApprove: () => void
-  onReject: () => void
-  onSteer: (prompt: string) => void
+  onApprove: () => Promise<void>
+  onReject: () => Promise<void>
+  onSteer: (prompt: string) => Promise<void>
 }
 
 export function HITLPanel({ stepRun, onApprove, onReject, onSteer }: HITLPanelProps) {
@@ -19,17 +19,18 @@ export function HITLPanel({ stepRun, onApprove, onReject, onSteer }: HITLPanelPr
 
   const handleApprove = async () => {
     setLoading(true)
-    try { onApprove() } finally { setLoading(false) }
+    try { await onApprove() } finally { setLoading(false) }
   }
 
   const handleReject = async () => {
     setLoading(true)
-    try { onReject() } finally { setLoading(false) }
+    try { await onReject() } finally { setLoading(false) }
   }
 
-  const handleSteer = () => {
+  const handleSteer = async () => {
     if (!steerPrompt.trim()) return
-    onSteer(steerPrompt)
+    setLoading(true)
+    try { await onSteer(steerPrompt) } finally { setLoading(false) }
     setSteerPrompt('')
   }
 

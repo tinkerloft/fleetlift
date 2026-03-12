@@ -25,9 +25,9 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 	// 1. Clone repos
 	for _, repo := range stepInput.ResolvedOpts.Repos {
 		cloneCmd := fmt.Sprintf("git clone --depth %s %s /workspace/%s",
-			DefaultCloneDepth, repo.URL, repoName(repo))
+			DefaultCloneDepth, shellQuote(repo.URL), shellQuote(repoName(repo)))
 		if repo.Branch != "" {
-			cloneCmd += fmt.Sprintf(" --branch %s", repo.Branch)
+			cloneCmd += fmt.Sprintf(" --branch %s", shellQuote(repo.Branch))
 		}
 		activity.RecordHeartbeat(ctx, "cloning "+repoName(repo))
 		a.updateStepStatus(ctx, stepInput.StepRunID, model.StepStatusCloning)

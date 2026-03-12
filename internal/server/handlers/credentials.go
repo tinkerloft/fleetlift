@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -22,7 +23,10 @@ type CredentialsHandler struct {
 func NewCredentialsHandler(db *sqlx.DB, encryptionKeyHex string) (*CredentialsHandler, error) {
 	key, err := hex.DecodeString(encryptionKeyHex)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode encryption key: %w", err)
+	}
+	if len(key) != 32 {
+		return nil, fmt.Errorf("CREDENTIAL_ENCRYPTION_KEY must be exactly 32 bytes (64 hex chars), got %d bytes", len(key))
 	}
 	return &CredentialsHandler{db: db, encryptionKey: key}, nil
 }

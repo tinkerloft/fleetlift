@@ -16,26 +16,34 @@ export function KnowledgePage() {
   const [items, setItems] = useState<KnowledgeItem[]>([])
   const [statusFilter, setStatusFilter] = useState('pending')
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    setError(null)
     fetch(`/api/knowledge?status=${statusFilter}`, {
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
     })
-      .then(r => r.json())
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
       .then(data => setItems(data ?? []))
+      .catch(err => setError(String(err)))
       .finally(() => setLoading(false))
   }, [statusFilter])
 
   const updateStatus = async (id: string, status: string) => {
-    await fetch(`/api/knowledge/${id}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${localStorage.getItem('token')}`,
-      },
-      body: JSON.stringify({ status }),
-    })
-    setItems(prev => prev.filter(i => i.id !== id))
+    try {
+      const r = await fetch(`/api/knowledge/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: JSON.stringify({ status }),
+      })
+      if (!r.ok) throw new Error(`HTTP ${r.status}`)
+      setItems(prev => prev.filter(i => i.id !== id))
+    } catch (err) {
+      setError(String(err))
+    }
   }
 
   return (
@@ -53,8 +61,14 @@ export function KnowledgePage() {
         </select>
       </div>
 
+      {error && (
+        <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400">
+          {error}
+        </div>
+      )}
+
       {loading && <p className="text-muted-foreground">Loading...</p>}
-      {!loading && items.length === 0 && <p className="text-muted-foreground">No items.</p>}
+      {!loading && !error && items.length === 0 && <p className="text-muted-foreground">No items.</p>}
 
       {items.map(item => (
         <div key={item.id} className="border rounded-lg p-4 space-y-2">

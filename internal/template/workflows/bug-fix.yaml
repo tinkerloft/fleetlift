@@ -56,12 +56,12 @@ steps:
         {{ .Params.issue_body }}
 
         Analysis:
-        {{ .Steps.analyze.output | toJSON }}
+        {{ .Steps.analyze.Output | toJSON }}
 
         Make the minimal code changes needed to fix this bug. Run tests to verify.
       verifiers: "{{ .Params.verifiers }}"
 
-  - id: self-review
+  - id: self_review
     title: Self-review changes
     depends_on:
       - fix
@@ -81,7 +81,7 @@ steps:
   - id: notify
     title: Send notification
     depends_on:
-      - self-review
+      - self_review
     optional: true
     action:
       type: slack_notify

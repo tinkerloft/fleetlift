@@ -13,18 +13,23 @@ export function RunDetailPage() {
   const { id } = useParams<{ id: string }>()
   const queryClient = useQueryClient()
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [sseConnected, setSseConnected] = useState(false)
 
   const { data: run } = useQuery({
     queryKey: ['run', id],
     queryFn: () => api.getRun(id!),
     enabled: !!id,
-    refetchInterval: 5000,
+    refetchInterval: sseConnected ? false : 5000,
   })
 
   // SSE subscription for live updates
   useEffect(() => {
     if (!id) return
-    const unsub = subscribeToRun(
+    let cleanup: (() => void) | undefined
+    setSseConnected(false)
+
+    subscribeToRun(
       id,
       (_update: RunStatusUpdate) => {
         queryClient.invalidateQueries({ queryKey: ['run', id] })
@@ -32,32 +37,57 @@ export function RunDetailPage() {
       (_log: StepRunLog) => {
         // Logs are handled by LogStream component per step
       },
-    )
-    return unsub
+      () => setSseConnected(false),
+    ).then((unsub) => {
+      setSseConnected(true)
+      cleanup = unsub
+    })
+
+    return () => cleanup?.()
   }, [id, queryClient])
 
   const handleApprove = useCallback(async () => {
     if (!id) return
-    await api.approveRun(id)
-    queryClient.invalidateQueries({ queryKey: ['run', id] })
+    setActionError(null)
+    try {
+      await api.approveRun(id)
+      queryClient.invalidateQueries({ queryKey: ['run', id] })
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Action failed')
+    }
   }, [id, queryClient])
 
   const handleReject = useCallback(async () => {
     if (!id) return
-    await api.rejectRun(id)
-    queryClient.invalidateQueries({ queryKey: ['run', id] })
+    setActionError(null)
+    try {
+      await api.rejectRun(id)
+      queryClient.invalidateQueries({ queryKey: ['run', id] })
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Action failed')
+    }
   }, [id, queryClient])
 
   const handleSteer = useCallback(async (prompt: string) => {
     if (!id) return
-    await api.steerRun(id, prompt)
-    queryClient.invalidateQueries({ queryKey: ['run', id] })
+    setActionError(null)
+    try {
+      await api.steerRun(id, prompt)
+      queryClient.invalidateQueries({ queryKey: ['run', id] })
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Action failed')
+    }
   }, [id, queryClient])
 
   const handleCancel = useCallback(async () => {
     if (!id) return
-    await api.cancelRun(id)
-    queryClient.invalidateQueries({ queryKey: ['run', id] })
+    setActionError(null)
+    try {
+      await api.cancelRun(id)
+      queryClient.invalidateQueries({ queryKey: ['run', id] })
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Action failed')
+    }
   }, [id, queryClient])
 
   if (!run) {
@@ -101,6 +131,12 @@ export function RunDetailPage() {
           )}
         </div>
       </div>
+
+      {actionError && (
+        <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400">
+          {actionError}
+        </div>
+      )}
 
       {/* DAG */}
       {steps.length > 0 && (

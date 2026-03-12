@@ -44,7 +44,7 @@ func TestStore_UpdateStatus(t *testing.T) {
 	}
 	saved, _ := store.Save(context.Background(), item)
 
-	err := store.UpdateStatus(context.Background(), saved.ID, model.KnowledgeStatusApproved)
+	err := store.UpdateStatus(context.Background(), saved.ID, "team-1", model.KnowledgeStatusApproved)
 	require.NoError(t, err)
 
 	items, _ := store.ListByTeam(context.Background(), "team-1", string(model.KnowledgeStatusApproved))

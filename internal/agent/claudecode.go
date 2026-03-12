@@ -21,8 +21,8 @@ func NewClaudeCodeRunner(sb sandbox.Client) *ClaudeCodeRunner {
 func (r *ClaudeCodeRunner) Name() string { return "claude-code" }
 
 func (r *ClaudeCodeRunner) Run(ctx context.Context, sandboxID string, opts RunOpts) (<-chan Event, error) {
-	cmd := fmt.Sprintf("claude -p %q --output-format stream-json --max-turns %d",
-		opts.Prompt, max(opts.MaxTurns, 20))
+	cmd := fmt.Sprintf("claude -p %s --output-format stream-json --max-turns %d",
+		shellQuote(opts.Prompt), max(opts.MaxTurns, 20))
 
 	ch := make(chan Event, 64)
 	go func() {
@@ -35,7 +35,10 @@ func (r *ClaudeCodeRunner) Run(ctx context.Context, sandboxID string, opts RunOp
 			}
 		})
 		if err != nil {
-			ch <- Event{Type: "error", Content: err.Error()}
+			select {
+			case ch <- Event{Type: "error", Content: err.Error()}:
+			case <-ctx.Done():
+			}
 		}
 	}()
 	return ch, nil

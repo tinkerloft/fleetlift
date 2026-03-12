@@ -49,7 +49,7 @@ steps:
       - transform
     approval_policy: always
 
-  - id: create-prs
+  - id: create_prs
     title: Create pull requests
     depends_on:
       - review

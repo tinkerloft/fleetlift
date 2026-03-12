@@ -58,7 +58,7 @@ steps:
         Update {{ .Params.dependency_name }} from {{ .Params.current_version }} to {{ .Params.target_version }}.
 
         Affected files from analysis:
-        {{ .Steps.identify.output | toJSON }}
+        {{ .Steps.identify.Output | toJSON }}
 
         Update all references, run dependency resolution, and verify the build passes.
       verifiers: "{{ .Params.verifiers }}"

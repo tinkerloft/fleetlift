@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
@@ -24,6 +25,8 @@ func Connect(ctx context.Context) (*sqlx.DB, error) {
 	}
 	db.SetMaxOpenConns(25)
 	db.SetMaxIdleConns(5)
+	db.SetConnMaxIdleTime(5 * time.Minute)
+	db.SetConnMaxLifetime(30 * time.Minute)
 	return db, nil
 }
 

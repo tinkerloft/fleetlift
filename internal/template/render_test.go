@@ -23,3 +23,10 @@ func TestRenderUnknownVar(t *testing.T) {
 	_, err := RenderPrompt("{{ .Params.missing }}", ctx)
 	require.Error(t, err)
 }
+
+func TestTruncate_MultiByte(t *testing.T) {
+	// "日本語" is 3 runes, 9 bytes
+	result := truncate(2, "日本語")
+	assert.Equal(t, "日本", result)
+	assert.Equal(t, 2, len([]rune(result)))
+}

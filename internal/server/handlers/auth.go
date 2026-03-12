@@ -25,12 +25,35 @@ func NewAuthHandler(db *sqlx.DB, provider auth.Provider, jwtSecret []byte) *Auth
 // HandleGitHubRedirect redirects the user to GitHub for OAuth.
 func (h *AuthHandler) HandleGitHubRedirect(w http.ResponseWriter, r *http.Request) {
 	state := randomState()
-	url := h.provider.AuthURL(state)
-	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "oauth_state",
+		Value:    state,
+		Path:     "/auth/github/callback",
+		MaxAge:   600,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   r.TLS != nil,
+	})
+	http.Redirect(w, r, h.provider.AuthURL(state), http.StatusTemporaryRedirect)
 }
 
 // HandleGitHubCallback handles the OAuth callback from GitHub.
 func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Request) {
+	// Validate OAuth state to prevent CSRF
+	stateCookie, err := r.Cookie("oauth_state")
+	if err != nil || stateCookie.Value == "" {
+		http.Error(w, "missing oauth state", http.StatusBadRequest)
+		return
+	}
+	// Clear the cookie regardless
+	http.SetCookie(w, &http.Cookie{Name: "oauth_state", Value: "", Path: "/auth/github/callback", MaxAge: -1})
+
+	returnedState := r.URL.Query().Get("state")
+	if returnedState == "" || returnedState != stateCookie.Value {
+		http.Error(w, "invalid oauth state", http.StatusBadRequest)
+		return
+	}
+
 	code := r.URL.Query().Get("code")
 	if code == "" {
 		http.Error(w, "missing code parameter", http.StatusBadRequest)
@@ -86,19 +109,35 @@ func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Reques
 
 // HandleRefresh refreshes an expired JWT token.
 func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
-	// For now, require a valid token and re-issue
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	token, err := auth.IssueToken(h.jwtSecret, claims.UserID, claims.TeamRoles, claims.PlatformAdmin)
+	// Re-query current roles from DB to prevent stale claim perpetuation
+	teamRoles := map[string]string{}
+	rows, err := h.db.QueryxContext(r.Context(),
+		`SELECT team_id, role FROM team_members WHERE user_id = $1`, claims.UserID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var teamID, role string
+			if rows.Scan(&teamID, &role) == nil {
+				teamRoles[teamID] = role
+			}
+		}
+	}
+
+	var platformAdmin bool
+	_ = h.db.GetContext(r.Context(), &platformAdmin,
+		`SELECT platform_admin FROM users WHERE id = $1`, claims.UserID)
+
+	token, err := auth.IssueToken(h.jwtSecret, claims.UserID, teamRoles, platformAdmin)
 	if err != nil {
 		http.Error(w, "failed to issue token", http.StatusInternalServerError)
 		return
 	}
-
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})
 }
 

@@ -29,10 +29,13 @@ func knowledgeListCmd() *cobra.Command {
 			if status != "" {
 				path += "?status=" + status
 			}
-			var items []map[string]any
-			if err := c.get(path, &items); err != nil {
+			var resp struct {
+				Items []map[string]any `json:"items"`
+			}
+			if err := c.get(path, &resp); err != nil {
 				return err
 			}
+			items := resp.Items
 
 			if outputJSON {
 				return json.NewEncoder(os.Stdout).Encode(items)

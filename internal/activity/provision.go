@@ -17,7 +17,7 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 	// Resolve team credentials by name, injecting each as an env var
 	if a.CredStore != nil && len(input.ResolvedOpts.Credentials) > 0 {
 		for _, credName := range input.ResolvedOpts.Credentials {
-			val, err := a.CredStore.Get(ctx, input.StepDef.SandboxGroup, credName)
+			val, err := a.CredStore.Get(ctx, input.TeamID, credName)
 			if err != nil {
 				return "", fmt.Errorf("resolve credential %s: %w", credName, err)
 			}

@@ -2,6 +2,8 @@ package server
 
 import (
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -33,13 +35,13 @@ func NewRouter(deps Deps) http.Handler {
 	// Auth (public)
 	r.Get("/auth/github", deps.Auth.HandleGitHubRedirect)
 	r.Get("/auth/github/callback", deps.Auth.HandleGitHubCallback)
-	r.Post("/auth/refresh", deps.Auth.HandleRefresh)
 
 	// Authenticated API
 	r.Group(func(r chi.Router) {
 		r.Use(auth.Middleware(deps.JWTSecret))
 
 		// Identity
+		r.Post("/auth/refresh", deps.Auth.HandleRefresh)
 		r.Get("/api/me", deps.Auth.HandleMe)
 
 		// Workflows (templates)
@@ -57,7 +59,10 @@ func NewRouter(deps Deps) http.Handler {
 		r.Get("/api/runs/{id}/logs", deps.Runs.Logs)
 		r.Get("/api/runs/{id}/diff", deps.Runs.Diff)
 		r.Get("/api/runs/{id}/output", deps.Runs.Output)
-		r.Get("/api/runs/{id}/events", deps.Runs.Stream) // SSE
+		r.Get("/api/runs/{id}/events", deps.Runs.Stream)             // SSE (ticket auth)
+		r.Post("/api/runs/{id}/events/ticket", deps.Runs.IssueSSETicket) // issue SSE ticket
+		r.Get("/api/runs/steps/{id}/logs", deps.Runs.StepLogs)           // SSE (ticket auth)
+		r.Post("/api/runs/steps/{id}/logs/ticket", deps.Runs.IssueSSETicket) // issue SSE ticket
 		r.Post("/api/runs/{id}/approve", deps.Runs.Approve)
 		r.Post("/api/runs/{id}/reject", deps.Runs.Reject)
 		r.Post("/api/runs/{id}/steer", deps.Runs.Steer)
@@ -90,8 +95,13 @@ func NewRouter(deps Deps) http.Handler {
 }
 
 func corsOptions() cors.Options {
+	allowed := os.Getenv("CORS_ALLOWED_ORIGINS")
+	origins := []string{"http://localhost:5173", "http://localhost:8080"}
+	if allowed != "" {
+		origins = strings.Split(allowed, ",")
+	}
 	return cors.Options{
-		AllowedOrigins:   []string{"*"},
+		AllowedOrigins:   origins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		ExposedHeaders:   []string{"Link"},

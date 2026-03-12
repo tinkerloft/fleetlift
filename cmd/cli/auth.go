@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 
@@ -71,7 +72,8 @@ func authLogoutCmd() *cobra.Command {
 		Use:   "logout",
 		Short: "Remove saved credentials",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := saveToken(""); err != nil {
+			path := authFilePath()
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 				return err
 			}
 			fmt.Println("Logged out.")

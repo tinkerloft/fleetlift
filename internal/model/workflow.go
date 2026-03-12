@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lib/pq"
 	"gopkg.in/yaml.v3"
 )
 
@@ -14,9 +15,10 @@ type WorkflowTemplate struct {
 	Slug        string    `db:"slug" json:"slug"`
 	Title       string    `db:"title" json:"title"`
 	Description string    `db:"description" json:"description"`
-	Tags        []string  `db:"tags" json:"tags"`
+	Tags        pq.StringArray `db:"tags" json:"tags"`
 	YAMLBody    string    `db:"yaml_body" json:"yaml_body"`
 	Builtin     bool      `db:"-" json:"builtin"`
+	CreatedBy   string    `db:"created_by" json:"created_by,omitempty"`
 	CreatedAt   time.Time `db:"created_at" json:"created_at"`
 	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
 }

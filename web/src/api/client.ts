@@ -19,7 +19,7 @@ async function get<T>(path: string): Promise<T> {
   return res.json()
 }
 
-async function post<T>(path: string, body?: unknown): Promise<T> {
+export async function post<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -70,27 +70,31 @@ export const api = {
   getReportArtifacts: (runId: string) => get<ListResponse<Artifact>>(`/reports/${runId}/artifacts`),
 }
 
-/** Subscribe to live run updates via SSE. Returns an unsubscribe function. */
-export function subscribeToRun(
+/** Subscribe to live run updates via SSE. Returns a Promise of an unsubscribe function. */
+export async function subscribeToRun(
   runId: string,
   onStatus: (update: RunStatusUpdate) => void,
   onLog: (log: StepRunLog) => void,
   onError?: (e: Event) => void,
-): () => void {
-  const token = localStorage.getItem('token')
-  const url = `${BASE}/runs/${runId}/events${token ? `?token=${token}` : ''}`
+): Promise<() => void> {
+  const { ticket } = await post<{ ticket: string }>(`/runs/${runId}/events/ticket`, {})
+  const url = `${BASE}/runs/${runId}/events?ticket=${ticket}`
   const es = new EventSource(url)
 
   es.addEventListener('status', (e) => {
-    const data = JSON.parse((e as MessageEvent).data)
-    onStatus(data)
+    try {
+      const data = JSON.parse((e as MessageEvent).data)
+      onStatus(data)
+    } catch { /* ignore malformed events */ }
   })
 
   es.onmessage = (e) => {
-    const data = JSON.parse(e.data)
-    if (data.step_run_id) {
-      onLog(data as StepRunLog)
-    }
+    try {
+      const data = JSON.parse(e.data)
+      if (data.step_run_id) {
+        onLog(data as StepRunLog)
+      }
+    } catch { /* ignore malformed events */ }
   }
 
   if (onError) es.onerror = onError

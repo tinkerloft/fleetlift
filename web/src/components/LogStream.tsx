@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { post } from '@/api/client'
 import type { StepRunLog } from '@/api/types'
 
 interface LogStreamProps {
@@ -12,20 +13,27 @@ export function LogStream({ stepRunId }: LogStreamProps) {
 
   useEffect(() => {
     setLogs([])
-    const token = localStorage.getItem('token')
-    const url = `/api/runs/steps/${stepRunId}/logs${token ? `?token=${token}` : ''}`
-    const es = new EventSource(url)
+    let es: EventSource | undefined
 
-    es.onmessage = (e) => {
-      const log = JSON.parse(e.data) as StepRunLog
-      setLogs((prev) => [...prev, log])
-    }
+    post<{ ticket: string }>(`/runs/steps/${stepRunId}/logs/ticket`, {}).then(({ ticket }) => {
+      es = new EventSource(`/api/runs/steps/${stepRunId}/logs?ticket=${ticket}`)
 
-    es.onerror = () => {
-      // SSE will reconnect automatically; ignore transient errors
-    }
+      es.onmessage = (e) => {
+        try {
+          const log = JSON.parse(e.data) as StepRunLog
+          setLogs((prev) => {
+            const next = [...prev, log]
+            return next.length > 2000 ? next.slice(-2000) : next
+          })
+        } catch { /* ignore malformed events */ }
+      }
 
-    return () => es.close()
+      es.onerror = () => {
+        // SSE will reconnect automatically; ignore transient errors
+      }
+    })
+
+    return () => es?.close()
   }, [stepRunId])
 
   useEffect(() => {

@@ -9,24 +9,28 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
 )
 
 // Client implements sandbox.Client using the OpenSandbox REST API.
 type Client struct {
-	domain string
-	apiKey string
-	http   *http.Client
+	domain     string
+	apiKey     string
+	http       *http.Client
+	streamHTTP *http.Client
 }
 
 // New creates a new OpenSandbox client.
 func New(domain, apiKey string) *Client {
 	return &Client{
-		domain: strings.TrimRight(domain, "/"),
-		apiKey: apiKey,
-		http:   &http.Client{},
+		domain:     strings.TrimRight(domain, "/"),
+		apiKey:     apiKey,
+		http:       &http.Client{Timeout: 30 * time.Second},
+		streamHTTP: &http.Client{}, // context-controlled for streaming
 	}
 }
 
@@ -98,7 +102,7 @@ func (c *Client) ExecStream(ctx context.Context, id, cmd, workDir string, onLine
 	req.Header.Set("Content-Type", "application/json")
 	c.setAuth(req)
 
-	resp, err := c.http.Do(req)
+	resp, err := c.streamHTTP.Do(req)
 	if err != nil {
 		return fmt.Errorf("opensandbox: exec: %w", err)
 	}
@@ -190,7 +194,7 @@ func (c *Client) ReadFile(ctx context.Context, id, path string) (string, error) 
 }
 
 func (c *Client) ReadBytes(ctx context.Context, id, path string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.sandboxURL(id)+"/files/download?path="+path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.sandboxURL(id)+"/files/download?path="+url.QueryEscape(path), nil)
 	if err != nil {
 		return nil, fmt.Errorf("opensandbox: read file request: %w", err)
 	}

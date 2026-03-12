@@ -86,10 +86,13 @@ func runListCmd() *cobra.Command {
 		Short: "List recent runs",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
-			var runs []map[string]any
-			if err := c.get("/api/runs", &runs); err != nil {
+			var resp struct {
+				Items []map[string]any `json:"items"`
+			}
+			if err := c.get("/api/runs", &resp); err != nil {
 				return err
 			}
+			runs := resp.Items
 
 			if outputJSON {
 				return json.NewEncoder(os.Stdout).Encode(runs)

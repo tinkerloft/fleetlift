@@ -50,7 +50,9 @@ func (b *BuiltinProvider) Name() string  { return "builtin" }
 func (b *BuiltinProvider) Writable() bool { return false }
 
 func (b *BuiltinProvider) List(_ context.Context, _ string) ([]*model.WorkflowTemplate, error) {
-	return b.templates, nil
+	out := make([]*model.WorkflowTemplate, len(b.templates))
+	copy(out, b.templates)
+	return out, nil
 }
 
 func (b *BuiltinProvider) Get(_ context.Context, _, slug string) (*model.WorkflowTemplate, error) {

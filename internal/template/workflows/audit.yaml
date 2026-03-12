@@ -59,7 +59,7 @@ steps:
         Collate these per-repo audit results into a single compliance report.
 
         Per-repo results:
-        {{ .Steps.scan.outputs | toJSON }}
+        {{ .Steps.scan.Outputs | toJSON }}
 
         Produce an executive summary with:
         1. Overall risk assessment
@@ -71,7 +71,7 @@ steps:
         - path: /workspace/audit-report.json
           name: audit-report
 
-  - id: notify-compliance
+  - id: notify_compliance
     title: Notify compliance team
     depends_on:
       - collate

@@ -28,10 +28,13 @@ func inboxListCmd() *cobra.Command {
 		Short: "List unread inbox items",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
-			var items []map[string]any
-			if err := c.get("/api/inbox", &items); err != nil {
+			var resp struct {
+				Items []map[string]any `json:"items"`
+			}
+			if err := c.get("/api/inbox", &resp); err != nil {
 				return err
 			}
+			items := resp.Items
 
 			if outputJSON {
 				return json.NewEncoder(os.Stdout).Encode(items)

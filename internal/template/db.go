@@ -24,7 +24,7 @@ func (d *DBProvider) Writable() bool { return true }
 func (d *DBProvider) List(ctx context.Context, teamID string) ([]*model.WorkflowTemplate, error) {
 	var templates []*model.WorkflowTemplate
 	err := d.db.SelectContext(ctx, &templates,
-		`SELECT id, team_id, slug, title, description, tags, yaml_body, created_at, updated_at
+		`SELECT id, team_id, slug, title, description, tags, yaml_body, created_by, created_at, updated_at
 		 FROM workflow_templates WHERE team_id = $1 ORDER BY title`, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("list templates: %w", err)
@@ -35,7 +35,7 @@ func (d *DBProvider) List(ctx context.Context, teamID string) ([]*model.Workflow
 func (d *DBProvider) Get(ctx context.Context, teamID, slug string) (*model.WorkflowTemplate, error) {
 	var t model.WorkflowTemplate
 	err := d.db.GetContext(ctx, &t,
-		`SELECT id, team_id, slug, title, description, tags, yaml_body, created_at, updated_at
+		`SELECT id, team_id, slug, title, description, tags, yaml_body, created_by, created_at, updated_at
 		 FROM workflow_templates WHERE team_id = $1 AND slug = $2`, teamID, slug)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
@@ -47,16 +47,20 @@ func (d *DBProvider) Get(ctx context.Context, teamID, slug string) (*model.Workf
 }
 
 func (d *DBProvider) Save(ctx context.Context, teamID string, t *model.WorkflowTemplate) error {
+	createdBy := t.CreatedBy
+	if createdBy == "" {
+		createdBy = teamID
+	}
 	_, err := d.db.ExecContext(ctx,
-		`INSERT INTO workflow_templates (team_id, slug, title, description, tags, yaml_body)
-		 VALUES ($1, $2, $3, $4, $5, $6)
+		`INSERT INTO workflow_templates (team_id, slug, title, description, tags, yaml_body, created_by)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)
 		 ON CONFLICT (team_id, slug) DO UPDATE SET
 		   title = EXCLUDED.title,
 		   description = EXCLUDED.description,
 		   tags = EXCLUDED.tags,
 		   yaml_body = EXCLUDED.yaml_body,
 		   updated_at = now()`,
-		teamID, t.Slug, t.Title, t.Description, t.Tags, t.YAMLBody)
+		teamID, t.Slug, t.Title, t.Description, t.Tags, t.YAMLBody, createdBy)
 	if err != nil {
 		return fmt.Errorf("save template: %w", err)
 	}

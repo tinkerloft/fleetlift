@@ -49,7 +49,7 @@ steps:
         Collate these per-repo research results into a single summary report.
 
         Results:
-        {{ .Steps.research.outputs | toJSON }}
+        {{ .Steps.research.Outputs | toJSON }}
 
         Produce a clear, structured summary highlighting key findings across all repos.
     outputs:

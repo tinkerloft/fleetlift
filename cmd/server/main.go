@@ -63,7 +63,7 @@ func main() {
 	encKey := os.Getenv("CREDENTIAL_ENCRYPTION_KEY")
 	credHandler, err := handlers.NewCredentialsHandler(database, encKey)
 	if err != nil {
-		log.Fatalf("init credentials handler: %v", err)
+		log.Fatalf("invalid credential encryption key: %v", err)
 	}
 
 	// Knowledge store
@@ -86,6 +86,8 @@ func main() {
 		Addr:              addr,
 		Handler:           server.NewRouter(deps),
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      5 * time.Minute, // generous for SSE
 	}
 
 	go func() {

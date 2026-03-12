@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -29,10 +31,13 @@ func credentialListCmd() *cobra.Command {
 		Short: "List credential names",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c := newClient()
-			var creds []map[string]any
-			if err := c.get("/api/credentials", &creds); err != nil {
+			var resp struct {
+				Items []map[string]any `json:"items"`
+			}
+			if err := c.get("/api/credentials", &resp); err != nil {
 				return err
 			}
+			creds := resp.Items
 
 			if outputJSON {
 				return json.NewEncoder(os.Stdout).Encode(creds)
@@ -62,6 +67,16 @@ func credentialSetCmd() *cobra.Command {
 		Short: "Set a team credential",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if value == "" {
+				fmt.Fprint(os.Stderr, "Enter credential value: ")
+				scanner := bufio.NewScanner(os.Stdin)
+				if scanner.Scan() {
+					value = strings.TrimSpace(scanner.Text())
+				}
+				if value == "" {
+					return fmt.Errorf("credential value is required")
+				}
+			}
 			c := newClient()
 			if err := c.post("/api/credentials", map[string]string{
 				"name":  args[0],
@@ -73,8 +88,7 @@ func credentialSetCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&value, "value", "v", "", "Credential value (required)")
-	_ = cmd.MarkFlagRequired("value")
+	cmd.Flags().StringVarP(&value, "value", "v", "", "Credential value (reads from stdin if omitted)")
 	return cmd
 }
 
