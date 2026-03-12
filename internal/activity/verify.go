@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"go.temporal.io/sdk/activity"
+
+	"github.com/tinkerloft/fleetlift/internal/model"
 )
 
 // VerifyStep runs verification commands in a sandbox after agent execution.
@@ -20,7 +22,7 @@ func (a *Activities) VerifyStep(ctx context.Context, sandboxID string, stepRunID
 		return nil
 	}
 
-	a.updateStepStatus(ctx, stepRunID, "verifying")
+	a.updateStepStatus(ctx, stepRunID, model.StepStatusVerifying)
 
 	var failures []string
 	for _, cmd := range cmds {

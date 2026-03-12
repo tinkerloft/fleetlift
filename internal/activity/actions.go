@@ -10,7 +10,6 @@ import (
 	"go.temporal.io/sdk/activity"
 	"golang.org/x/oauth2"
 
-	tmpl "github.com/tinkerloft/fleetlift/internal/template"
 )
 
 // ExecuteAction dispatches an action step to the appropriate handler based on action type.
@@ -162,5 +161,3 @@ func toStringSlice(v any) []string {
 	return nil
 }
 
-// Ensure tmpl package is used (it's available for future RenderPrompt calls in actions).
-var _ = tmpl.RenderPrompt
