@@ -42,7 +42,65 @@ Project-specific instructions for Claude Code when working on this repository.
 - Use Temporal SDK patterns for activities and workflows
 - Register new activities/workflows in `cmd/worker/main.go`
 - Add activity name constants to `internal/activity/constants.go`
-- Update `docs/plans/2026-03-11-platform-redesign-impl.md` when completing phases
+- Update the currennt implementation plan document when completing phases
+
+## Temporal Workflow Rules (STRICT)
+
+**Never use these in `internal/workflow/*.go` workflow functions** — they cause non-determinism on replay:
+- `slog.*`, `fmt.Print*`, `log.*` → use `workflow.GetLogger(ctx)` instead
+- `time.Now()` → use `workflow.Now(ctx)`
+- `math/rand` → use `workflow.SideEffect`
+- Iterating a `map` while calling `workflow.ExecuteActivity` or `workflow.Go` → collect keys into a slice, `sort.Strings()`, then iterate
+
+Activities (`internal/activity/`) are exempt — they run outside the determinism sandbox.
+
+## Security Rules
+
+- **Input validation:** Validate all user-supplied values at trust boundaries before use in shell commands, SQL, or file paths:
+  - Repo URLs must use `https://` scheme only — reject `file://`, `git://`, `ssh://`
+  - Credential names used as env vars must match `^[A-Z][A-Z0-9_]*$` and must not be reserved names (`PATH`, `LD_PRELOAD`, etc.)
+  - Artifact/file paths must be validated to stay within `/workspace/` (no `..`)
+- **No hardcoded credentials:** Never add fallback values for `DATABASE_URL` or other secrets. Fail fast with a clear error if required env vars are absent.
+- **Multi-tenant isolation:** Never use Go map iteration to select a team ID. Always require an explicit `X-Team-ID` header or `?team_id=` param, validated against JWT claims.
+- **State ownership:** Run/step status transitions must be performed by Temporal activities inside the workflow — not by HTTP handlers after `ExecuteWorkflow()` returns.
+
+## Test Coverage Requirements
+
+Beyond general unit tests, these specific areas **must** have tests before merge:
+- `internal/auth/middleware.go` — auth middleware, SSE ticket lifecycle
+- `internal/server/handlers/auth.go` — OAuth CSRF state validation
+- Any new encryption or credential handling code
+- New Temporal workflows must have at least one `go.temporal.io/sdk/testsuite` test
+
+## Frontend Rules
+
+- All `fetch`/promise chains must have a `.catch()` handler or be wrapped in `try/catch` — no silent failures
+- Never call `res.json()` without first checking `res.status !== 204` and `res.headers.get('content-length') !== '0'`
+- DELETE endpoints return 204 No Content — callers must not attempt to parse the response body
+
+## Go + PostgreSQL Type Rules
+
+- `[]string` fields **cannot** scan PostgreSQL `TEXT[]` columns — use `pq.StringArray` (from `github.com/lib/pq`)
+- `map[string]any` fields **cannot** scan `JSONB` columns — use the project's `JSONMap` type from `internal/model/types.go`
+- When in doubt, check `internal/model/types.go` for the canonical scan-safe types before adding new model fields
+
+## Serialization Rules
+
+- **Never** use `json.Unmarshal` to parse YAML content (workflow template bodies, config files). Use `yaml.Unmarshal` from `gopkg.in/yaml.v3`
+- The two formats are not interchangeable — YAML parses successfully as JSON only for trivial inputs
+
+## Shell Command Construction
+
+- **Every** user-controlled string interpolated into a shell command must be wrapped with `shellQuote()` — repo URLs, branch names, commit messages, file paths, credential values, prompt text
+- `shellQuote` is defined in `internal/agent/quote.go` and `internal/activity/util.go`
+- Run `git grep shellQuote` before committing any file that constructs shell command strings
+
+## Temporal Parent/Child Signal Routing
+
+- HITL signals (`approve`, `reject`, `steer`) are registered on **child StepWorkflow** instances, not the parent DAGWorkflow
+- Child workflow IDs: `{runID}-{stepID}` (single), `{runID}-{stepID}-{index}` (fan-out)
+- When routing HITL signals: look up `step_id` from `step_runs WHERE status = 'awaiting_input'`, construct child ID — never signal the parent `temporal_id` directly for HITL
+- Cancel signals target the parent DAGWorkflow (`temporal_id` on `runs`)
 
 ## Environment Variables
 

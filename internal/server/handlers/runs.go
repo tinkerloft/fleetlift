@@ -95,11 +95,6 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update status to running
-	_, _ = h.db.ExecContext(r.Context(),
-		`UPDATE runs SET status = $1, started_at = $2 WHERE id = $3`,
-		string(model.RunStatusRunning), time.Now(), runID)
-
 	writeJSON(w, http.StatusCreated, map[string]string{
 		"id":          runID,
 		"temporal_id": temporalID,

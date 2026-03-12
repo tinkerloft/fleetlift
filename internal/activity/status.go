@@ -54,17 +54,17 @@ func (a *Activities) UpdateStepStatus(ctx context.Context, stepRunID string, sta
 }
 
 // UpdateRunStatus updates the status of a run in the database.
-func (a *Activities) UpdateRunStatus(ctx context.Context, runID string, status string) error {
+func (a *Activities) UpdateRunStatus(ctx context.Context, runID string, status string, errorMsg string) error {
 	now := time.Now()
 	var query string
 	var args []any
 
 	switch {
 	case isRunTerminal(model.RunStatus(status)):
-		query = `UPDATE runs SET status = $1, completed_at = $2 WHERE id = $3`
-		args = []any{status, now, runID}
+		query = `UPDATE runs SET status = $1, completed_at = $2, error_message = NULLIF($3, '') WHERE id = $4`
+		args = []any{status, now, errorMsg, runID}
 	case status == string(model.RunStatusRunning):
-		query = `UPDATE runs SET status = $1, started_at = COALESCE(started_at, $2) WHERE id = $3`
+		query = `UPDATE runs SET status = $1, started_at = COALESCE(started_at, $2), error_message = NULL WHERE id = $3`
 		args = []any{status, now, runID}
 	default:
 		query = `UPDATE runs SET status = $1 WHERE id = $2`

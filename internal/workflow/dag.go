@@ -26,8 +26,34 @@ type DAGInput struct {
 
 // DAGWorkflow orchestrates a DAG of steps, running independent steps in parallel
 // and respecting dependency edges between them.
-func DAGWorkflow(ctx workflow.Context, input DAGInput) error {
+func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 	logger := workflow.GetLogger(ctx)
+
+	// Mark run as running — do this in the workflow, not the HTTP handler.
+	{
+		ao := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
+		if err := workflow.ExecuteActivity(
+			workflow.WithActivityOptions(ctx, ao),
+			UpdateRunStatusActivity, input.RunID, string(model.RunStatusRunning), "",
+		).Get(ctx, nil); err != nil {
+			return fmt.Errorf("mark run running: %w", err)
+		}
+	}
+
+	defer func() {
+		finalStatus := string(model.RunStatusComplete)
+		finalError := ""
+		if retErr != nil {
+			finalStatus = string(model.RunStatusFailed)
+			finalError = retErr.Error()
+		}
+		ao := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
+		_ = workflow.ExecuteActivity(
+			workflow.WithActivityOptions(ctx, ao),
+			UpdateRunStatusActivity, input.RunID, finalStatus, finalError,
+		).Get(ctx, nil)
+	}()
+
 	steps := input.WorkflowDef.Steps
 	outputs := map[string]*model.StepOutput{}
 	sandboxes := map[string]string{} // sandbox_group -> sandbox_id

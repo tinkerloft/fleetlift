@@ -60,6 +60,7 @@ var (
 	ExecuteStepActivity       = "ExecuteStep"
 	VerifyStepActivity        = "VerifyStep"
 	UpdateStepStatusActivity  = "UpdateStepStatus"
+	UpdateRunStatusActivity   = "UpdateRunStatus"
 	CreateStepRunActivity     = "CreateStepRun"
 	CreatePRActivity          = "CreatePullRequest"
 	CleanupSandboxActivity    = "CleanupSandbox"
