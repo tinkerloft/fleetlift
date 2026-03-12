@@ -295,7 +295,9 @@ func (h *RunsHandler) signalRun(w http.ResponseWriter, r *http.Request, signalNa
 		 WHERE run_id = $1 AND status = 'awaiting_input'
 		 ORDER BY created_at DESC LIMIT 1`, runID)
 	if err != nil {
-		// Fall back to signal on the parent (handles cancel with no awaiting step)
+		// No awaiting_input step found — fall back to signalling the parent DAGWorkflow.
+		// Note: cancel is registered on StepWorkflow, not DAGWorkflow, so cancel-while-running
+		// will be silently dropped here. Fix: query status='running' step for cancel path.
 		var temporalID string
 		if dbErr := h.db.GetContext(r.Context(), &temporalID,
 			`SELECT temporal_id FROM runs WHERE id = $1`, runID); dbErr != nil {
