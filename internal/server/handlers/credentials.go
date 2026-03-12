@@ -9,14 +9,14 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jmoiron/sqlx"
 
-	"github.com/tinkerloft/fleetlift/internal/activity"
 	"github.com/tinkerloft/fleetlift/internal/auth"
+	flcrypto "github.com/tinkerloft/fleetlift/internal/crypto"
 )
 
 // CredentialsHandler handles team credential management endpoints.
 type CredentialsHandler struct {
 	db            *sqlx.DB
-	encryptionKey []byte
+	encryptionKey string // hex-encoded 32-byte AES-256 key
 }
 
 // NewCredentialsHandler creates a new CredentialsHandler.
@@ -28,7 +28,7 @@ func NewCredentialsHandler(db *sqlx.DB, encryptionKeyHex string) (*CredentialsHa
 	if len(key) != 32 {
 		return nil, fmt.Errorf("CREDENTIAL_ENCRYPTION_KEY must be exactly 32 bytes (64 hex chars), got %d bytes", len(key))
 	}
-	return &CredentialsHandler{db: db, encryptionKey: key}, nil
+	return &CredentialsHandler{db: db, encryptionKey: encryptionKeyHex}, nil
 }
 
 type credentialEntry struct {
@@ -90,7 +90,7 @@ func (h *CredentialsHandler) Set(w http.ResponseWriter, r *http.Request) {
 		return // error already written
 	}
 
-	encrypted, err := activity.EncryptAESGCM(h.encryptionKey, []byte(req.Value))
+	encrypted, err := flcrypto.EncryptAESGCM(h.encryptionKey, req.Value)
 	if err != nil {
 		http.Error(w, "encryption failed", http.StatusInternalServerError)
 		return
