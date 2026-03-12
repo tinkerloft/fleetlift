@@ -281,18 +281,39 @@ func (h *RunsHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	h.signalRun(w, r, string(workflow.SignalCancel), nil)
 }
 
+func stepWorkflowID(runID, stepID string) string {
+	return fmt.Sprintf("%s-%s", runID, stepID)
+}
+
 func (h *RunsHandler) signalRun(w http.ResponseWriter, r *http.Request, signalName string, payload any) {
 	runID := chi.URLParam(r, "id")
 
-	var temporalID string
-	err := h.db.GetContext(r.Context(), &temporalID,
-		`SELECT temporal_id FROM runs WHERE id = $1`, runID)
+	// Find the currently paused step for this run
+	var stepID string
+	err := h.db.GetContext(r.Context(), &stepID,
+		`SELECT step_id FROM step_runs
+		 WHERE run_id = $1 AND status = 'awaiting_input'
+		 ORDER BY created_at DESC LIMIT 1`, runID)
 	if err != nil {
-		http.Error(w, "run not found", http.StatusNotFound)
+		// Fall back to signal on the parent (handles cancel with no awaiting step)
+		var temporalID string
+		if dbErr := h.db.GetContext(r.Context(), &temporalID,
+			`SELECT temporal_id FROM runs WHERE id = $1`, runID); dbErr != nil {
+			http.Error(w, "run not found", http.StatusNotFound)
+			return
+		}
+		err = h.temporal.SignalWorkflow(r.Context(), temporalID, "", signalName, payload)
+		if err != nil {
+			http.Error(w, "failed to signal workflow", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "signaled"})
 		return
 	}
 
-	err = h.temporal.SignalWorkflow(r.Context(), temporalID, "", signalName, payload)
+	// Signal the specific child StepWorkflow
+	childID := stepWorkflowID(runID, stepID)
+	err = h.temporal.SignalWorkflow(r.Context(), childID, "", signalName, payload)
 	if err != nil {
 		http.Error(w, "failed to signal workflow", http.StatusInternalServerError)
 		return
