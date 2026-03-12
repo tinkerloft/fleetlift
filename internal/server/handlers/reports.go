@@ -147,15 +147,15 @@ const markdownReportTmpl = `# Report: {{.Run.WorkflowTitle}}
 {{end}}
 `
 
+var reportTmpl = template.Must(template.New("report").Funcs(template.FuncMap{
+	"stepDuration": func(s model.StepRun) string {
+		if s.StartedAt == nil || s.CompletedAt == nil {
+			return "—"
+		}
+		return s.CompletedAt.Sub(*s.StartedAt).Round(time.Second).String()
+	},
+}).Parse(markdownReportTmpl))
+
 func renderMarkdownReport(w http.ResponseWriter, run model.Run, steps []model.StepRun) {
-	funcMap := template.FuncMap{
-		"stepDuration": func(s model.StepRun) string {
-			if s.StartedAt == nil || s.CompletedAt == nil {
-				return "—"
-			}
-			return s.CompletedAt.Sub(*s.StartedAt).Round(time.Second).String()
-		},
-	}
-	tmpl := template.Must(template.New("report").Funcs(funcMap).Parse(markdownReportTmpl))
-	_ = tmpl.Execute(w, map[string]any{"Run": run, "Steps": steps})
+	_ = reportTmpl.Execute(w, map[string]any{"Run": run, "Steps": steps})
 }
