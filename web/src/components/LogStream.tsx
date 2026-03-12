@@ -8,11 +8,13 @@ interface LogStreamProps {
 
 export function LogStream({ stepRunId }: LogStreamProps) {
   const [logs, setLogs] = useState<StepRunLog[]>([])
+  const [ticketError, setTicketError] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const autoScrollRef = useRef(true)
 
   useEffect(() => {
     setLogs([])
+    setTicketError(null)
     let es: EventSource | undefined
 
     post<{ ticket: string }>(`/runs/steps/${stepRunId}/logs/ticket`, {}).then(({ ticket }) => {
@@ -31,6 +33,8 @@ export function LogStream({ stepRunId }: LogStreamProps) {
       es.onerror = () => {
         // SSE will reconnect automatically; ignore transient errors
       }
+    }).catch((err: Error) => {
+      setTicketError(err.message)
     })
 
     return () => es?.close()
@@ -54,7 +58,10 @@ export function LogStream({ stepRunId }: LogStreamProps) {
       onScroll={handleScroll}
       className="h-64 overflow-auto rounded-md bg-black/80 p-3 font-mono text-xs text-green-400"
     >
-      {logs.length === 0 && (
+      {ticketError && (
+        <span className="text-red-400">Failed to connect to log stream: {ticketError}</span>
+      )}
+      {!ticketError && logs.length === 0 && (
         <span className="text-muted-foreground">Waiting for logs...</span>
       )}
       {logs.map((log) => (

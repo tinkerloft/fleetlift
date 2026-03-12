@@ -32,11 +32,14 @@ export async function post<T>(path: string, body?: unknown): Promise<T> {
   return res.json()
 }
 
-export async function del<T>(path: string): Promise<T> {
+export async function del<T = void>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { method: 'DELETE', headers: authHeaders() })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
     throw new Error(err.error ?? res.statusText)
+  }
+  if (res.status === 204 || res.headers.get('content-length') === '0') {
+    return undefined as T
   }
   return res.json()
 }
