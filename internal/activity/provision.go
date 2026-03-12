@@ -4,10 +4,18 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"regexp"
 
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
 	"github.com/tinkerloft/fleetlift/internal/workflow"
 )
+
+var credNameRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
+
+var reservedEnvVars = map[string]bool{
+	"PATH": true, "LD_PRELOAD": true, "LD_LIBRARY_PATH": true,
+	"HOME": true, "USER": true, "SHELL": true,
+}
 
 // ProvisionSandbox creates a sandbox and injects team credentials as env vars.
 // Returns the sandbox ID.
@@ -17,6 +25,12 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 	// Resolve team credentials by name, injecting each as an env var
 	if a.CredStore != nil && len(input.ResolvedOpts.Credentials) > 0 {
 		for _, credName := range input.ResolvedOpts.Credentials {
+			if !credNameRe.MatchString(credName) {
+				return "", fmt.Errorf("invalid credential name %q: must match ^[A-Z][A-Z0-9_]*$", credName)
+			}
+			if reservedEnvVars[credName] {
+				return "", fmt.Errorf("credential name %q conflicts with reserved environment variable", credName)
+			}
 			val, err := a.CredStore.Get(ctx, input.TeamID, credName)
 			if err != nil {
 				return "", fmt.Errorf("resolve credential %s: %w", credName, err)

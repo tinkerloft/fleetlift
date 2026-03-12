@@ -3,6 +3,7 @@ package activity
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"go.temporal.io/sdk/activity"
 
@@ -12,6 +13,9 @@ import (
 // CollectArtifacts reads artifact files from a sandbox and stores them in the DB.
 func (a *Activities) CollectArtifacts(ctx context.Context, sandboxID, stepRunID string, artifacts []model.ArtifactRef) error {
 	for _, art := range artifacts {
+		if !strings.HasPrefix(art.Path, "/workspace/") || strings.Contains(art.Path, "..") {
+			return fmt.Errorf("artifact path %q must be within /workspace/ and must not contain ..", art.Path)
+		}
 		activity.RecordHeartbeat(ctx, "collecting "+art.Name)
 
 		data, err := a.Sandbox.ReadBytes(ctx, sandboxID, art.Path)

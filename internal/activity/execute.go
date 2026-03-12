@@ -25,6 +25,9 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 
 	// 1. Clone repos
 	for _, repo := range stepInput.ResolvedOpts.Repos {
+		if !strings.HasPrefix(repo.URL, "https://") {
+			return nil, fmt.Errorf("repo URL must use https:// scheme, got: %q", repo.URL)
+		}
 		cloneCmd := fmt.Sprintf("git clone --depth %s", DefaultCloneDepth)
 		if repo.Branch != "" {
 			cloneCmd += fmt.Sprintf(" --branch %s", shellQuote(repo.Branch))
