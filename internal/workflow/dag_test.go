@@ -234,4 +234,17 @@ func TestAggregateFanOut_WithFailure(t *testing.T) {
 	agg := aggregateFanOut("transform", results)
 	assert.Equal(t, model.StepStatusFailed, agg.Status)
 	assert.Len(t, agg.Outputs, 2)
+	assert.Equal(t, "timeout", agg.Error)
+}
+
+func TestAggregateFanOut_MultipleFailures(t *testing.T) {
+	results := []*model.StepOutput{
+		{StepID: "transform", Status: model.StepStatusFailed, Error: "clone failed"},
+		{StepID: "transform", Status: model.StepStatusFailed, Error: "timeout"},
+	}
+	agg := aggregateFanOut("transform", results)
+	assert.Equal(t, model.StepStatusFailed, agg.Status)
+	assert.Len(t, agg.Outputs, 2)
+	assert.Contains(t, agg.Error, "clone failed")
+	assert.Contains(t, agg.Error, "timeout")
 }

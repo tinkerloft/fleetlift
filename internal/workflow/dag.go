@@ -280,12 +280,18 @@ func aggregateFanOut(stepID string, results []*model.StepOutput) *model.StepOutp
 		Status:  model.StepStatusComplete,
 		Outputs: make([]model.StepOutput, len(results)),
 	}
+	var errs []string
 	for i, r := range results {
 		agg.Outputs[i] = *r
 		if r.Status == model.StepStatusFailed {
 			agg.Status = model.StepStatusFailed
-			agg.Error = r.Error
+			if r.Error != "" {
+				errs = append(errs, r.Error)
+			}
 		}
+	}
+	if len(errs) > 0 {
+		agg.Error = strings.Join(errs, "; ")
 	}
 	return agg
 }
