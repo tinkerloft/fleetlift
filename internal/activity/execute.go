@@ -85,19 +85,22 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 		return nil, fmt.Errorf("start agent: %w", err)
 	}
 
+	buf := newLogBuffer(a, stepInput.StepRunID, "stdout", LogFlushThreshold)
 	var seq int64
 	var lastOutput map[string]any
 	for event := range events {
 		activity.RecordHeartbeat(ctx, "agent running: "+event.Type)
-		a.writeLogLine(ctx, stepInput.StepRunID, seq, "stdout", event.Content)
+		buf.add(ctx, seq, event.Content)
 		seq++
 		if event.Type == "complete" {
 			lastOutput = event.Output
 		}
 		if event.Type == "error" {
+			buf.flush(ctx)
 			return nil, fmt.Errorf("agent error: %s", event.Content)
 		}
 	}
+	buf.flush(ctx)
 
 	// 3. Extract git diff — run in each repo dir and concatenate
 	var diffParts []string

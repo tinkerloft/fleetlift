@@ -3,6 +3,7 @@ package activity
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -104,15 +105,71 @@ func (a *Activities) updateStepStatus(ctx context.Context, stepRunID string, sta
 		string(status), stepRunID)
 }
 
-// writeLogLine appends a log line to step_run_logs.
-func (a *Activities) writeLogLine(ctx context.Context, stepRunID string, seq int64, stream, content string) {
-	if a.DB == nil || content == "" {
+// logLine holds a single buffered log entry.
+type logLine struct {
+	Seq     int64
+	Stream  string
+	Content string
+}
+
+// logBuffer is a simple buffer of log lines with a configurable flush threshold.
+type logBuffer struct {
+	stepRunID string
+	stream    string
+	lines     []logLine
+	threshold int
+	acts      *Activities
+}
+
+// newLogBuffer creates a logBuffer that flushes every threshold lines.
+func newLogBuffer(acts *Activities, stepRunID, stream string, threshold int) *logBuffer {
+	return &logBuffer{
+		stepRunID: stepRunID,
+		stream:    stream,
+		lines:     make([]logLine, 0, threshold),
+		threshold: threshold,
+		acts:      acts,
+	}
+}
+
+// add appends a log line and flushes if the threshold is reached.
+func (b *logBuffer) add(ctx context.Context, seq int64, content string) {
+	if content == "" {
 		return
 	}
-	_, _ = a.DB.ExecContext(ctx,
-		`INSERT INTO step_run_logs (step_run_id, seq, stream, content) VALUES ($1, $2, $3, $4)`,
-		stepRunID, seq, stream, content)
+	b.lines = append(b.lines, logLine{Seq: seq, Stream: b.stream, Content: content})
+	if len(b.lines) >= b.threshold {
+		b.flush(ctx)
+	}
 }
+
+// flush writes all buffered lines to the DB in a single multi-row INSERT.
+func (b *logBuffer) flush(ctx context.Context) {
+	if b.acts.DB == nil || len(b.lines) == 0 {
+		b.lines = b.lines[:0]
+		return
+	}
+	_ = batchInsertLogs(ctx, b.acts, b.stepRunID, b.lines)
+	b.lines = b.lines[:0]
+}
+
+// batchInsertLogs writes a slice of log lines to step_run_logs in one INSERT.
+func batchInsertLogs(ctx context.Context, a *Activities, stepRunID string, lines []logLine) error {
+	if len(lines) == 0 {
+		return nil
+	}
+	placeholders := make([]string, 0, len(lines))
+	args := make([]any, 0, len(lines)*4)
+	for i, ln := range lines {
+		base := i * 4
+		placeholders = append(placeholders, fmt.Sprintf("($%d, $%d, $%d, $%d)", base+1, base+2, base+3, base+4))
+		args = append(args, stepRunID, ln.Seq, ln.Stream, ln.Content)
+	}
+	query := "INSERT INTO step_run_logs (step_run_id, seq, stream, content) VALUES " + strings.Join(placeholders, ", ")
+	_, err := a.DB.ExecContext(ctx, query, args...)
+	return err
+}
+
 
 func isTerminal(s model.StepStatus) bool {
 	switch s {

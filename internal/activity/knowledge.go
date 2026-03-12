@@ -34,6 +34,7 @@ func (a *Activities) CaptureKnowledge(ctx context.Context, input model.CaptureKn
 		return fmt.Errorf("parse fleetlift-knowledge.json: %w", err)
 	}
 
+	var items []model.KnowledgeItem
 	for _, r := range raw {
 		if r.Summary == "" {
 			continue
@@ -42,7 +43,7 @@ func (a *Activities) CaptureKnowledge(ctx context.Context, input model.CaptureKn
 		if conf == 0 {
 			conf = 1.0
 		}
-		item := model.KnowledgeItem{
+		items = append(items, model.KnowledgeItem{
 			TeamID:             input.TeamID,
 			WorkflowTemplateID: input.WorkflowTemplateID,
 			StepRunID:          input.StepRunID,
@@ -53,9 +54,11 @@ func (a *Activities) CaptureKnowledge(ctx context.Context, input model.CaptureKn
 			Tags:               r.Tags,
 			Confidence:         conf,
 			Status:             model.KnowledgeStatusPending,
-		}
-		if _, err := a.KnowledgeStore.Save(ctx, item); err != nil {
-			slog.ErrorContext(ctx, "failed to save knowledge item", "error", err)
+		})
+	}
+	if len(items) > 0 {
+		if err := a.KnowledgeStore.BatchSave(ctx, items); err != nil {
+			slog.ErrorContext(ctx, "failed to batch save knowledge items", "error", err)
 		}
 	}
 

@@ -18,6 +18,7 @@ import (
 // Store is the interface for knowledge item persistence.
 type Store interface {
 	Save(ctx context.Context, item model.KnowledgeItem) (model.KnowledgeItem, error)
+	BatchSave(ctx context.Context, items []model.KnowledgeItem) error
 	ListByTeam(ctx context.Context, teamID, status string) ([]model.KnowledgeItem, error)
 	ListApprovedByWorkflow(ctx context.Context, teamID, workflowTemplateID string, maxItems int) ([]model.KnowledgeItem, error)
 	UpdateStatus(ctx context.Context, id, teamID string, status model.KnowledgeStatus) error
@@ -53,6 +54,43 @@ func (s *DBStore) Save(ctx context.Context, item model.KnowledgeItem) (model.Kno
 		return item, fmt.Errorf("save knowledge item: %w", err)
 	}
 	return item, nil
+}
+
+// BatchSave inserts multiple knowledge items in a single INSERT statement.
+func (s *DBStore) BatchSave(ctx context.Context, items []model.KnowledgeItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	now := time.Now()
+	placeholders := make([]string, 0, len(items))
+	args := make([]any, 0, len(items)*12)
+	for i, item := range items {
+		if item.ID == "" {
+			item.ID = uuid.New().String()
+		}
+		item.CreatedAt = now
+		if item.Status == "" {
+			item.Status = model.KnowledgeStatusPending
+		}
+		base := i * 12
+		placeholders = append(placeholders, fmt.Sprintf(
+			"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+			base+1, base+2, base+3, base+4, base+5, base+6,
+			base+7, base+8, base+9, base+10, base+11, base+12,
+		))
+		args = append(args,
+			item.ID, item.TeamID, nullStr(item.WorkflowTemplateID), nullStr(item.StepRunID),
+			string(item.Type), item.Summary, item.Details, string(item.Source),
+			item.Tags, item.Confidence, string(item.Status), item.CreatedAt,
+		)
+	}
+	query := `INSERT INTO knowledge_items (id, team_id, workflow_template_id, step_run_id, type, summary, details, source, tags, confidence, status, created_at) VALUES ` +
+		strings.Join(placeholders, ", ")
+	_, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("batch save knowledge items: %w", err)
+	}
+	return nil
 }
 
 func (s *DBStore) ListByTeam(ctx context.Context, teamID, status string) ([]model.KnowledgeItem, error) {
@@ -133,6 +171,16 @@ func (s *MemoryStore) Save(_ context.Context, item model.KnowledgeItem) (model.K
 	}
 	s.items = append(s.items, item)
 	return item, nil
+}
+
+// BatchSave appends all items to the in-memory store.
+func (s *MemoryStore) BatchSave(ctx context.Context, items []model.KnowledgeItem) error {
+	for _, item := range items {
+		if _, err := s.Save(ctx, item); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *MemoryStore) ListByTeam(_ context.Context, teamID, status string) ([]model.KnowledgeItem, error) {

@@ -57,6 +57,9 @@ const (
 	BranchPrefix  = "fix/claude-"
 	WorkspacePath = "/workspace"
 	AgentUser     = "agent"
+
+	// LogFlushThreshold is the number of log lines buffered before a batch INSERT.
+	LogFlushThreshold = 50
 )
 
 // ConfigValidationMode controls how configuration validation behaves.

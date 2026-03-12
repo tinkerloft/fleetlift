@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 
 	flcrypto "github.com/tinkerloft/fleetlift/internal/crypto"
 )
@@ -49,4 +50,42 @@ func (s *DBCredentialStore) Get(ctx context.Context, teamID, name string) (strin
 		return "", fmt.Errorf("decrypt credential %q: %w", name, err)
 	}
 	return plaintext, nil
+}
+
+// GetBatch retrieves and decrypts multiple credentials in a single query.
+// Returns a map of credential name → plaintext value.
+// Returns an error if any requested credential is not found.
+func (s *DBCredentialStore) GetBatch(ctx context.Context, teamID string, names []string) (map[string]string, error) {
+	if len(names) == 0 {
+		return map[string]string{}, nil
+	}
+
+	type row struct {
+		Name     string `db:"name"`
+		ValueEnc []byte `db:"value_enc"`
+	}
+	var rows []row
+	if err := s.db.SelectContext(ctx, &rows,
+		`SELECT name, value_enc FROM credentials WHERE team_id = $1 AND name = ANY($2)`,
+		teamID, pq.Array(names),
+	); err != nil {
+		return nil, fmt.Errorf("batch query credentials: %w", err)
+	}
+
+	found := make(map[string]string, len(rows))
+	for _, r := range rows {
+		plaintext, err := flcrypto.DecryptAESGCM(s.encryptionKey, r.ValueEnc)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt credential %q: %w", r.Name, err)
+		}
+		found[r.Name] = plaintext
+	}
+
+	// Verify all requested names were found.
+	for _, name := range names {
+		if _, ok := found[name]; !ok {
+			return nil, fmt.Errorf("credential %q not found for team %s", name, teamID)
+		}
+	}
+	return found, nil
 }

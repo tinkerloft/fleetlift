@@ -106,3 +106,11 @@ type stubCredStore struct {
 func (s *stubCredStore) Get(_ context.Context, _, _ string) (string, error) {
 	return s.val, nil
 }
+
+func (s *stubCredStore) GetBatch(_ context.Context, _ string, names []string) (map[string]string, error) {
+	result := make(map[string]string, len(names))
+	for _, name := range names {
+		result[name] = s.val
+	}
+	return result, nil
+}
