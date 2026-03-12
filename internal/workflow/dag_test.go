@@ -5,9 +5,36 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/workflow"
 
 	"github.com/tinkerloft/fleetlift/internal/model"
 )
+
+// evalConditionWorkflow is a thin wrapper used in tests to invoke evalCondition
+// inside a real workflow.Context (required by workflow.GetLogger).
+type evalConditionInput struct {
+	Condition string
+	Outputs   map[string]*model.StepOutput
+}
+
+func evalConditionWorkflow(ctx workflow.Context, in evalConditionInput) (bool, error) {
+	return evalCondition(ctx, in.Condition, nil, in.Outputs), nil
+}
+
+// runEvalCondition executes evalCondition inside a Temporal test workflow environment.
+func runEvalCondition(t *testing.T, condition string, outputs map[string]*model.StepOutput) bool {
+	t.Helper()
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.RegisterWorkflow(evalConditionWorkflow)
+	env.ExecuteWorkflow(evalConditionWorkflow, evalConditionInput{Condition: condition, Outputs: outputs})
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	var result bool
+	require.NoError(t, env.GetWorkflowResult(&result))
+	return result
+}
 
 func TestFindReady(t *testing.T) {
 	pending := map[string]model.StepDef{
@@ -123,23 +150,23 @@ func TestSkipDownstream(t *testing.T) {
 }
 
 func TestEvalCondition_Always(t *testing.T) {
-	assert.True(t, evalCondition("true", nil, nil))
+	assert.True(t, runEvalCondition(t, "true", nil))
 }
 
 func TestEvalCondition_StepStatus(t *testing.T) {
 	outputs := map[string]*model.StepOutput{
 		"step-a": {Status: model.StepStatusComplete},
 	}
-	assert.True(t, evalCondition(`{{eq (index .steps "step-a").status "complete"}}`, nil, outputs))
-	assert.False(t, evalCondition(`{{eq (index .steps "step-a").status "failed"}}`, nil, outputs))
+	assert.True(t, runEvalCondition(t, `{{eq (index .steps "step-a").status "complete"}}`, outputs))
+	assert.False(t, runEvalCondition(t, `{{eq (index .steps "step-a").status "failed"}}`, outputs))
 }
 
 func TestEvalCondition_Empty(t *testing.T) {
-	assert.True(t, evalCondition("", nil, nil))
+	assert.True(t, runEvalCondition(t, "", nil))
 }
 
 func TestEvalCondition_InvalidTemplate(t *testing.T) {
-	assert.False(t, evalCondition("{{broken", nil, nil))
+	assert.False(t, runEvalCondition(t, "{{broken", nil))
 }
 
 func TestResolveStep_NilExecution(t *testing.T) {

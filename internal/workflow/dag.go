@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strings"
 	"text/template"
@@ -82,7 +81,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) error {
 				}
 
 				// Check condition
-				if step.Condition != "" && !evalCondition(step.Condition, input.Parameters, outputs) {
+				if step.Condition != "" && !evalCondition(gCtx, step.Condition, input.Parameters, outputs) {
 					results[i] = &model.StepOutput{StepID: step.ID, Status: model.StepStatusSkipped}
 					return
 				}
@@ -208,6 +207,9 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) error {
 
 		// Collect results
 		for _, r := range results {
+			if r == nil {
+				continue // goroutine panicked before setting result; skip
+			}
 			outputs[r.StepID] = r
 			delete(pending, r.StepID)
 
@@ -217,8 +219,14 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) error {
 		}
 	}
 
-	// Cleanup sandbox groups
-	for group, sandboxID := range sandboxes {
+	// Cleanup sandbox groups — sort keys for deterministic activity scheduling order.
+	cleanupGroups := make([]string, 0, len(sandboxes))
+	for group := range sandboxes {
+		cleanupGroups = append(cleanupGroups, group)
+	}
+	sort.Strings(cleanupGroups)
+	for _, group := range cleanupGroups {
+		sandboxID := sandboxes[group]
 		ao := workflow.ActivityOptions{StartToCloseTimeout: 2 * time.Minute}
 		_ = workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, ao),
@@ -344,7 +352,7 @@ func aggregateFanOut(stepID string, results []*model.StepOutput) *model.StepOutp
 
 // evalCondition evaluates a Go template condition string against step outputs and params.
 // Returns true if the condition is empty or evaluates to "true"; false on parse/execute error.
-func evalCondition(condition string, params map[string]any, outputs map[string]*model.StepOutput) bool {
+func evalCondition(ctx workflow.Context, condition string, params map[string]any, outputs map[string]*model.StepOutput) bool {
 	if condition == "" {
 		return true
 	}
@@ -366,14 +374,14 @@ func evalCondition(condition string, params map[string]any, outputs map[string]*
 
 	tmpl, err := template.New("cond").Parse(condition)
 	if err != nil {
-		slog.Warn("condition template parse error — defaulting to false",
+		workflow.GetLogger(ctx).Warn("condition template parse error — defaulting to false",
 			"condition", condition, "error", err)
 		return false
 	}
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
-		slog.Warn("condition template execute error — defaulting to false",
+		workflow.GetLogger(ctx).Warn("condition template execute error — defaulting to false",
 			"condition", condition, "error", err)
 		return false
 	}
