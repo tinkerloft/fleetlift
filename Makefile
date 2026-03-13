@@ -1,4 +1,4 @@
-.PHONY: build test clean fleetlift-worker fleetlift fleetlift-agent all temporal-dev temporal-up temporal-down temporal-logs sandbox-build agent-image kind-setup test-integration-k8s build-web dev-web opensandbox-up opensandbox-down opensandbox-logs
+.PHONY: build test clean fleetlift-worker fleetlift all temporal-dev temporal-up temporal-down temporal-logs sandbox-build agent-image kind-setup test-integration-k8s build-web dev-web opensandbox-up opensandbox-down opensandbox-logs
 
 # Build all binaries
 all: build
@@ -15,7 +15,6 @@ dev-web:
 build: build-web
 	go build -o bin/fleetlift-worker ./cmd/worker
 	go build -o bin/fleetlift ./cmd/cli
-	CGO_ENABLED=0 go build -o bin/fleetlift-agent ./cmd/agent
 	go build -o bin/fleetlift-server ./cmd/server
 
 # Build worker only
@@ -25,10 +24,6 @@ fleetlift-worker:
 # Build CLI only
 fleetlift:
 	go build -o bin/fleetlift ./cmd/cli
-
-# Build agent binary (statically compiled for sandbox image)
-fleetlift-agent:
-	CGO_ENABLED=0 go build -o bin/fleetlift-agent ./cmd/agent
 
 # Run tests
 test:
@@ -77,11 +72,9 @@ temporal-down:
 temporal-logs:
 	docker compose logs -f temporal
 
-# Build sandbox image (cross-compiles agent for linux to match the container OS)
+# Build sandbox image
 sandbox-build:
-	GOOS=linux CGO_ENABLED=0 go build -o docker/fleetlift-agent ./cmd/agent
 	docker build -f docker/Dockerfile.sandbox -t claude-code-sandbox:latest docker/
-	rm -f docker/fleetlift-agent
 
 # Build agent init container image (minimal, FROM scratch)
 agent-image:

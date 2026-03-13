@@ -19,19 +19,102 @@ Project-specific instructions for Claude Code when working on this repository.
 
 ## Project Structure
 
-- `cmd/` - CLI and worker entry points
+- `cmd/cli/` - cobra CLI (`fleetlift` binary)
+- `cmd/worker/` - Temporal worker (registers DAGWorkflow, StepWorkflow, all activities)
+- `cmd/server/` - REST API + SSE server (chi, port 8080)
 - `internal/activity/` - Temporal activity implementations
-- `internal/workflow/` - Temporal workflow definitions
-- `internal/model/` - Data models and types
-- `internal/agent/fleetproto/` - Fleetlift-specific protocol types (extends agentbox/protocol)
-- `docs/` - Design documents and implementation plan
-
-> Note: `internal/sandbox/` was deleted (sandbox logic moved to `github.com/tinkerloft/agentbox`).
-> Note: `internal/agent/protocol/` shim was deleted in Phase AB-4; import `fleetproto` or `agentboxproto` directly.
+- `internal/agent/` - AgentRunner interface + ClaudeCodeRunner
+- `internal/auth/` - JWT, GitHub OAuth, HTTP middleware
+- `internal/db/` - PostgreSQL connection helper + schema
+- `internal/knowledge/` - Local knowledge store (v1 holdover — needs decision: wire in or remove)
+- `internal/logging/` - slog adapter
+- `internal/metrics/` - Prometheus interceptor
+- `internal/model/` - All entity types (Run, StepRun, WorkflowTemplate, etc.)
+- `internal/sandbox/` - sandbox.Client interface + opensandbox/ REST implementation
+- `internal/server/` - chi router + handlers (auth, workflows, runs, inbox, reports, credentials)
+- `internal/template/` - BuiltinProvider, DBProvider, Registry, RenderPrompt; 9 builtin YAML workflows
+- `internal/workflow/` - DAGWorkflow + StepWorkflow (Temporal)
+- `web/` - React 19 + TypeScript + Vite SPA (embedded in server binary via web/embed.go)
+- `docs/plans/` - Design doc and implementation plan
 
 ## Key Conventions
 
 - Use Temporal SDK patterns for activities and workflows
-- Register new activities in `cmd/worker/main.go`
+- Register new activities/workflows in `cmd/worker/main.go`
 - Add activity name constants to `internal/activity/constants.go`
-- Update `docs/IMPLEMENTATION_PLAN.md` when completing phases
+- Update the currennt implementation plan document when completing phases
+
+## Temporal Workflow Rules (STRICT)
+
+**Never use these in `internal/workflow/*.go` workflow functions** — they cause non-determinism on replay:
+- `slog.*`, `fmt.Print*`, `log.*` → use `workflow.GetLogger(ctx)` instead
+- `time.Now()` → use `workflow.Now(ctx)`
+- `math/rand` → use `workflow.SideEffect`
+- Iterating a `map` while calling `workflow.ExecuteActivity` or `workflow.Go` → collect keys into a slice, `sort.Strings()`, then iterate
+
+Activities (`internal/activity/`) are exempt — they run outside the determinism sandbox.
+
+## Security Rules
+
+- **Input validation:** Validate all user-supplied values at trust boundaries before use in shell commands, SQL, or file paths:
+  - Repo URLs must use `https://` scheme only — reject `file://`, `git://`, `ssh://`
+  - Credential names used as env vars must match `^[A-Z][A-Z0-9_]*$` and must not be reserved names (`PATH`, `LD_PRELOAD`, etc.)
+  - Artifact/file paths must be validated to stay within `/workspace/` (no `..`)
+- **No hardcoded credentials:** Never add fallback values for `DATABASE_URL` or other secrets. Fail fast with a clear error if required env vars are absent.
+- **Multi-tenant isolation:** Never use Go map iteration to select a team ID. Always require an explicit `X-Team-ID` header or `?team_id=` param, validated against JWT claims.
+- **State ownership:** Run/step status transitions must be performed by Temporal activities inside the workflow — not by HTTP handlers after `ExecuteWorkflow()` returns.
+
+## Test Coverage Requirements
+
+Beyond general unit tests, these specific areas **must** have tests before merge:
+- `internal/auth/middleware.go` — auth middleware, SSE ticket lifecycle
+- `internal/server/handlers/auth.go` — OAuth CSRF state validation
+- Any new encryption or credential handling code
+- New Temporal workflows must have at least one `go.temporal.io/sdk/testsuite` test
+
+## Frontend Rules
+
+- All `fetch`/promise chains must have a `.catch()` handler or be wrapped in `try/catch` — no silent failures
+- Never call `res.json()` without first checking `res.status !== 204` and `res.headers.get('content-length') !== '0'`
+- DELETE endpoints return 204 No Content — callers must not attempt to parse the response body
+
+## Go + PostgreSQL Type Rules
+
+- `[]string` fields **cannot** scan PostgreSQL `TEXT[]` columns — use `pq.StringArray` (from `github.com/lib/pq`)
+- `map[string]any` fields **cannot** scan `JSONB` columns — use the project's `JSONMap` type from `internal/model/types.go`
+- When in doubt, check `internal/model/types.go` for the canonical scan-safe types before adding new model fields
+
+## Serialization Rules
+
+- **Never** use `json.Unmarshal` to parse YAML content (workflow template bodies, config files). Use `yaml.Unmarshal` from `gopkg.in/yaml.v3`
+- The two formats are not interchangeable — YAML parses successfully as JSON only for trivial inputs
+
+## Shell Command Construction
+
+- **Every** user-controlled string interpolated into a shell command must be wrapped with `shellQuote()` — repo URLs, branch names, commit messages, file paths, credential values, prompt text
+- `shellQuote` is defined in `internal/agent/quote.go` and `internal/activity/util.go`
+- Run `git grep shellQuote` before committing any file that constructs shell command strings
+
+## Temporal Parent/Child Signal Routing
+
+- HITL signals (`approve`, `reject`, `steer`) are registered on **child StepWorkflow** instances, not the parent DAGWorkflow
+- Child workflow IDs: `{runID}-{stepID}` (single), `{runID}-{stepID}-{index}` (fan-out)
+- When routing HITL signals: look up `step_id` from `step_runs WHERE status = 'awaiting_input'`, construct child ID — never signal the parent `temporal_id` directly for HITL
+- Cancel signals target the parent DAGWorkflow (`temporal_id` on `runs`)
+
+## Environment Variables
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `DATABASE_URL` | PostgreSQL DSN | `postgres://fleetlift:fleetlift@localhost:5432/fleetlift` |
+| `TEMPORAL_ADDRESS` | Temporal server | `localhost:7233` |
+| `OPENSANDBOX_DOMAIN` | OpenSandbox API base URL | — |
+| `OPENSANDBOX_API_KEY` | OpenSandbox auth key | — |
+| `AGENT_IMAGE` | Default sandbox image (Claude Code) | `claude-code:latest` |
+| `JWT_SECRET` | Server JWT signing key | — |
+| `CREDENTIAL_ENCRYPTION_KEY` | 32-byte hex key for AES-256-GCM | — |
+| `GITHUB_CLIENT_ID` | OAuth app client ID | — |
+| `GITHUB_CLIENT_SECRET` | OAuth app client secret | — |
+| `GIT_USER_EMAIL` | Git commit identity for agent | `claude-agent@noreply.localhost` |
+| `GIT_USER_NAME` | Git commit identity for agent | `Claude Code Agent` |
+| `FLEETLIFT_API_URL` | CLI base URL | `http://localhost:8080` |

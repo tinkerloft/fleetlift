@@ -1,14 +1,27 @@
 import type {
-  TaskSummary, DiffOutput, VerifierOutput,
-  SteeringState, ExecutionProgress, TaskResult, AppConfig, AppHealth,
-  Template, KnowledgeItem, KnowledgeFilters, CreateKnowledgeRequest,
-  UpdateKnowledgeRequest, BulkAction,
+  WorkflowTemplate, Run, StepRunLog,
+  InboxItem, Artifact, ListResponse, RunStatusUpdate,
 } from './types'
 
-const BASE = '/api/v1'
+const BASE = '/api'
+
+// Server config (fetched once at startup)
+let _config: { temporal_ui_url: string } | null = null
+export async function getConfig() {
+  if (!_config) {
+    const res = await fetch('/api/config')
+    _config = await res.json()
+  }
+  return _config!
+}
+
+function authHeaders(): Record<string, string> {
+  const token = localStorage.getItem('token')
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`)
+  const res = await fetch(`${BASE}${path}`, { headers: authHeaders() })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
     throw new Error(err.error ?? res.statusText)
@@ -16,10 +29,10 @@ async function get<T>(path: string): Promise<T> {
   return res.json()
 }
 
-async function post<T>(path: string, body?: unknown): Promise<T> {
+export async function post<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: body ? JSON.stringify(body) : undefined,
   })
   if (!res.ok) {
@@ -29,160 +42,75 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
   return res.json()
 }
 
-async function put<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
+export async function del<T = void>(path: string): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { method: 'DELETE', headers: authHeaders() })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
     throw new Error(err.error ?? res.statusText)
   }
-  return res.json()
-}
-
-async function del<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { method: 'DELETE' })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(err.error ?? res.statusText)
+  if (res.status === 204 || res.headers.get('content-length') === '0') {
+    return undefined as T
   }
   return res.json()
 }
 
 export const api = {
-  listTasks: (status?: string) =>
-    get<{ tasks: TaskSummary[] }>(`/tasks${status ? `?status=${status}` : ''}`),
-  getInbox: () => get<{ items: TaskSummary[] }>('/tasks/inbox'),
-  getTask:  (id: string) => get<TaskSummary>(`/tasks/${id}`),
-  getDiff:  (id: string) => get<{ diffs: DiffOutput[] }>(`/tasks/${id}/diff`),
-  getLogs:  (id: string) => get<{ logs: VerifierOutput[] }>(`/tasks/${id}/logs`),
-  getSteering: (id: string) => get<SteeringState>(`/tasks/${id}/steering`),
-  getProgress: (id: string) => get<ExecutionProgress>(`/tasks/${id}/progress`),
-  getResult:   (id: string) => get<TaskResult>(`/tasks/${id}/result`),
-  getConfig:   () => get<AppConfig>('/config'),
-  getHealth:   () => get<AppHealth>('/health'),
+  // Workflows
+  listWorkflows: () => get<ListResponse<WorkflowTemplate>>('/workflows'),
+  getWorkflow: (id: string) => get<WorkflowTemplate>(`/workflows/${id}`),
 
-  // Create & Templates
-  submitTask: (yaml: string) =>
-    post<{ workflow_id: string }>('/tasks', { yaml }),
-  validateYAML: (yaml: string) =>
-    post<{ valid: boolean; error?: string }>('/create/validate', { yaml }),
-  listTemplates: () =>
-    get<{ templates: Template[] }>('/templates'),
-  getTemplate: (name: string) =>
-    get<Template>(`/templates/${name}`),
+  // Runs
+  createRun: (workflowId: string, parameters: Record<string, unknown>) =>
+    post<Run>('/runs', { workflow_id: workflowId, parameters }),
+  listRuns: () => get<ListResponse<Run>>('/runs'),
+  getRun: (id: string) => get<{ run: Run; steps: Run['steps'] }>(`/runs/${id}`)
+    .then(({ run, steps }) => ({ ...run, steps })),
+  getRunLogs: (id: string) => get<ListResponse<StepRunLog>>(`/runs/${id}/logs`),
+  getRunDiff: (id: string) => get<{ diff: string }>(`/runs/${id}/diff`),
+  getRunOutput: (id: string) => get<Record<string, unknown>>(`/runs/${id}/output`),
+  approveRun: (id: string) => post<{ status: string }>(`/runs/${id}/approve`),
+  rejectRun: (id: string) => post<{ status: string }>(`/runs/${id}/reject`),
+  steerRun: (id: string, prompt: string) =>
+    post<{ status: string }>(`/runs/${id}/steer`, { prompt }),
+  cancelRun: (id: string) => post<{ status: string }>(`/runs/${id}/cancel`),
 
-  approve: (id: string) => post<{ status: string }>(`/tasks/${id}/approve`),
-  reject:  (id: string) => post<{ status: string }>(`/tasks/${id}/reject`),
-  cancel:  (id: string) => post<{ status: string }>(`/tasks/${id}/cancel`),
-  steer:   (id: string, prompt: string) =>
-    post<{ status: string }>(`/tasks/${id}/steer`, { prompt }),
-  continue: (id: string, skipRemaining: boolean) =>
-    post<{ status: string }>(`/tasks/${id}/continue`, { skip_remaining: skipRemaining }),
+  // Inbox
+  listInbox: () => get<ListResponse<InboxItem>>('/inbox'),
+  markInboxRead: (id: string) => post<{ status: string }>(`/inbox/${id}/read`),
 
-  // Retry
-  getTaskYAML: (id: string) =>
-    get<{ yaml: string }>(`/tasks/${id}/yaml`),
-  retryTask: (id: string, yaml: string, failedOnly: boolean) =>
-    post<{ workflow_id: string }>(`/tasks/${id}/retry`, { yaml, failed_only: failedOnly }),
-
-  // Knowledge
-  listKnowledge: (filters?: KnowledgeFilters) => {
-    const params = new URLSearchParams()
-    if (filters?.task_id) params.set('task_id', filters.task_id)
-    if (filters?.type) params.set('type', filters.type)
-    if (filters?.tag) params.set('tag', filters.tag)
-    if (filters?.status) params.set('status', filters.status)
-    const qs = params.toString()
-    return get<{ items: KnowledgeItem[] }>(`/knowledge${qs ? `?${qs}` : ''}`)
-  },
-  getKnowledge: (id: string) => get<KnowledgeItem>(`/knowledge/${id}`),
-  createKnowledge: (req: CreateKnowledgeRequest) =>
-    post<KnowledgeItem>('/knowledge', req),
-  updateKnowledge: (id: string, req: UpdateKnowledgeRequest) =>
-    put<KnowledgeItem>(`/knowledge/${id}`, req),
-  deleteKnowledge: (id: string) =>
-    del<{ status: string }>(`/knowledge/${id}`),
-  bulkKnowledge: (actions: BulkAction[]) =>
-    post<{ status: string }>('/knowledge/bulk', { actions }),
-  commitKnowledge: (repoPath: string) =>
-    post<{ committed: number; repo_path: string }>('/knowledge/commit', { repo_path: repoPath }),
+  // Reports
+  listReports: () => get<ListResponse<Run>>('/reports'),
+  getReport: (runId: string) => get<Run>(`/reports/${runId}`),
+  getReportArtifacts: (runId: string) => get<ListResponse<Artifact>>(`/reports/${runId}/artifacts`),
 }
 
-/** Stream a chat message for AI-assisted task creation via SSE. */
-export async function streamChat(
-  message: string,
-  conversationId: string | null,
-  onConversation: (id: string) => void,
-  onDelta: (text: string) => void,
-  onDone: (data: { done: boolean; yaml?: string; yaml_warning?: string }) => void,
-  onError: (error: string) => void,
-  signal?: AbortSignal,
-): Promise<void> {
-  const res = await fetch(`${BASE}/create/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ conversation_id: conversationId ?? '', message }),
-    signal,
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }))
-    onError(err.error ?? res.statusText)
-    return
-  }
-
-  const reader = res.body?.getReader()
-  if (!reader) {
-    onError('No response body')
-    return
-  }
-
-  const decoder = new TextDecoder()
-  let buffer = ''
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() ?? ''
-    let eventType = ''
-    for (const line of lines) {
-      if (line.startsWith('event: ')) {
-        eventType = line.slice(7).trim()
-      } else if (line.startsWith('data: ')) {
-        const data = JSON.parse(line.slice(6))
-        switch (eventType) {
-          case 'conversation':
-            onConversation(data.id)
-            break
-          case 'delta':
-            onDelta(data.text)
-            break
-          case 'done':
-            onDone(data)
-            break
-          case 'error':
-            onError(data.error)
-            break
-        }
-      }
-    }
-  }
-}
-
-/** Subscribe to live status updates via SSE. Returns an unsubscribe function. */
-export function subscribeToTask(
-  id: string,
-  onStatus: (status: string) => void,
+/** Subscribe to live run updates via SSE. Returns a Promise of an unsubscribe function. */
+export async function subscribeToRun(
+  runId: string,
+  onStatus: (update: RunStatusUpdate) => void,
+  onLog: (log: StepRunLog) => void,
   onError?: (e: Event) => void,
-): () => void {
-  const es = new EventSource(`${BASE}/tasks/${id}/events`)
+): Promise<() => void> {
+  const { ticket } = await post<{ ticket: string }>(`/runs/${runId}/events/ticket`, {})
+  const url = `${BASE}/runs/${runId}/events?ticket=${ticket}`
+  const es = new EventSource(url)
+
   es.addEventListener('status', (e) => {
-    const data = JSON.parse((e as MessageEvent).data)
-    onStatus(data.status)
+    try {
+      const data = JSON.parse((e as MessageEvent).data)
+      onStatus(data)
+    } catch { /* ignore malformed events */ }
   })
+
+  es.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data)
+      if (data.step_run_id) {
+        onLog(data as StepRunLog)
+      }
+    } catch { /* ignore malformed events */ }
+  }
+
   if (onError) es.onerror = onError
   return () => es.close()
 }

@@ -1,0 +1,90 @@
+version: 1
+id: triage
+title: Triage
+description: Analyze an issue, classify severity, assign, and comment. Fully automated.
+tags:
+  - triage
+  - automation
+  - single-repo
+parameters:
+  - name: repo_url
+    type: string
+    required: true
+    description: "Repository URL"
+  - name: issue_number
+    type: int
+    required: true
+    description: "Issue number to triage"
+  - name: issue_body
+    type: string
+    required: true
+    description: "Body of the issue"
+steps:
+  - id: analyze
+    title: Analyze issue
+    sandbox_group: main
+    mode: report
+    repositories:
+      - url: "{{ .Params.repo_url }}"
+    execution:
+      agent: claude-code
+      prompt: |
+        Analyze this issue and determine its nature and severity.
+
+        Issue #{{ .Params.issue_number }}:
+        {{ .Params.issue_body }}
+
+        Examine the codebase to understand the context. Determine:
+        1. Is this a bug, feature request, or question?
+        2. What component/area is affected?
+        3. What is the severity (critical/high/medium/low)?
+      output:
+        schema:
+          type: "string"
+          component: "string"
+          severity: "string"
+          summary: "string"
+
+  - id: classify
+    title: Classify and label
+    depends_on:
+      - analyze
+    sandbox_group: main
+    action:
+      type: github_label
+      config:
+        repo_url: "{{ .Params.repo_url }}"
+        issue_number: "{{ .Params.issue_number }}"
+        labels:
+          - "{{ .Steps.analyze.Output.type }}"
+          - "severity:{{ .Steps.analyze.Output.severity }}"
+          - "component:{{ .Steps.analyze.Output.component }}"
+
+  - id: assign
+    title: Auto-assign
+    depends_on:
+      - classify
+    action:
+      type: github_assign
+      config:
+        repo_url: "{{ .Params.repo_url }}"
+        issue_number: "{{ .Params.issue_number }}"
+        component: "{{ .Steps.analyze.Output.component }}"
+
+  - id: comment
+    title: Post triage comment
+    depends_on:
+      - assign
+    action:
+      type: github_comment
+      config:
+        repo_url: "{{ .Params.repo_url }}"
+        issue_number: "{{ .Params.issue_number }}"
+        body: |
+          **Automated Triage**
+
+          **Type:** {{ .Steps.analyze.Output.type }}
+          **Severity:** {{ .Steps.analyze.Output.severity }}
+          **Component:** {{ .Steps.analyze.Output.component }}
+
+          {{ .Steps.analyze.Output.summary }}

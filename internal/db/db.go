@@ -1,0 +1,36 @@
+package db
+
+import (
+	"context"
+	_ "embed"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
+)
+
+//go:embed schema.sql
+var schema string
+
+func Connect(ctx context.Context) (*sqlx.DB, error) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		return nil, fmt.Errorf("DATABASE_URL environment variable is required")
+	}
+	db, err := sqlx.ConnectContext(ctx, "postgres", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("connect db: %w", err)
+	}
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxIdleTime(5 * time.Minute)
+	db.SetConnMaxLifetime(30 * time.Minute)
+	return db, nil
+}
+
+func Migrate(db *sqlx.DB) error {
+	_, err := db.Exec(schema)
+	return err
+}

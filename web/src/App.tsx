@@ -1,29 +1,45 @@
-import { Routes, Route } from 'react-router-dom'
+import type React from 'react'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { Layout } from './components/Layout'
-import { DashboardPage } from './pages/Dashboard'
+import { WorkflowListPage } from './pages/WorkflowList'
+import { WorkflowDetailPage } from './pages/WorkflowDetail'
+import { RunListPage } from './pages/RunList'
+import { RunDetailPage } from './pages/RunDetail'
 import { InboxPage } from './pages/Inbox'
-import { TaskListPage } from './pages/TaskList'
-import { TaskDetailPage } from './pages/TaskDetail'
-import { TaskCreatePage } from './pages/TaskCreate'
-import { TemplatesPage } from './pages/TemplatesPage'
+import { ReportListPage } from './pages/ReportList'
+import { ReportDetailPage } from './pages/ReportDetail'
 import { KnowledgePage } from './pages/KnowledgePage'
-import { KnowledgeReviewPage } from './pages/KnowledgeReview'
-import { SystemPage } from './pages/SystemPage'
+import { LoginPage } from './pages/Login'
+import { AuthCallbackPage } from './pages/AuthCallback'
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const token = localStorage.getItem('token')
+  if (!token) return <Navigate to="/login" replace />
+  return <>{children}</>
+}
 
 export default function App() {
   return (
-    <Layout>
-      <Routes>
-        <Route path="/" element={<DashboardPage />} />
-        <Route path="/inbox" element={<InboxPage />} />
-        <Route path="/tasks" element={<TaskListPage />} />
-        <Route path="/tasks/:id" element={<TaskDetailPage />} />
-        <Route path="/create" element={<TaskCreatePage />} />
-        <Route path="/templates" element={<TemplatesPage />} />
-        <Route path="/knowledge" element={<KnowledgePage />} />
-        <Route path="/knowledge/review" element={<KnowledgeReviewPage />} />
-        <Route path="/system" element={<SystemPage />} />
-      </Routes>
-    </Layout>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/auth/callback" element={<AuthCallbackPage />} />
+      <Route path="/*" element={
+        <RequireAuth>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<Navigate to="/runs" replace />} />
+              <Route path="/workflows" element={<WorkflowListPage />} />
+              <Route path="/workflows/:id" element={<WorkflowDetailPage />} />
+              <Route path="/runs" element={<RunListPage />} />
+              <Route path="/runs/:id" element={<RunDetailPage />} />
+              <Route path="/inbox" element={<InboxPage />} />
+              <Route path="/reports" element={<ReportListPage />} />
+              <Route path="/reports/:runId" element={<ReportDetailPage />} />
+              <Route path="/knowledge" element={<KnowledgePage />} />
+            </Routes>
+          </Layout>
+        </RequireAuth>
+      } />
+    </Routes>
   )
 }

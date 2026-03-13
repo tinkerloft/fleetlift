@@ -1,0 +1,83 @@
+version: 1
+id: audit
+title: Audit
+description: Parallel security/compliance scan across fleet with collated report for compliance team.
+tags:
+  - audit
+  - security
+  - fleet
+  - report
+parameters:
+  - name: repos
+    type: json
+    required: true
+    description: "JSON array of repo objects to audit"
+  - name: audit_prompt
+    type: string
+    required: true
+    description: "Audit criteria and focus areas"
+  - name: compliance_channel
+    type: string
+    required: false
+    description: "Slack channel for compliance team notifications"
+steps:
+  - id: scan
+    title: Scan repositories
+    mode: report
+    repositories: "{{ .Params.repos }}"
+    max_parallel: 10
+    execution:
+      agent: claude-code
+      prompt: |
+        Perform a security and compliance audit of this repository.
+
+        Audit criteria:
+        {{ .Params.audit_prompt }}
+
+        Check for:
+        1. Known vulnerability patterns
+        2. Hardcoded secrets or credentials
+        3. Insecure dependencies
+        4. Non-compliant configurations
+        5. Missing security controls
+
+        Provide a structured report with severity levels for each finding.
+      output:
+        schema:
+          findings: "array"
+          risk_level: "string"
+          summary: "string"
+
+  - id: collate
+    title: Collate audit results
+    depends_on:
+      - scan
+    mode: report
+    execution:
+      agent: claude-code
+      prompt: |
+        Collate these per-repo audit results into a single compliance report.
+
+        Per-repo results:
+        {{ .Steps.scan.Outputs | toJSON }}
+
+        Produce an executive summary with:
+        1. Overall risk assessment
+        2. Critical findings requiring immediate action
+        3. Per-repo breakdown
+        4. Recommended remediation priorities
+    outputs:
+      artifacts:
+        - path: /workspace/audit-report.json
+          name: audit-report
+
+  - id: notify_compliance
+    title: Notify compliance team
+    depends_on:
+      - collate
+    optional: true
+    action:
+      type: slack_notify
+      config:
+        channel: "{{ .Params.compliance_channel }}"
+        message: "Audit complete. Check Inbox for the full report."

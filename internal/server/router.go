@@ -1,0 +1,163 @@
+package server
+
+import (
+	"encoding/json"
+	"io/fs"
+	"net/http"
+	"os"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
+
+	"github.com/tinkerloft/fleetlift/internal/auth"
+	"github.com/tinkerloft/fleetlift/internal/server/handlers"
+	"github.com/tinkerloft/fleetlift/web"
+)
+
+// Deps holds all handler groups and shared configuration for the server.
+type Deps struct {
+	JWTSecret   []byte
+	Auth        *handlers.AuthHandler
+	Workflows   *handlers.WorkflowsHandler
+	Runs        *handlers.RunsHandler
+	Inbox       *handlers.InboxHandler
+	Reports     *handlers.ReportsHandler
+	Credentials *handlers.CredentialsHandler
+	Knowledge   *handlers.KnowledgeHandler
+	TemporalUIURL string
+}
+
+// securityHeaders adds common security-related HTTP response headers.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// NewRouter creates the HTTP router with all API routes.
+func NewRouter(deps Deps) http.Handler {
+	r := chi.NewRouter()
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(securityHeaders)
+	r.Use(cors.Handler(corsOptions()))
+
+	// Auth (public)
+	r.Get("/auth/github", deps.Auth.HandleGitHubRedirect)
+	r.Get("/auth/github/callback", deps.Auth.HandleGitHubCallback)
+
+	// SSE endpoints — ticket-authenticated, no JWT middleware
+	r.Get("/api/runs/{id}/events", deps.Runs.Stream)
+	r.Get("/api/runs/steps/{id}/logs", deps.Runs.StepLogs)
+
+	// Public config (no auth required)
+	temporalUIURL := deps.TemporalUIURL
+	r.Get("/api/config", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"temporal_ui_url": temporalUIURL,
+		})
+	})
+
+	// Authenticated API
+	r.Group(func(r chi.Router) {
+		r.Use(auth.Middleware(deps.JWTSecret))
+
+		// Identity
+		r.Post("/auth/refresh", deps.Auth.HandleRefresh)
+		r.Get("/api/me", deps.Auth.HandleMe)
+
+		// Workflows (templates)
+		r.Get("/api/workflows", deps.Workflows.List)
+		r.Get("/api/workflows/{id}", deps.Workflows.Get)
+		r.Post("/api/workflows", deps.Workflows.Create)
+		r.Put("/api/workflows/{id}", deps.Workflows.Update)
+		r.Delete("/api/workflows/{id}", deps.Workflows.Delete)
+		r.Post("/api/workflows/{id}/fork", deps.Workflows.Fork)
+
+		// Runs
+		r.Post("/api/runs", deps.Runs.Create)
+		r.Get("/api/runs", deps.Runs.List)
+		r.Get("/api/runs/{id}", deps.Runs.Get)
+		r.Get("/api/runs/{id}/logs", deps.Runs.Logs)
+		r.Get("/api/runs/{id}/diff", deps.Runs.Diff)
+		r.Get("/api/runs/{id}/output", deps.Runs.Output)
+		r.Post("/api/runs/{id}/events/ticket", deps.Runs.IssueSSETicket)      // issue SSE ticket
+		r.Post("/api/runs/steps/{id}/logs/ticket", deps.Runs.IssueSSETicket) // issue SSE ticket
+		r.Post("/api/runs/{id}/approve", deps.Runs.Approve)
+		r.Post("/api/runs/{id}/reject", deps.Runs.Reject)
+		r.Post("/api/runs/{id}/steer", deps.Runs.Steer)
+		r.Post("/api/runs/{id}/cancel", deps.Runs.Cancel)
+
+		// Inbox
+		r.Get("/api/inbox", deps.Inbox.List)
+		r.Post("/api/inbox/{id}/read", deps.Inbox.MarkRead)
+
+		// Reports
+		r.Get("/api/reports", deps.Reports.List)
+		r.Get("/api/reports/{runID}", deps.Reports.Get)
+		r.Get("/api/reports/{runID}/export", deps.Reports.Export)
+
+		// Credentials
+		r.Get("/api/credentials", deps.Credentials.List)
+		r.Post("/api/credentials", deps.Credentials.Set)
+		r.Delete("/api/credentials/{name}", deps.Credentials.Delete)
+
+		// Knowledge
+		r.Get("/api/knowledge", deps.Knowledge.List)
+		r.Patch("/api/knowledge/{id}", deps.Knowledge.UpdateStatus)
+		r.Delete("/api/knowledge/{id}", deps.Knowledge.Delete)
+	})
+
+	// Serve embedded React SPA
+	r.Handle("/*", spaHandler())
+
+	return r
+}
+
+func corsOptions() cors.Options {
+	allowed := os.Getenv("CORS_ALLOWED_ORIGINS")
+	origins := []string{"http://localhost:5173", "http://localhost:8080"}
+	if allowed != "" {
+		origins = strings.Split(allowed, ",")
+	}
+	return cors.Options{
+		AllowedOrigins:   origins,
+		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: true,
+		MaxAge:           300,
+	}
+}
+
+func spaHandler() http.Handler {
+	fsys, err := fs.Sub(web.DistFS, "dist")
+	if err != nil {
+		panic("web: failed to sub dist: " + err.Error())
+	}
+	fileServer := http.FileServer(http.FS(fsys))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Serve the file if it exists; otherwise fall back to index.html for SPA routing.
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if path == "" {
+			path = "index.html"
+		}
+		f, err := fsys.Open(path)
+		if err == nil {
+			f.Close()
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		// Fall back to index.html for client-side routing.
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = "/"
+		fileServer.ServeHTTP(w, r2)
+	})
+}

@@ -1,17 +1,17 @@
-import React from 'react'
+import type React from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import {
-  LayoutDashboard, Inbox, List, ExternalLink, Plus, LayoutTemplate, BookOpen, Activity,
+  Inbox, List, LayoutTemplate, FileText, Activity, BookOpen,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const NAV_ITEMS = [
-  { href: '/',          label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/runs',      label: 'Runs',      icon: Activity },
+  { href: '/workflows', label: 'Workflows', icon: LayoutTemplate },
   { href: '/inbox',     label: 'Inbox',     icon: Inbox },
-  { href: '/tasks',     label: 'Tasks',     icon: List },
-  { href: '/templates', label: 'Templates', icon: LayoutTemplate },
+  { href: '/reports',   label: 'Reports',   icon: FileText },
   { href: '/knowledge', label: 'Knowledge', icon: BookOpen },
 ]
 
@@ -48,22 +48,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   const { data: inboxData } = useQuery({
     queryKey: ['inbox'],
-    queryFn: () => api.getInbox(),
+    queryFn: () => api.listInbox(),
     refetchInterval: 5000,
   })
   const inboxCount = inboxData?.items?.length ?? 0
 
-  const { data: knowledgeData } = useQuery({
-    queryKey: ['knowledge-pending-count'],
-    queryFn: () => api.listKnowledge({ status: 'pending' }),
-    refetchInterval: 30000,
-  })
-  const knowledgePendingCount = knowledgeData?.items?.length ?? 0
-
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/'
-    // Don't match /create for /tasks prefix
-    if (href === '/tasks' && pathname === '/create') return false
     return pathname.startsWith(href)
   }
 
@@ -79,22 +70,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           <span className="text-sm font-semibold tracking-tight">Fleetlift</span>
         </div>
 
-        {/* New Task button */}
-        <div className="px-3 pt-3">
-          <Link
-            to="/create"
-            className={cn(
-              'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-              pathname === '/create'
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-primary/10 text-primary hover:bg-primary/20',
-            )}
-          >
-            <Plus className="h-4 w-4" />
-            New Task
-          </Link>
-        </div>
-
         {/* Nav */}
         <nav className="flex-1 space-y-1 px-3 py-3">
           {NAV_ITEMS.map(({ href, label, icon }) => (
@@ -104,34 +79,19 @@ export function Layout({ children }: { children: React.ReactNode }) {
               label={label}
               icon={icon}
               active={isActive(href)}
-              badge={label === 'Inbox' ? inboxCount : label === 'Knowledge' ? knowledgePendingCount : undefined}
+              badge={label === 'Inbox' ? inboxCount : undefined}
             />
           ))}
         </nav>
 
         {/* Footer */}
         <div className="border-t px-3 py-3">
-          <Link
-            to="/system"
-            className={cn(
-              'flex items-center gap-3 rounded-lg px-3 py-2 text-xs transition-colors',
-              pathname === '/system'
-                ? 'bg-sidebar-accent text-foreground font-medium'
-                : 'text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground',
-            )}
-          >
-            <Activity className="h-3.5 w-3.5 shrink-0" />
-            System
-          </Link>
-          <a
-            href={`${window.location.protocol}//${window.location.hostname}:8233`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-3 rounded-lg px-3 py-2 text-xs text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground transition-colors"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-            Temporal UI
-          </a>
+          <NavLink
+            href="/runs"
+            label="All Runs"
+            icon={List}
+            active={false}
+          />
         </div>
       </aside>
 
