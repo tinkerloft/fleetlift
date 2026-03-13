@@ -24,5 +24,6 @@ type Run struct {
 	TriggeredBy   string         `db:"triggered_by" json:"triggered_by,omitempty"`
 	StartedAt     *time.Time     `db:"started_at" json:"started_at,omitempty"`
 	CompletedAt   *time.Time     `db:"completed_at" json:"completed_at,omitempty"`
+	ErrorMessage  *string        `db:"error_message" json:"error_message,omitempty"`
 	CreatedAt     time.Time      `db:"created_at" json:"created_at"`
 }

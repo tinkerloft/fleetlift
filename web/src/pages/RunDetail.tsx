@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, subscribeToRun } from '@/api/client'
+import { api, subscribeToRun, getConfig } from '@/api/client'
 import { DAGGraph } from '@/components/DAGGraph'
 import { StepPanel } from '@/components/StepPanel'
 import { HITLPanel } from '@/components/HITLPanel'
@@ -15,6 +15,8 @@ export function RunDetailPage() {
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [sseConnected, setSseConnected] = useState(false)
+
+  const { data: config } = useQuery({ queryKey: ['config'], queryFn: getConfig, staleTime: Infinity })
 
   const { data: run } = useQuery({
     queryKey: ['run', id],
@@ -91,7 +93,12 @@ export function RunDetailPage() {
   }, [id, queryClient])
 
   if (!run) {
-    return <p className="text-muted-foreground text-sm">Loading run...</p>
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-24 text-muted-foreground">
+        <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        <p className="text-sm">Loading run…</p>
+      </div>
+    )
   }
 
   // Parse workflow def from template for DAG visualization
@@ -123,6 +130,16 @@ export function RunDetailPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {run.temporal_id && config?.temporal_ui_url && (
+            <a
+              href={`${config.temporal_ui_url}/namespaces/default/workflows/${run.temporal_id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-muted-foreground underline hover:text-foreground"
+            >
+              Temporal ↗
+            </a>
+          )}
           <RunStatusBadge run={run} />
           {(run.status === 'running' || run.status === 'awaiting_input') && (
             <Button variant="destructive" size="sm" onClick={handleCancel}>
@@ -164,6 +181,14 @@ export function RunDetailPage() {
       {selectedStep && (
         <div className="rounded-lg border p-4">
           <StepPanel stepRun={selectedStep} />
+        </div>
+      )}
+
+      {/* Pending placeholder */}
+      {stepRuns.length === 0 && run.status === 'pending' && (
+        <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-muted-foreground">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          <p className="text-sm">Waiting for workflow to start…</p>
         </div>
       )}
 

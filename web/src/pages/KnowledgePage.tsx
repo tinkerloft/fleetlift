@@ -24,7 +24,7 @@ export function KnowledgePage() {
       headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
     })
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
-      .then(data => setItems(data ?? []))
+      .then(data => setItems(data?.items ?? []))
       .catch(err => setError(String(err)))
       .finally(() => setLoading(false))
   }, [statusFilter])

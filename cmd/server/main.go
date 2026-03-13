@@ -30,6 +30,9 @@ func main() {
 		log.Fatalf("connect db: %v", err)
 	}
 	defer database.Close()
+	if err := db.Migrate(database); err != nil {
+		log.Fatalf("migrate db: %v", err)
+	}
 
 	// Temporal client
 	temporalClient, err := client.Dial(client.Options{
@@ -80,7 +83,8 @@ func main() {
 
 	// Build router
 	deps := server.Deps{
-		JWTSecret:   jwtSecret,
+		JWTSecret:     jwtSecret,
+		TemporalUIURL: envOr("TEMPORAL_UI_URL", "http://localhost:8233"),
 		Auth:        handlers.NewAuthHandler(database, ghProvider, jwtSecret),
 		Workflows:   handlers.NewWorkflowsHandler(registry),
 		Runs:        handlers.NewRunsHandler(database, temporalClient, registry, nl),

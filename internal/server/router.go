@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"io/fs"
 	"net/http"
 	"os"
@@ -25,6 +26,7 @@ type Deps struct {
 	Reports     *handlers.ReportsHandler
 	Credentials *handlers.CredentialsHandler
 	Knowledge   *handlers.KnowledgeHandler
+	TemporalUIURL string
 }
 
 // securityHeaders adds common security-related HTTP response headers.
@@ -50,6 +52,19 @@ func NewRouter(deps Deps) http.Handler {
 	r.Get("/auth/github", deps.Auth.HandleGitHubRedirect)
 	r.Get("/auth/github/callback", deps.Auth.HandleGitHubCallback)
 
+	// SSE endpoints — ticket-authenticated, no JWT middleware
+	r.Get("/api/runs/{id}/events", deps.Runs.Stream)
+	r.Get("/api/runs/steps/{id}/logs", deps.Runs.StepLogs)
+
+	// Public config (no auth required)
+	temporalUIURL := deps.TemporalUIURL
+	r.Get("/api/config", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"temporal_ui_url": temporalUIURL,
+		})
+	})
+
 	// Authenticated API
 	r.Group(func(r chi.Router) {
 		r.Use(auth.Middleware(deps.JWTSecret))
@@ -73,9 +88,7 @@ func NewRouter(deps Deps) http.Handler {
 		r.Get("/api/runs/{id}/logs", deps.Runs.Logs)
 		r.Get("/api/runs/{id}/diff", deps.Runs.Diff)
 		r.Get("/api/runs/{id}/output", deps.Runs.Output)
-		r.Get("/api/runs/{id}/events", deps.Runs.Stream)             // SSE (ticket auth)
-		r.Post("/api/runs/{id}/events/ticket", deps.Runs.IssueSSETicket) // issue SSE ticket
-		r.Get("/api/runs/steps/{id}/logs", deps.Runs.StepLogs)           // SSE (ticket auth)
+		r.Post("/api/runs/{id}/events/ticket", deps.Runs.IssueSSETicket)      // issue SSE ticket
 		r.Post("/api/runs/steps/{id}/logs/ticket", deps.Runs.IssueSSETicket) // issue SSE ticket
 		r.Post("/api/runs/{id}/approve", deps.Runs.Approve)
 		r.Post("/api/runs/{id}/reject", deps.Runs.Reject)

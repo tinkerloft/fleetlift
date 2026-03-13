@@ -62,6 +62,25 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 		pending[s.ID] = s
 	}
 
+	// Cleanup sandbox groups on any exit path (normal, failure, or cancellation).
+	defer func() {
+		cleanupCtx, _ := workflow.NewDisconnectedContext(ctx)
+		cleanupGroups := make([]string, 0, len(sandboxes))
+		for group := range sandboxes {
+			cleanupGroups = append(cleanupGroups, group)
+		}
+		sort.Strings(cleanupGroups)
+		for _, group := range cleanupGroups {
+			sandboxID := sandboxes[group]
+			ao := workflow.ActivityOptions{StartToCloseTimeout: 2 * time.Minute}
+			_ = workflow.ExecuteActivity(
+				workflow.WithActivityOptions(cleanupCtx, ao),
+				CleanupSandboxActivity, sandboxID,
+			).Get(cleanupCtx, nil)
+			logger.Info("cleaned up sandbox group", "group", group)
+		}
+	}()
+
 	for len(pending) > 0 {
 		ready := findReady(pending, outputs)
 		if len(ready) == 0 {
@@ -247,22 +266,6 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 		}
 	}
 
-	// Cleanup sandbox groups — sort keys for deterministic activity scheduling order.
-	cleanupGroups := make([]string, 0, len(sandboxes))
-	for group := range sandboxes {
-		cleanupGroups = append(cleanupGroups, group)
-	}
-	sort.Strings(cleanupGroups)
-	for _, group := range cleanupGroups {
-		sandboxID := sandboxes[group]
-		ao := workflow.ActivityOptions{StartToCloseTimeout: 2 * time.Minute}
-		_ = workflow.ExecuteActivity(
-			workflow.WithActivityOptions(ctx, ao),
-			CleanupSandboxActivity, sandboxID,
-		).Get(ctx, nil)
-		logger.Info("cleaned up sandbox group", "group", group)
-	}
-
 	return nil
 }
 
@@ -344,7 +347,14 @@ func resolveRepos(raw any, params map[string]any, outputs map[string]*model.Step
 		if err != nil {
 			return nil, fmt.Errorf("marshal repositories: %w", err)
 		}
-		jsonBytes = b
+		rendered, err := fltemplate.RenderPrompt(string(b), fltemplate.RenderContext{
+			Params: params,
+			Steps:  outputs,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("render repositories template: %w", err)
+		}
+		jsonBytes = []byte(rendered)
 	}
 
 	var repos []model.RepoRef

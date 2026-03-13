@@ -65,7 +65,7 @@ export interface StepRun {
   id: string
   run_id: string
   step_id: string
-  step_title: string
+  step_title?: string
   status: StepStatus
   sandbox_id?: string
   sandbox_group?: string

@@ -5,6 +5,16 @@ import type {
 
 const BASE = '/api'
 
+// Server config (fetched once at startup)
+let _config: { temporal_ui_url: string } | null = null
+export async function getConfig() {
+  if (!_config) {
+    const res = await fetch('/api/config')
+    _config = await res.json()
+  }
+  return _config!
+}
+
 function authHeaders(): Record<string, string> {
   const token = localStorage.getItem('token')
   return token ? { Authorization: `Bearer ${token}` } : {}
@@ -53,7 +63,8 @@ export const api = {
   createRun: (workflowId: string, parameters: Record<string, unknown>) =>
     post<Run>('/runs', { workflow_id: workflowId, parameters }),
   listRuns: () => get<ListResponse<Run>>('/runs'),
-  getRun: (id: string) => get<Run>(`/runs/${id}`),
+  getRun: (id: string) => get<{ run: Run; steps: Run['steps'] }>(`/runs/${id}`)
+    .then(({ run, steps }) => ({ ...run, steps })),
   getRunLogs: (id: string) => get<ListResponse<StepRunLog>>(`/runs/${id}/logs`),
   getRunDiff: (id: string) => get<{ diff: string }>(`/runs/${id}/diff`),
   getRunOutput: (id: string) => get<Record<string, unknown>>(`/runs/${id}/output`),

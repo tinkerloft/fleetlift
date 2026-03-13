@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"log"
 	"net/http"
 	"time"
 
@@ -63,6 +64,7 @@ func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Reques
 
 	identity, err := h.provider.Exchange(r.Context(), code)
 	if err != nil {
+		log.Printf("oauth exchange error: %v", err)
 		http.Error(w, "oauth exchange failed", http.StatusInternalServerError)
 		return
 	}
@@ -78,6 +80,31 @@ func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		http.Error(w, "failed to upsert user", http.StatusInternalServerError)
 		return
+	}
+
+	// Auto-provision a personal team on first login if the user has none.
+	var teamCount int
+	_ = h.db.GetContext(r.Context(), &teamCount,
+		`SELECT COUNT(*) FROM team_members WHERE user_id = $1`, userID)
+	if teamCount == 0 {
+		slug := identity.Name
+		if slug == "" {
+			slug = identity.Email
+		}
+		if _, err := h.db.ExecContext(r.Context(),
+			`WITH t AS (
+				INSERT INTO teams (name, slug)
+				VALUES ($1, $2)
+				ON CONFLICT (slug) DO UPDATE SET name = $1
+				RETURNING id
+			)
+			INSERT INTO team_members (team_id, user_id, role)
+			SELECT id, $3, 'admin' FROM t
+			ON CONFLICT DO NOTHING`,
+			identity.Name, slug, userID,
+		); err != nil {
+			log.Printf("auto-provision team error: %v", err)
+		}
 	}
 
 	// Get team roles
@@ -106,7 +133,7 @@ func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Reques
 	}
 
 	http.SetCookie(w, &http.Cookie{
-		Name:     "auth_token",
+		Name:     "fl_token",
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
@@ -128,7 +155,7 @@ func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Reques
 		})
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"token": token})
+	http.Redirect(w, r, "/auth/callback?token="+token, http.StatusTemporaryRedirect)
 }
 
 // HandleRefresh rotates the refresh token and issues a new access JWT.

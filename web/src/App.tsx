@@ -1,3 +1,4 @@
+import type React from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { WorkflowListPage } from './pages/WorkflowList'
@@ -8,21 +9,37 @@ import { InboxPage } from './pages/Inbox'
 import { ReportListPage } from './pages/ReportList'
 import { ReportDetailPage } from './pages/ReportDetail'
 import { KnowledgePage } from './pages/KnowledgePage'
+import { LoginPage } from './pages/Login'
+import { AuthCallbackPage } from './pages/AuthCallback'
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const token = localStorage.getItem('token')
+  if (!token) return <Navigate to="/login" replace />
+  return <>{children}</>
+}
 
 export default function App() {
   return (
-    <Layout>
-      <Routes>
-        <Route path="/" element={<Navigate to="/runs" replace />} />
-        <Route path="/workflows" element={<WorkflowListPage />} />
-        <Route path="/workflows/:id" element={<WorkflowDetailPage />} />
-        <Route path="/runs" element={<RunListPage />} />
-        <Route path="/runs/:id" element={<RunDetailPage />} />
-        <Route path="/inbox" element={<InboxPage />} />
-        <Route path="/reports" element={<ReportListPage />} />
-        <Route path="/reports/:runId" element={<ReportDetailPage />} />
-        <Route path="/knowledge" element={<KnowledgePage />} />
-      </Routes>
-    </Layout>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/auth/callback" element={<AuthCallbackPage />} />
+      <Route path="/*" element={
+        <RequireAuth>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<Navigate to="/runs" replace />} />
+              <Route path="/workflows" element={<WorkflowListPage />} />
+              <Route path="/workflows/:id" element={<WorkflowDetailPage />} />
+              <Route path="/runs" element={<RunListPage />} />
+              <Route path="/runs/:id" element={<RunDetailPage />} />
+              <Route path="/inbox" element={<InboxPage />} />
+              <Route path="/reports" element={<ReportListPage />} />
+              <Route path="/reports/:runId" element={<ReportDetailPage />} />
+              <Route path="/knowledge" element={<KnowledgePage />} />
+            </Routes>
+          </Layout>
+        </RequireAuth>
+      } />
+    </Routes>
   )
 }

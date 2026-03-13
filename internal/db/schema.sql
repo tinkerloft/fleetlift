@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS runs (
     triggered_by    UUID REFERENCES users(id),
     started_at      TIMESTAMPTZ,
     completed_at    TIMESTAMPTZ,
+    error_message   TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS runs_team_status ON runs(team_id, status);

@@ -35,6 +35,9 @@ func New(domain, apiKey string) *Client {
 }
 
 func (c *Client) baseURL() string {
+	if strings.HasPrefix(c.domain, "http://") || strings.HasPrefix(c.domain, "https://") {
+		return c.domain
+	}
 	return "https://" + c.domain
 }
 
@@ -43,10 +46,16 @@ func (c *Client) setAuth(req *http.Request) {
 }
 
 func (c *Client) Create(ctx context.Context, opts sandbox.CreateOpts) (string, error) {
+	timeoutSecs := opts.TimeoutMins * 60
+	if timeoutSecs < 60 {
+		timeoutSecs = 60
+	}
 	body := map[string]any{
-		"image":        opts.Image,
-		"env":          opts.Env,
-		"timeout_mins": opts.TimeoutMins,
+		"image":          map[string]string{"uri": opts.Image},
+		"env":            opts.Env,
+		"timeout":        timeoutSecs,
+		"resourceLimits": map[string]string{"cpu": "1000m", "memory": "2Gi"},
+		"entrypoint":     []string{"sleep", "infinity"},
 	}
 	data, err := json.Marshal(body)
 	if err != nil {
@@ -66,7 +75,7 @@ func (c *Client) Create(ctx context.Context, opts sandbox.CreateOpts) (string, e
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
 		b, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("opensandbox: create returned %d: %s", resp.StatusCode, string(b))
 	}
@@ -81,6 +90,11 @@ func (c *Client) Create(ctx context.Context, opts sandbox.CreateOpts) (string, e
 }
 
 func (c *Client) sandboxURL(id string) string {
+	// Production: subdomain routing — https://{id}.{domain}
+	// Local (domain has a scheme): path routing — http://localhost:8090/v1/sandboxes/{id}
+	if strings.HasPrefix(c.domain, "http://") || strings.HasPrefix(c.domain, "https://") {
+		return c.baseURL() + "/v1/sandboxes/" + id
+	}
 	return fmt.Sprintf("https://%s.%s", id, c.domain)
 }
 
