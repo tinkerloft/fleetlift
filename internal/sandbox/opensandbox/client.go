@@ -62,6 +62,14 @@ func (c *Client) sandboxProxyURL(id string) string {
 		c.mu.RLock()
 		port, ok := c.proxyPorts[id]
 		c.mu.RUnlock()
+		if !ok {
+			// Cache miss (e.g. worker restarted) — fetch and cache the proxy port.
+			if err := c.fetchAndCacheProxyPort(context.Background(), id); err == nil {
+				c.mu.RLock()
+				port, ok = c.proxyPorts[id]
+				c.mu.RUnlock()
+			}
+		}
 		if ok {
 			// Extract host from domain URL for proxy.
 			// e.g. http://localhost:8090 → http://localhost:{port}

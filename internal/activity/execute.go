@@ -32,12 +32,24 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 		if repo.Branch != "" {
 			cloneCmd += fmt.Sprintf(" --branch %s", shellQuote(repo.Branch))
 		}
-		cloneCmd += fmt.Sprintf(" %s /workspace/%s", shellQuote(repo.URL), shellQuote(repoName(repo)))
+		repoDir := "/workspace/" + repoName(repo)
+		cloneCmd += fmt.Sprintf(" %s %s", shellQuote(repo.URL), shellQuote(repoDir))
 		activity.RecordHeartbeat(ctx, "cloning "+repoName(repo))
 		a.updateStepStatus(ctx, stepInput.StepRunID, model.StepStatusCloning)
 
 		if _, _, err := sb.Exec(ctx, input.SandboxID, cloneCmd, "/"); err != nil {
 			return nil, fmt.Errorf("clone %s: %w", repo.URL, err)
+		}
+
+		// Fetch and checkout a specific ref (e.g. "pull/19/head" for PRs).
+		if repo.Ref != "" {
+			fetchCmd := fmt.Sprintf("git fetch origin %s", shellQuote(repo.Ref))
+			if _, _, err := sb.Exec(ctx, input.SandboxID, fetchCmd, repoDir); err != nil {
+				return nil, fmt.Errorf("fetch ref %s: %w", repo.Ref, err)
+			}
+			if _, _, err := sb.Exec(ctx, input.SandboxID, "git checkout FETCH_HEAD", repoDir); err != nil {
+				return nil, fmt.Errorf("checkout ref %s: %w", repo.Ref, err)
+			}
 		}
 	}
 
@@ -77,9 +89,15 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 		prompt += "\n\n## Knowledge Capture\n\nBefore exiting, write `fleetlift-knowledge.json` to the current directory with any insights you gained. Format:\n```json\n[\n  {\"type\": \"pattern|correction|gotcha|context\", \"summary\": \"brief insight\", \"details\": \"optional detail\", \"confidence\": 0.9}\n]\n```\nOnly include non-obvious insights worth sharing with future runs."
 	}
 
+	// Set working directory to the repo if there's exactly one.
+	workDir := WorkspacePath
+	if len(stepInput.ResolvedOpts.Repos) == 1 {
+		workDir = "/workspace/" + repoName(stepInput.ResolvedOpts.Repos[0])
+	}
+
 	events, err := runner.Run(ctx, input.SandboxID, agent.RunOpts{
 		Prompt:  prompt,
-		WorkDir: WorkspacePath,
+		WorkDir: workDir,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("start agent: %w", err)

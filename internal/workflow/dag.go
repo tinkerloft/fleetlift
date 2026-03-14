@@ -155,14 +155,36 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 
 				// Action step — no sandbox needed
 				if step.Action != nil {
+					// Resolve template strings in action config.
+					resolvedConfig := make(map[string]any, len(step.Action.Config))
+					for k, v := range step.Action.Config {
+						if s, ok := v.(string); ok {
+							rendered, renderErr := fltemplate.RenderPrompt(s, fltemplate.RenderContext{
+								Params: input.Parameters,
+								Steps:  outputs,
+							})
+							if renderErr != nil {
+								results[i] = &model.StepOutput{
+									StepID: step.ID,
+									Status: model.StepStatusFailed,
+									Error:  fmt.Sprintf("render action config %s: %v", k, renderErr),
+								}
+								return
+							}
+							resolvedConfig[k] = rendered
+						} else {
+							resolvedConfig[k] = v
+						}
+					}
+					step.Action.Config = resolvedConfig
 					results[i] = executeAction(gCtx, step, resolved)
 					return
 				}
 
 				// Agent step — run as child StepWorkflow(s)
-				// Fan-out: one child per repo if repos are specified.
+				// Fan-out: one child per repo if multiple repos are specified.
 				repos := resolved.Repos
-				if len(repos) == 0 {
+				if len(repos) <= 1 {
 					// Single execution (no fan-out) — create a step_run record first.
 					childWFID := fmt.Sprintf("%s-%s", input.RunID, step.ID)
 					createAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
@@ -394,6 +416,13 @@ func resolveRepos(raw any, params map[string]any, outputs map[string]*model.Step
 // aggregateFanOut merges per-repo StepOutput results into one aggregate StepOutput.
 // Status is complete only if all sub-outputs are complete.
 func aggregateFanOut(stepID string, results []*model.StepOutput) *model.StepOutput {
+	// Single result — return it directly to preserve Output for downstream templates.
+	if len(results) == 1 && results[0] != nil {
+		out := *results[0]
+		out.StepID = stepID
+		return &out
+	}
+
 	agg := &model.StepOutput{
 		StepID:  stepID,
 		Status:  model.StepStatusComplete,

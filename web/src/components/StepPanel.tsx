@@ -4,9 +4,19 @@ import { Badge } from './ui/badge'
 
 interface StepPanelProps {
   stepRun: StepRun
+  runParameters?: Record<string, unknown>
+  allStepRuns?: StepRun[]
 }
 
-export function StepPanel({ stepRun }: StepPanelProps) {
+export function StepPanel({ stepRun, runParameters, allStepRuns }: StepPanelProps) {
+  // Collect inputs: run parameters + outputs from prior completed steps.
+  const priorOutputs = (allStepRuns ?? [])
+    .filter(sr => sr.step_id !== stepRun.step_id && sr.output && Object.keys(sr.output).length > 0)
+    .filter(sr => sr.status === 'complete' || sr.status === 'failed')
+
+  const hasRunParams = runParameters && Object.keys(runParameters).length > 0
+  const hasInputs = hasRunParams || priorOutputs.length > 0
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -27,6 +37,30 @@ export function StepPanel({ stepRun }: StepPanelProps) {
             {stepRun.pr_url}
           </a>
         </div>
+      )}
+
+      {hasInputs && (
+        <details>
+          <summary className="cursor-pointer text-sm font-medium text-muted-foreground">Inputs</summary>
+          <div className="mt-2 space-y-2">
+            {hasRunParams && (
+              <div>
+                <span className="text-xs text-muted-foreground">Run parameters</span>
+                <pre className="mt-1 max-h-32 overflow-auto rounded-md bg-muted p-2 text-xs font-mono">
+                  {JSON.stringify(runParameters, null, 2)}
+                </pre>
+              </div>
+            )}
+            {priorOutputs.map(sr => (
+              <div key={sr.id}>
+                <span className="text-xs text-muted-foreground">{sr.step_title || sr.step_id} output</span>
+                <pre className="mt-1 max-h-32 overflow-auto rounded-md bg-muted p-2 text-xs font-mono">
+                  {JSON.stringify(sr.output, null, 2)}
+                </pre>
+              </div>
+            ))}
+          </div>
+        </details>
       )}
 
       {stepRun.diff && (

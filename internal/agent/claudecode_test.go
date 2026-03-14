@@ -72,3 +72,32 @@ func TestParseClaudeEvent_InvalidJSON(t *testing.T) {
 	assert.Equal(t, "stdout", ev.Type)
 	assert.Equal(t, "not json at all", ev.Content)
 }
+
+// Tests for ExecStream-wrapped format: {"stream":"stdout","content":"<claude json>"}
+
+func TestParseClaudeEvent_WrappedSystemInit(t *testing.T) {
+	line := `{"stream":"stdout","content":"{\"type\":\"system\",\"subtype\":\"init\",\"cwd\":\"/workspace\"}"}`
+	ev := parseClaudeEvent(line)
+	assert.Equal(t, "", ev.Type, "wrapped system events should be filtered")
+}
+
+func TestParseClaudeEvent_WrappedAssistantText(t *testing.T) {
+	line := `{"stream":"stdout","content":"{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Hello world\"}]}}"}`
+	ev := parseClaudeEvent(line)
+	assert.Equal(t, "stdout", ev.Type)
+	assert.Equal(t, "Hello world", ev.Content)
+}
+
+func TestParseClaudeEvent_WrappedToolUse(t *testing.T) {
+	line := `{"stream":"stdout","content":"{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{\"command\":\"ls\",\"description\":\"List files\"}}]}}"}`
+	ev := parseClaudeEvent(line)
+	assert.Equal(t, "stdout", ev.Type)
+	assert.Equal(t, "[tool] Bash: List files", ev.Content)
+}
+
+func TestParseClaudeEvent_WrappedPlainText(t *testing.T) {
+	line := `{"stream":"stderr","content":"some error output"}`
+	ev := parseClaudeEvent(line)
+	assert.Equal(t, "stderr", ev.Type)
+	assert.Equal(t, "some error output", ev.Content)
+}

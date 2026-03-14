@@ -34,8 +34,8 @@ func (r *ClaudeCodeRunner) SandboxEnv() map[string]string {
 }
 
 func (r *ClaudeCodeRunner) Run(ctx context.Context, sandboxID string, opts RunOpts) (<-chan Event, error) {
-	cmd := fmt.Sprintf("claude -p %s --output-format stream-json --verbose --max-turns %d",
-		shellQuote(opts.Prompt), max(opts.MaxTurns, 20))
+	cmd := fmt.Sprintf("cd %s && claude -p %s --output-format stream-json --verbose --dangerously-skip-permissions --max-turns %d",
+		shellQuote(opts.WorkDir), shellQuote(opts.Prompt), max(opts.MaxTurns, 20))
 
 	ch := make(chan Event, 64)
 	go func() {
@@ -65,11 +65,35 @@ func (r *ClaudeCodeRunner) Interrupt(ctx context.Context, sandboxID string) erro
 // parseClaudeEvent parses a single line of claude --output-format stream-json output
 // and extracts human-readable content, filtering out noise like system init, rate limits,
 // thinking blocks, and raw tool results.
+//
+// Lines arrive from ExecStream in the normalized format {"stream":"stdout","content":"..."}
+// where content is the actual Claude JSON. We unwrap that first.
 func parseClaudeEvent(line string) Event {
 	var raw map[string]any
 	if err := json.Unmarshal([]byte(line), &raw); err != nil {
 		return Event{Type: "stdout", Content: line}
 	}
+
+	// Unwrap the normalized ExecStream format: {"stream":"...","content":"..."}
+	if _, hasStream := raw["stream"]; hasStream {
+		content, _ := raw["content"].(string)
+		if content == "" {
+			return Event{}
+		}
+		// Re-parse the inner content as Claude JSON.
+		var inner map[string]any
+		if err := json.Unmarshal([]byte(content), &inner); err != nil {
+			// Not JSON — plain text output from the command.
+			stream, _ := raw["stream"].(string)
+			evType := "stdout"
+			if stream == "stderr" {
+				evType = "stderr"
+			}
+			return Event{Type: evType, Content: content}
+		}
+		raw = inner
+	}
+
 	typ, _ := raw["type"].(string)
 	switch typ {
 	case "result":

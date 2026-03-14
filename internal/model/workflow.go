@@ -131,6 +131,7 @@ type ArtifactMount struct {
 type RepoRef struct {
 	URL    string `yaml:"url"`
 	Branch string `yaml:"branch,omitempty"`
+	Ref    string `yaml:"ref,omitempty"` // git ref to fetch after clone (e.g. "pull/19/head")
 	Name   string `yaml:"name,omitempty"`
 }
 

@@ -181,7 +181,7 @@ export function RunDetailPage() {
       {/* Selected step detail */}
       {selectedStep && (
         <div className="rounded-lg border p-4">
-          <StepPanel stepRun={selectedStep} />
+          <StepPanel stepRun={selectedStep} runParameters={run.parameters} allStepRuns={stepRuns} />
         </div>
       )}
 
