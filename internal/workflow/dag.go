@@ -341,9 +341,14 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 		}
 
 		// Collect results
-		for _, r := range results {
+		for idx, r := range results {
 			if r == nil {
-				continue // goroutine panicked before setting result; skip
+				// Goroutine panicked or failed to set result — surface as failure.
+				r = &model.StepOutput{
+					StepID: ready[idx].ID,
+					Status: model.StepStatusFailed,
+					Error:  "step goroutine exited without producing a result",
+				}
 			}
 			outputs[r.StepID] = r
 			delete(pending, r.StepID)

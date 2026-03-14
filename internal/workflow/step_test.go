@@ -95,11 +95,6 @@ func (m *stepMockActivities) CreatePullRequest(_ context.Context, sandboxID stri
 	return args.String(0), args.Error(1)
 }
 
-func (m *stepMockActivities) CaptureKnowledge(_ context.Context, input model.CaptureKnowledgeInput) error {
-	args := m.Called(input)
-	return args.Error(0)
-}
-
 func (m *stepMockActivities) VerifyStep(_ context.Context, sandboxID, stepRunID string, verifiers any) error {
 	args := m.Called(sandboxID, stepRunID, verifiers)
 	return args.Error(0)
@@ -122,7 +117,6 @@ func newStepWorkflowEnv(t *testing.T) (*testsuite.TestWorkflowEnvironment, *step
 	env.RegisterActivity(mocks.CleanupSandbox)
 	env.RegisterActivity(mocks.UpdateStepStatus)
 	env.RegisterActivity(mocks.CreatePullRequest)
-	env.RegisterActivity(mocks.CaptureKnowledge)
 	env.RegisterActivity(mocks.VerifyStep)
 	env.RegisterActivity(mocks.CompleteStepRun)
 	return env, mocks

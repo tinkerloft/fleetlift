@@ -9,6 +9,7 @@ import (
 	"go.temporal.io/sdk/activity"
 	"golang.org/x/oauth2"
 
+	"github.com/tinkerloft/fleetlift/internal/shellquote"
 	"github.com/tinkerloft/fleetlift/internal/workflow"
 )
 
@@ -34,10 +35,10 @@ func (a *Activities) CreatePullRequest(ctx context.Context, sandboxID string, in
 
 	// Create branch and push from sandbox
 	cmds := []string{
-		fmt.Sprintf("git -C %s checkout -b %s", shellQuote(repoDir), shellQuote(branchName)),
-		fmt.Sprintf("git -C %s add -A", shellQuote(repoDir)),
-		fmt.Sprintf("git -C %s commit -m %s", shellQuote(repoDir), shellQuote(prDef.Title)),
-		fmt.Sprintf("git -C %s push origin %s", shellQuote(repoDir), shellQuote(branchName)),
+		fmt.Sprintf("git -C %s checkout -b %s", shellquote.Quote(repoDir), shellquote.Quote(branchName)),
+		fmt.Sprintf("git -C %s add -A", shellquote.Quote(repoDir)),
+		fmt.Sprintf("git -C %s commit -m %s", shellquote.Quote(repoDir), shellquote.Quote(prDef.Title)),
+		fmt.Sprintf("git -C %s push origin %s", shellquote.Quote(repoDir), shellquote.Quote(branchName)),
 	}
 
 	for _, cmd := range cmds {

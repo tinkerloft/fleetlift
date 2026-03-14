@@ -39,13 +39,13 @@ type createRunRequest struct {
 func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	var req createRunRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -57,14 +57,14 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// Look up workflow template
 	t, err := h.registry.Get(r.Context(), teamID, req.WorkflowID)
 	if err != nil {
-		http.Error(w, "workflow not found", http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, "workflow not found")
 		return
 	}
 
 	// Parse workflow definition
 	var def model.WorkflowDef
 	if err := model.ParseWorkflowYAML([]byte(t.YAMLBody), &def); err != nil {
-		http.Error(w, "invalid workflow definition", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "invalid workflow definition")
 		return
 	}
 
@@ -79,7 +79,7 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		mustMarshal(req.Parameters), string(model.RunStatusPending),
 		temporalID, claims.UserID)
 	if err != nil {
-		http.Error(w, "failed to create run", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to create run")
 		return
 	}
 
@@ -95,7 +95,7 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Parameters:         req.Parameters,
 	})
 	if err != nil {
-		http.Error(w, "failed to start workflow", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to start workflow")
 		return
 	}
 
@@ -109,7 +109,7 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *RunsHandler) List(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -121,7 +121,7 @@ func (h *RunsHandler) List(w http.ResponseWriter, r *http.Request) {
 	err := h.db.SelectContext(r.Context(), &runs,
 		`SELECT * FROM runs WHERE team_id = $1 ORDER BY created_at DESC LIMIT 50`, teamID)
 	if err != nil {
-		http.Error(w, "failed to list runs", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to list runs")
 		return
 	}
 
@@ -132,7 +132,7 @@ func (h *RunsHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *RunsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	teamID := teamIDFromRequest(w, r, claims)
@@ -160,7 +160,7 @@ func (h *RunsHandler) Get(w http.ResponseWriter, r *http.Request) {
 func (h *RunsHandler) Logs(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	teamID := teamIDFromRequest(w, r, claims)
@@ -179,7 +179,7 @@ func (h *RunsHandler) Logs(w http.ResponseWriter, r *http.Request) {
 		 JOIN step_runs s ON l.step_run_id = s.id
 		 WHERE s.run_id = $1 ORDER BY l.seq`, runID)
 	if err != nil {
-		http.Error(w, "failed to get logs", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to get logs")
 		return
 	}
 
@@ -190,7 +190,7 @@ func (h *RunsHandler) Logs(w http.ResponseWriter, r *http.Request) {
 func (h *RunsHandler) Diff(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	teamID := teamIDFromRequest(w, r, claims)
@@ -210,7 +210,7 @@ func (h *RunsHandler) Diff(w http.ResponseWriter, r *http.Request) {
 	err := h.db.SelectContext(r.Context(), &diffs,
 		`SELECT step_id, diff FROM step_runs WHERE run_id = $1 AND diff IS NOT NULL AND diff != ''`, runID)
 	if err != nil {
-		http.Error(w, "failed to get diffs", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to get diffs")
 		return
 	}
 
@@ -221,7 +221,7 @@ func (h *RunsHandler) Diff(w http.ResponseWriter, r *http.Request) {
 func (h *RunsHandler) Output(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	teamID := teamIDFromRequest(w, r, claims)
@@ -241,7 +241,7 @@ func (h *RunsHandler) Output(w http.ResponseWriter, r *http.Request) {
 	err := h.db.SelectContext(r.Context(), &outputs,
 		`SELECT step_id, output FROM step_runs WHERE run_id = $1 AND output IS NOT NULL`, runID)
 	if err != nil {
-		http.Error(w, "failed to get outputs", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to get outputs")
 		return
 	}
 
@@ -287,7 +287,7 @@ func (h *RunsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "id")
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	teamID := teamIDFromRequest(w, r, claims)
@@ -303,7 +303,7 @@ func (h *RunsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
 
@@ -375,7 +375,7 @@ func (h *RunsHandler) StepLogs(w http.ResponseWriter, r *http.Request) {
 	stepRunID := chi.URLParam(r, "id")
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	teamID := teamIDFromRequest(w, r, claims)
@@ -389,7 +389,7 @@ func (h *RunsHandler) StepLogs(w http.ResponseWriter, r *http.Request) {
 	if err := h.db.QueryRowContext(r.Context(),
 		`SELECT r.id FROM step_runs s JOIN runs r ON s.run_id = r.id WHERE s.id = $1 AND r.team_id = $2`,
 		stepRunID, teamID).Scan(&runID); err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, "not found")
 		return
 	}
 
@@ -399,7 +399,7 @@ func (h *RunsHandler) StepLogs(w http.ResponseWriter, r *http.Request) {
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
 
@@ -447,7 +447,7 @@ func (h *RunsHandler) Reject(w http.ResponseWriter, r *http.Request) {
 func (h *RunsHandler) Steer(w http.ResponseWriter, r *http.Request) {
 	var payload workflow.SteerPayload
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 	h.signalRun(w, r, string(workflow.SignalSteer), payload)
@@ -457,7 +457,7 @@ func (h *RunsHandler) Steer(w http.ResponseWriter, r *http.Request) {
 func (h *RunsHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	teamID := teamIDFromRequest(w, r, claims)
@@ -473,7 +473,7 @@ func (h *RunsHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	// Cancel the parent DAGWorkflow via Temporal's CancelWorkflow API.
 	// This propagates cancellation to all child workflows and activities.
 	if err := h.temporal.CancelWorkflow(r.Context(), run.TemporalID, ""); err != nil {
-		http.Error(w, "failed to cancel workflow", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to cancel workflow")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
@@ -486,7 +486,7 @@ func stepWorkflowID(runID, stepID string) string {
 func (h *RunsHandler) signalRun(w http.ResponseWriter, r *http.Request, signalName string, payload any) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	teamID := teamIDFromRequest(w, r, claims)
@@ -516,12 +516,12 @@ func (h *RunsHandler) signalRun(w http.ResponseWriter, r *http.Request, signalNa
 		var parentTemporalID string
 		if dbErr := h.db.GetContext(r.Context(), &parentTemporalID,
 			`SELECT temporal_id FROM runs WHERE id = $1`, runID); dbErr != nil {
-			http.Error(w, "run not found", http.StatusNotFound)
+			writeJSONError(w, http.StatusNotFound, "run not found")
 			return
 		}
 		err = h.temporal.SignalWorkflow(r.Context(), parentTemporalID, "", signalName, payload)
 		if err != nil {
-			http.Error(w, "failed to signal workflow", http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "failed to signal workflow")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "signaled"})
@@ -531,7 +531,7 @@ func (h *RunsHandler) signalRun(w http.ResponseWriter, r *http.Request, signalNa
 	// Signal the specific child StepWorkflow using its stored workflow ID.
 	err = h.temporal.SignalWorkflow(r.Context(), temporalWFID, "", signalName, payload)
 	if err != nil {
-		http.Error(w, "failed to signal workflow", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to signal workflow")
 		return
 	}
 

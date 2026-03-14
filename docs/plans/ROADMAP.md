@@ -1,37 +1,37 @@
 # FleetLift Roadmap
 
 **Date:** 2026-03-14
-**Status:** Active
+**Status:** Active (Tier 1 complete)
 
 FleetLift has strong architecture and a working core engine. This roadmap covers what's needed to go from "internal tool" to "production-ready OSS product."
 
 ---
 
-## Tier 1: Production Readiness
+## Tier 1: Production Readiness ✅
 
-Fix broken contracts, remove dead code, add missing tests. **Do first — blocks everything else.**
+Fix broken contracts, remove dead code, add missing tests. **Complete — all tasks done and verified.**
 
 See: [`2026-03-14-tier1-production-readiness.md`](2026-03-14-tier1-production-readiness.md) for the full implementation plan.
 
-### Track A: Fix What's Broken
+### Track A: Fix What's Broken ✅
 
 | # | Item | Files | Status |
 |---|------|-------|--------|
-| 1 | Fix `spaHandler` panic → return error | `router.go` | ⬜ |
-| 2 | Add `GET /health` endpoint | `router.go` | ⬜ |
-| 3 | Standardize error responses to JSON (`writeJSONError`) | All handler files | ⬜ |
-| 4 | Fix frontend-backend contract mismatches (diff, output, artifacts) | `runs.go`, `reports.go`, `client.ts` | ⬜ |
-| 5 | Consolidate duplicate `shellQuote` → `internal/shellquote/` | `activity/`, `agent/` | ⬜ |
-| 6 | Surface goroutine panics in DAG as step failures | `dag.go` | ⬜ |
-| 7 | Remove dead knowledge-capture code from worker/activities | `activities.go`, `execute.go`, `step.go`, `knowledge.go` | ⬜ |
+| 1 | Fix `spaHandler` panic → return error | `router.go` | ✅ |
+| 2 | Add `GET /health` endpoint | `router.go` | ✅ |
+| 3 | Standardize error responses to JSON (`writeJSONError`) | All handler files | ✅ |
+| 4 | Fix frontend-backend contract mismatches (diff, output, artifacts) | `runs.go`, `reports.go`, `client.ts` | ✅ |
+| 5 | Consolidate duplicate `shellQuote` → `internal/shellquote/` | `activity/`, `agent/` | ✅ |
+| 6 | Surface goroutine panics in DAG as step failures | `dag.go` | ✅ |
+| 7 | Remove dead knowledge-capture code from worker/activities | `activities.go`, `execute.go`, `step.go`, `knowledge.go` | ✅ |
 
-### Track B: Test Coverage Gaps
+### Track B: Test Coverage Gaps ✅
 
 | # | Item | Files | Status |
 |---|------|-------|--------|
-| 8 | OAuth CSRF state validation tests | `handlers/auth_test.go` | ⬜ |
-| 9 | Multi-tenant isolation tests | `handlers/isolation_test.go` | ⬜ |
-| 10 | SSE event stream auth guard tests | `handlers/runs_test.go` | ⬜ |
+| 8 | OAuth CSRF state validation tests | `handlers/auth_test.go` | ✅ |
+| 9 | Multi-tenant isolation tests | `handlers/isolation_test.go` | ✅ |
+| 10 | SSE event stream auth guard tests | `handlers/runs_test.go` | ✅ |
 
 ---
 

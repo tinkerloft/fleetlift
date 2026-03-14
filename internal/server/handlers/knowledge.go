@@ -24,7 +24,7 @@ func NewKnowledgeHandler(store knowledge.Store) *KnowledgeHandler {
 func (h *KnowledgeHandler) List(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	teamID := teamIDFromRequest(w, r, claims)
@@ -35,7 +35,7 @@ func (h *KnowledgeHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	items, err := h.store.ListByTeam(r.Context(), teamID, status)
 	if err != nil {
-		http.Error(w, "failed to list knowledge items", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to list knowledge items")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
@@ -44,7 +44,7 @@ func (h *KnowledgeHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *KnowledgeHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	teamID := teamIDFromRequest(w, r, claims)
@@ -57,18 +57,18 @@ func (h *KnowledgeHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) 
 		Status string `json:"status"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	status := model.KnowledgeStatus(body.Status)
 	if status != model.KnowledgeStatusApproved && status != model.KnowledgeStatusRejected {
-		http.Error(w, "status must be 'approved' or 'rejected'", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "status must be 'approved' or 'rejected'")
 		return
 	}
 
 	if err := h.store.UpdateStatus(r.Context(), id, teamID, status); err != nil {
-		http.Error(w, "failed to update knowledge item", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to update knowledge item")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -77,7 +77,7 @@ func (h *KnowledgeHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) 
 func (h *KnowledgeHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	teamID := teamIDFromRequest(w, r, claims)
@@ -86,7 +86,7 @@ func (h *KnowledgeHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "id")
 	if err := h.store.Delete(r.Context(), id, teamID); err != nil {
-		http.Error(w, "failed to delete knowledge item", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to delete knowledge item")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

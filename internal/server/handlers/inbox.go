@@ -25,7 +25,7 @@ func NewInboxHandler(db *sqlx.DB) *InboxHandler {
 func (h *InboxHandler) List(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -44,7 +44,7 @@ func (h *InboxHandler) List(w http.ResponseWriter, r *http.Request) {
 		 ORDER BY i.created_at DESC LIMIT 50`,
 		teamID, claims.UserID)
 	if err != nil {
-		http.Error(w, "failed to list inbox", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to list inbox")
 		return
 	}
 
@@ -55,7 +55,7 @@ func (h *InboxHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *InboxHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -66,7 +66,7 @@ func (h *InboxHandler) MarkRead(w http.ResponseWriter, r *http.Request) {
 		 ON CONFLICT DO NOTHING`,
 		itemID, claims.UserID, time.Now())
 	if err != nil {
-		http.Error(w, "failed to mark read", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to mark read")
 		return
 	}
 

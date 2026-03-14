@@ -5,7 +5,6 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/tinkerloft/fleetlift/internal/agent"
-	"github.com/tinkerloft/fleetlift/internal/knowledge"
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
 )
 
@@ -19,9 +18,8 @@ type CredentialStore interface {
 
 // Activities holds all Temporal activity implementations and their shared dependencies.
 type Activities struct {
-	Sandbox        sandbox.Client
-	DB             *sqlx.DB
-	CredStore      CredentialStore
-	AgentRunners   map[string]agent.Runner
-	KnowledgeStore knowledge.Store
+	Sandbox      sandbox.Client
+	DB           *sqlx.DB
+	CredStore    CredentialStore
+	AgentRunners map[string]agent.Runner
 }

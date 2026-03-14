@@ -8,8 +8,8 @@ import (
 	"go.temporal.io/sdk/activity"
 
 	"github.com/tinkerloft/fleetlift/internal/agent"
-	"github.com/tinkerloft/fleetlift/internal/knowledge"
 	"github.com/tinkerloft/fleetlift/internal/model"
+	"github.com/tinkerloft/fleetlift/internal/shellquote"
 	"github.com/tinkerloft/fleetlift/internal/workflow"
 )
 
@@ -30,10 +30,10 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 		}
 		cloneCmd := fmt.Sprintf("git clone --depth %s", DefaultCloneDepth)
 		if repo.Branch != "" {
-			cloneCmd += fmt.Sprintf(" --branch %s", shellQuote(repo.Branch))
+			cloneCmd += fmt.Sprintf(" --branch %s", shellquote.Quote(repo.Branch))
 		}
 		repoDir := "/workspace/" + repoName(repo)
-		cloneCmd += fmt.Sprintf(" %s %s", shellQuote(repo.URL), shellQuote(repoDir))
+		cloneCmd += fmt.Sprintf(" %s %s", shellquote.Quote(repo.URL), shellquote.Quote(repoDir))
 		activity.RecordHeartbeat(ctx, "cloning "+repoName(repo))
 		a.updateStepStatus(ctx, stepInput.StepRunID, model.StepStatusCloning)
 
@@ -43,7 +43,7 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 
 		// Fetch and checkout a specific ref (e.g. "pull/19/head" for PRs).
 		if repo.Ref != "" {
-			fetchCmd := fmt.Sprintf("git fetch origin %s", shellQuote(repo.Ref))
+			fetchCmd := fmt.Sprintf("git fetch origin %s", shellquote.Quote(repo.Ref))
 			if _, _, err := sb.Exec(ctx, input.SandboxID, fetchCmd, repoDir); err != nil {
 				return nil, fmt.Errorf("fetch ref %s: %w", repo.Ref, err)
 			}
@@ -65,28 +65,6 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 	prompt := input.Prompt
 	if input.ConversationHistory != "" {
 		prompt = input.ConversationHistory + "\n\n" + prompt
-	}
-
-	// Enrich prompt with approved knowledge items if configured
-	if stepInput.StepDef.Knowledge != nil && stepInput.StepDef.Knowledge.Enrich && a.KnowledgeStore != nil {
-		maxItems := stepInput.StepDef.Knowledge.MaxItems
-		if maxItems == 0 {
-			maxItems = 10
-		}
-		knowledgeItems, err := a.KnowledgeStore.ListApprovedByWorkflow(ctx,
-			stepInput.TeamID,
-			stepInput.WorkflowTemplateID,
-			maxItems,
-		)
-		if err == nil && len(knowledgeItems) > 0 {
-			enrichBlock := knowledge.FormatEnrichmentBlock(knowledgeItems)
-			prompt = enrichBlock + "\n\n" + prompt
-		}
-	}
-
-	// Instruct agent to capture knowledge if configured
-	if stepInput.StepDef.Knowledge != nil && stepInput.StepDef.Knowledge.Capture {
-		prompt += "\n\n## Knowledge Capture\n\nBefore exiting, write `fleetlift-knowledge.json` to the current directory with any insights you gained. Format:\n```json\n[\n  {\"type\": \"pattern|correction|gotcha|context\", \"summary\": \"brief insight\", \"details\": \"optional detail\", \"confidence\": 0.9}\n]\n```\nOnly include non-obvious insights worth sharing with future runs."
 	}
 
 	// Set working directory to the repo if there's exactly one.

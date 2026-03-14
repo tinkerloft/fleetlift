@@ -59,6 +59,7 @@ temp/
 /build/
 web/dist/*
 !web/dist/.gitkeep
+!web/dist/index.html
 *.tar.gz
 *.zip
 

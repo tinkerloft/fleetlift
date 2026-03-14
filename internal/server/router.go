@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
@@ -41,7 +42,7 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 // NewRouter creates the HTTP router with all API routes.
-func NewRouter(deps Deps) http.Handler {
+func NewRouter(deps Deps) (http.Handler, error) {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
@@ -51,6 +52,13 @@ func NewRouter(deps Deps) http.Handler {
 	// Auth (public)
 	r.Get("/auth/github", deps.Auth.HandleGitHubRedirect)
 	r.Get("/auth/github/callback", deps.Auth.HandleGitHubCallback)
+
+	// Health check (no auth required)
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
 
 	// Public config (no auth required)
 	temporalUIURL := deps.TemporalUIURL
@@ -103,6 +111,7 @@ func NewRouter(deps Deps) http.Handler {
 		r.Get("/api/reports", deps.Reports.List)
 		r.Get("/api/reports/{runID}", deps.Reports.Get)
 		r.Get("/api/reports/{runID}/export", deps.Reports.Export)
+		r.Get("/api/reports/{runID}/artifacts", deps.Reports.Artifacts)
 
 		// Credentials
 		r.Get("/api/credentials", deps.Credentials.List)
@@ -116,9 +125,12 @@ func NewRouter(deps Deps) http.Handler {
 	})
 
 	// Serve embedded React SPA
-	r.Handle("/*", spaHandler())
-
-	return r
+	spa, err := spaHandler()
+	if err != nil {
+		return nil, fmt.Errorf("web: %w", err)
+	}
+	r.Handle("/*", spa)
+	return r, nil
 }
 
 // devAuthBypass is a middleware that skips JWT validation and injects claims
@@ -162,10 +174,10 @@ func corsOptions() cors.Options {
 	}
 }
 
-func spaHandler() http.Handler {
+func spaHandler() (http.Handler, error) {
 	fsys, err := fs.Sub(web.DistFS, "dist")
 	if err != nil {
-		panic("web: failed to sub dist: " + err.Error())
+		return nil, fmt.Errorf("failed to sub dist: %w", err)
 	}
 	fileServer := http.FileServer(http.FS(fsys))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -184,5 +196,5 @@ func spaHandler() http.Handler {
 		r2 := r.Clone(r.Context())
 		r2.URL.Path = "/"
 		fileServer.ServeHTTP(w, r2)
-	})
+	}), nil
 }

@@ -34,9 +34,6 @@ const (
 	ActivityExecuteAction    = "ExecuteAction"
 	ActivityCompleteStepRun  = "CompleteStepRun"
 
-	// Knowledge capture and prompt enrichment activities
-	ActivityCaptureKnowledge = "CaptureKnowledge"
-	ActivityEnrichPrompt     = "EnrichPrompt"
 )
 
 // Default configuration values (SIMP-004)

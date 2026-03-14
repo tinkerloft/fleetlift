@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
+	"github.com/tinkerloft/fleetlift/internal/shellquote"
 )
 
 const exitCodeSentinel = "__FLEETLIFT_EXIT_CODE__="
@@ -28,7 +29,7 @@ func (r *ShellRunner) SandboxEnv() map[string]string { return nil }
 func (r *ShellRunner) Run(ctx context.Context, sandboxID string, opts RunOpts) (<-chan Event, error) {
 	// Wrap the user command to capture the exit code via a sentinel line.
 	inner := opts.Prompt + "; echo " + exitCodeSentinel + "$?"
-	cmd := "bash -c " + shellQuote(inner)
+	cmd := "bash -c " + shellquote.Quote(inner)
 
 	ch := make(chan Event, 64)
 	go func() {
