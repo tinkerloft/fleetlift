@@ -206,6 +206,7 @@ func (c *Client) ExecStream(ctx context.Context, id, cmd, workDir string, onLine
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 1024*1024), 4*1024*1024) // 4 MiB max line size
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {

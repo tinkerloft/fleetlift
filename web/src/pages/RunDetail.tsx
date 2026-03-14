@@ -11,7 +11,8 @@ import { Skeleton } from '@/components/Skeleton'
 import { Button } from '@/components/ui/button'
 import { useLiveDuration } from '@/lib/use-live-duration'
 import { cn } from '@/lib/utils'
-import type { StepDef, StepRun } from '@/api/types'
+import { parse as parseYaml } from '@/lib/yaml'
+import type { StepDef, StepRun, WorkflowDef } from '@/api/types'
 
 const SEG_COLOR: Record<string, string> = {
   complete: 'bg-green-500',
@@ -95,22 +96,19 @@ export function RunDetailPage() {
     )
   }
 
-  // Parse workflow def from template for DAG visualization.
-  // StepRuns alone lack depends_on/mode — we need the original YAML definition.
-  // The run object may carry a workflow_def field (if the backend embeds it),
-  // otherwise we fall back to flat step list (no edges).
+  // Parse the workflow YAML to get the full step list with depends_on edges.
+  // We use raw YAML (not a serialized struct) to avoid Temporal history coupling.
+  // Fall back to step runs only if yaml is unavailable.
   let steps: StepDef[] = []
-  try {
-    const runWithDef = run as Record<string, unknown>
-    if ((runWithDef.workflow_def as Record<string, unknown>)?.steps) {
-      steps = (runWithDef.workflow_def as Record<string, unknown>).steps as StepDef[]
-    } else if (run.steps) {
-      steps = run.steps.map((sr: StepRun) => ({
-        id: sr.step_id,
-        title: sr.step_title,
-      }))
-    }
-  } catch { /* ignore */ }
+  if (run.workflow_yaml) {
+    try {
+      const def = parseYaml(run.workflow_yaml) as unknown as WorkflowDef
+      if (def?.steps) steps = def.steps
+    } catch { /* ignore parse errors */ }
+  }
+  if (steps.length === 0) {
+    steps = run.steps?.map((sr: StepRun) => ({ id: sr.step_id, title: sr.step_title })) ?? []
+  }
 
   const stepRuns = run.steps ?? []
   const selectedStep = stepRuns.find((sr: StepRun) => sr.step_id === selectedStepId)

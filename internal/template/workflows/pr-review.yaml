@@ -46,6 +46,9 @@ steps:
       - fetch_pr
     sandbox_group: main
     mode: report
+    repositories:
+      - url: "{{ .Params.repo_url }}"
+        ref: "refs/pull/{{ .Params.pr_number }}/head"
     execution:
       agent: claude-code
       prompt: |

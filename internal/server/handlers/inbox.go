@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -44,6 +45,7 @@ func (h *InboxHandler) List(w http.ResponseWriter, r *http.Request) {
 		 ORDER BY i.created_at DESC LIMIT 50`,
 		teamID, claims.UserID)
 	if err != nil {
+		slog.Error("inbox list query failed", "error", err, "team_id", teamID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to list inbox")
 		return
 	}

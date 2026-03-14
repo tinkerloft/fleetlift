@@ -37,6 +37,13 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 		seq++
 	}
 
+	// Validate all repo URLs before any Temporal-specific calls.
+	for _, repo := range stepInput.ResolvedOpts.Repos {
+		if !strings.HasPrefix(repo.URL, "https://") {
+			return nil, fmt.Errorf("repo URL must use https:// scheme, got: %q", repo.URL)
+		}
+	}
+
 	// Show a retry banner so users can tell when Temporal is re-running the activity.
 	if attempt := activity.GetInfo(ctx).Attempt; attempt > 1 {
 		logLine("stderr", fmt.Sprintf("--- retry attempt %d ---", attempt))
@@ -44,14 +51,20 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 
 	// 1. Clone repos
 	for _, repo := range stepInput.ResolvedOpts.Repos {
-		if !strings.HasPrefix(repo.URL, "https://") {
-			return nil, fmt.Errorf("repo URL must use https:// scheme, got: %q", repo.URL)
+		repoDir := "/workspace/" + repoName(repo)
+
+		// If a prior step in the same sandbox already cloned this repo, reuse it.
+		// This allows downstream steps to declare repositories for workdir purposes
+		// without triggering a redundant clone.
+		if head, _, _ := sb.Exec(ctx, input.SandboxID, "cat "+shellquote.Quote(repoDir+"/.git/HEAD"), "/"); head != "" {
+			logLine("stdout", "Using existing clone at "+repoDir)
+			continue
 		}
+
 		cloneCmd := fmt.Sprintf("git clone --depth %s", DefaultCloneDepth)
 		if repo.Branch != "" {
 			cloneCmd += fmt.Sprintf(" --branch %s", shellquote.Quote(repo.Branch))
 		}
-		repoDir := "/workspace/" + repoName(repo)
 		cloneCmd += fmt.Sprintf(" %s %s", shellquote.Quote(repo.URL), shellquote.Quote(repoDir))
 		activity.RecordHeartbeat(ctx, "cloning "+repoName(repo))
 		a.updateStepStatus(ctx, stepInput.StepRunID, model.StepStatusCloning)

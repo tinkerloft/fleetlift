@@ -60,6 +60,7 @@ export interface Run {
   completed_at?: string
   created_at: string
   steps?: StepRun[]
+  workflow_yaml?: string
 }
 
 export interface StepRun {

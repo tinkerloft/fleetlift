@@ -163,6 +163,19 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 			workflow.Go(ctx, func(gCtx workflow.Context) {
 				defer wg.Done()
 
+				// If any required dependency was skipped or failed, skip this step too
+				// rather than attempting to render templates against absent output.
+				for _, dep := range step.DependsOn {
+					if out, ok := outputs[dep]; ok && (out.Status == model.StepStatusSkipped || out.Status == model.StepStatusFailed) {
+						results[i] = &model.StepOutput{
+							StepID: step.ID,
+							Status: model.StepStatusSkipped,
+							Error:  fmt.Sprintf("skipped: dependency %s did not complete successfully", dep),
+						}
+						return
+					}
+				}
+
 				// Resolve templates with current outputs + params
 				resolved, err := resolveStep(step, input.Parameters, outputs)
 				if err != nil {
@@ -347,6 +360,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 		}
 
 		// Collect results
+		var stepErrors []string
 		for idx, r := range results {
 			if r == nil {
 				// Goroutine panicked or failed to set result — surface as failure.
@@ -361,7 +375,15 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 
 			if r.Status == model.StepStatusFailed && !isOptional(steps, r.StepID) {
 				skipDownstream(pending, r.StepID, steps, outputs)
+				msg := fmt.Sprintf("step %s failed", r.StepID)
+				if r.Error != "" {
+					msg = fmt.Sprintf("step %s failed: %s", r.StepID, r.Error)
+				}
+				stepErrors = append(stepErrors, msg)
 			}
+		}
+		if len(stepErrors) > 0 {
+			return fmt.Errorf("%s", strings.Join(stepErrors, "; "))
 		}
 	}
 
