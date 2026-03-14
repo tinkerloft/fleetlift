@@ -661,6 +661,27 @@ func TestValidateWorkflow_ConditionUnknownStep(t *testing.T) {
 	assert.True(t, found, "expected error for undefined step 'ghost' in condition")
 }
 
+func TestValidateWorkflow_ActionCredentialNameFormat(t *testing.T) {
+	def := model.WorkflowDef{
+		Steps: []model.StepDef{
+			{ID: "a", Action: &model.ActionDef{
+				Type:        "slack_notify",
+				Credentials: []string{"invalid-name"},
+			}},
+		},
+	}
+	errs := ValidateWorkflow(def, nil)
+	assert.NotEmpty(t, errs)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Message, "invalid-name") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected error for invalid action credential name")
+}
+
 // --- extractTemplateRefs unit tests ---
 
 func TestExtractTemplateRefs_ParamAndStepRefs(t *testing.T) {

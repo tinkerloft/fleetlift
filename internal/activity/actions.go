@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v62/github"
+	"go.temporal.io/sdk/activity"
 	"golang.org/x/oauth2"
 )
 
@@ -22,7 +23,9 @@ func (a *Activities) ExecuteAction(ctx context.Context, stepRunID string, action
 		}
 	}
 
-	logAction(ctx, a, stepRunID, fmt.Sprintf("Executing action: %s", actionType))
+	var seq int64
+	logAction(ctx, a, stepRunID, seq, fmt.Sprintf("Executing action: %s", actionType))
+	seq++
 
 	var result map[string]any
 	var err error
@@ -46,19 +49,19 @@ func (a *Activities) ExecuteAction(ctx context.Context, stepRunID string, action
 	}
 
 	if err != nil {
-		logAction(ctx, a, stepRunID, fmt.Sprintf("Action failed: %v", err))
+		logAction(ctx, a, stepRunID, seq, fmt.Sprintf("Action failed: %v", err))
 		return nil, err
 	}
-	logAction(ctx, a, stepRunID, "Action completed successfully")
+	logAction(ctx, a, stepRunID, seq, "Action completed successfully")
 	return result, nil
 }
 
 // logAction writes a single log line for an action step run.
-func logAction(ctx context.Context, a *Activities, stepRunID, msg string) {
+func logAction(ctx context.Context, a *Activities, stepRunID string, seq int64, msg string) {
 	if a.DB == nil || stepRunID == "" {
 		return
 	}
-	_ = batchInsertLogs(ctx, a, stepRunID, []logLine{{Seq: 0, Stream: "stdout", Content: msg}})
+	_ = batchInsertLogs(ctx, a, stepRunID, []logLine{{Seq: seq, Stream: "stdout", Content: msg}})
 }
 
 // credOrEnv returns the credential value from the map, falling back to os.Getenv.
@@ -123,10 +126,12 @@ func actionGitHubAssignIssue(ctx context.Context, config map[string]any, _ map[s
 	issueNumber := toInt(config["issue_number"])
 
 	if repoURL == "" || issueNumber == 0 {
-		return map[string]any{"status": "skipped", "reason": "not configured"}, nil
+		return nil, fmt.Errorf("github_assign: missing repo_url or issue_number")
 	}
 
-	// Assignment logic would look up CODEOWNERS or a team map; for now, skip
+	// Assignment logic not yet implemented
+	activity.GetLogger(ctx).Info("github_assign: auto-assignment not yet configured",
+		"repo", repoURL, "issue", issueNumber)
 	return map[string]any{"status": "skipped", "reason": "not configured"}, nil
 }
 
