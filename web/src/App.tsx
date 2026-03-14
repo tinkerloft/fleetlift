@@ -9,6 +9,7 @@ import { InboxPage } from './pages/Inbox'
 import { ReportListPage } from './pages/ReportList'
 import { ReportDetailPage } from './pages/ReportDetail'
 import { KnowledgePage } from './pages/KnowledgePage'
+import { SystemHealthPage } from './pages/SystemHealth'
 import { LoginPage } from './pages/Login'
 import { AuthCallbackPage } from './pages/AuthCallback'
 
@@ -36,6 +37,7 @@ export default function App() {
               <Route path="/reports" element={<ReportListPage />} />
               <Route path="/reports/:runId" element={<ReportDetailPage />} />
               <Route path="/knowledge" element={<KnowledgePage />} />
+              <Route path="system" element={<SystemHealthPage />} />
             </Routes>
           </Layout>
         </RequireAuth>
