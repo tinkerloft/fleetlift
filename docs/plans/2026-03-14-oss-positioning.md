@@ -160,7 +160,77 @@ Add a README to the examples directory that:
 - Links to the Workflow Reference for schema details
 - Includes a "write your own" mini-tutorial
 
-### Phase 8: Web Landing Route (Optional)
+### Phase 8: Demo Video (High Impact, Medium Effort)
+
+The current `docs/images/demo.gif` is CLI-only and doesn't show any of the web UI — which is where FleetLift's visual differentiation lives. A proper demo video is critical for an OSS project competing with polished SaaS products.
+
+**Output:** 2-3 minute screen recording, hosted on YouTube/Vimeo, embedded in README and linked from docs.
+
+#### What to Capture
+
+The video should follow one complete workflow execution, showing the UI responding in real-time:
+
+**Scene 1: Workflow Library (15s)**
+- WorkflowListPage — grid of builtin templates with tags/descriptions
+- Click into a workflow to show the DAG preview and parameter form
+- Message: "Pick from 10 built-in templates or write your own YAML"
+
+**Scene 2: Launch a Run (15s)**
+- Fill in parameters on WorkflowDetailPage (repo URL, options)
+- Click "Run Workflow"
+- Transition to RunDetailPage
+- Message: "Configure and launch from the UI or CLI"
+
+**Scene 3: DAG Execution — the hero shot (45s)**
+- DAGGraph component with nodes pulsing blue as steps execute
+- Animated edges showing data flow between dependent steps
+- Nodes turning green as steps complete, parallel branches running simultaneously
+- Click a running step to show LogStream with live agent output scrolling
+- Message: "Watch your workflow execute as an interactive DAG — parallel steps, dependencies, real-time streaming"
+
+**Scene 4: Human-in-the-Loop (30s)**
+- Step transitions to yellow "awaiting_input" state
+- HITLPanel appears with amber alert styling and pulsing indicator
+- Show the diff the agent produced (syntax-highlighted in StepPanel)
+- Type a steering instruction ("also handle the edge case for empty arrays")
+- Click Approve
+- Step resumes execution
+- Message: "Approve, reject, or steer any step mid-execution — you stay in control"
+
+**Scene 5: Results (20s)**
+- Completed DAG — all nodes green
+- StepPanel showing: output JSON, git diff, PR URL linking to GitHub
+- Switch to ReportDetailPage showing aggregated results
+- Message: "Structured reports, diffs, and auto-created PRs — full audit trail"
+
+**Scene 6: Knowledge + Inbox (15s)**
+- Quick flash of InboxPage with notifications
+- KnowledgePage showing captured insights with approve/reject
+- Message: "Agents learn from past runs. Curate what they remember."
+
+**Scene 7: Fleet Operations (20s)**
+- Show a multi-repo fan-out run — DAG with fan-out nodes
+- Multiple repos processing in parallel
+- Aggregated report across all repos
+- Message: "One template. Fifty repos. One aggregated report."
+
+#### Production Notes
+
+- **Resolution:** 1920x1080, 60fps
+- **Recording tool:** OBS, ScreenFlow, or similar (not VHS/asciinema — need full browser capture)
+- **Narration:** Optional voiceover or text captions overlaid (captions are more accessible and cheaper to produce)
+- **Music:** Light background track, optional
+- **Thumbnail:** DAGGraph mid-execution with pulsing nodes — the most visually distinctive frame
+- **Hosting:** YouTube (unlisted or public), embed in README via `[![Demo](thumbnail.png)](youtube-url)`
+- **Fallback GIF:** Extract a 10-15s loop of the DAG executing for the README hero image (replace current CLI-only demo.gif)
+
+#### Why This Matters
+
+SaaS competitors have polished marketing videos. An OSS project's README is its only storefront. Most developers decide whether to try a tool within 30 seconds of landing on the repo. A video showing the DAG animating, logs streaming, and HITL approval happening in real-time communicates more in 30 seconds than any amount of markdown.
+
+The existing demo.gif shows terminal commands — functional but indistinguishable from any CLI tool. The web UI (DAGGraph, LogStream, HITLPanel) is what makes FleetLift *look* like a product, not a script.
+
+### Phase 9: Web Landing Route (Optional, Defer)
 
 Add a public `/` route in the web SPA that shows a feature overview before login. This is lower priority — the GitHub README is the real landing page for an OSS project. But if the server is deployed publicly, a non-authenticated landing page helps.
 
@@ -168,7 +238,7 @@ Add a public `/` route in the web SPA that shows a feature overview before login
 - Feature grid (DAG, HITL, knowledge, fleet ops)
 - "Get Started" button → links to GitHub README
 - Architecture diagram
-- Link to demo video
+- Embedded demo video
 
 ---
 
@@ -183,7 +253,8 @@ Add a public `/` route in the web SPA that shows a feature overview before login
 | 5. CONTRIBUTING.md | Medium | Low | **Do fifth** |
 | 6. Deployment guide | Medium | High | **Do sixth** |
 | 7. Example READMEs | Medium | Low | **Do seventh** |
-| 8. Web landing route | Low | High | **Defer** |
+| 8. Demo video | High | Medium | **Do alongside phases 1-4** |
+| 9. Web landing route | Low | High | **Defer** |
 
 ---
 
