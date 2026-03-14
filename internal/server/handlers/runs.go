@@ -68,6 +68,14 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if errs := workflow.ValidateWorkflow(def, req.Parameters); len(errs) > 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error":             "workflow validation failed",
+			"validation_errors": errs,
+		})
+		return
+	}
+
 	runID := uuid.New().String()
 	temporalID := fmt.Sprintf("fl-%s-%s", req.WorkflowID, runID[:8])
 
