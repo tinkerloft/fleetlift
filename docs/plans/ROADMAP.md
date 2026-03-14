@@ -66,6 +66,89 @@ See: [`2026-03-14-track-c-web-experience.md`](2026-03-14-track-c-web-experience.
 - [x] **P2:** Mark SystemHealth as placeholder (no hardcoded green badges)
 - [x] **P2:** Add component-level tests for StatusBadge, DiffViewer, UserMenu
 
+### Track H: Workflow Engine Reliability
+
+The PR Review workflow exposed 8 platform-level bugs and 2 template-level bugs during live testing. 80% were platform issues that would affect every workflow. This track hardens the engine so users can compose workflows from activities that work reliably in isolation.
+
+**Motivation:** Currently, every new workflow requires manual end-to-end debugging against a live stack. The goal is: a user writes YAML, validation catches mistakes before execution, activities have clear contracts, and failures are loud and actionable.
+
+#### Runtime Bugs Fixed (2026-03-14)
+
+| Bug | Root Cause | Fix | Scope |
+|-----|-----------|-----|-------|
+| OpenSandbox `workdir` ignored | Wrong JSON field (`workdir` → `cwd`) | `opensandbox/client.go` | Platform |
+| `bufio.Scanner: token too long` | Default 64KB buffer; agent output exceeds it | 4MB scanner buffer | Platform |
+| Failed runs show "completed" | `DAGWorkflow` returned `nil` on step failure | Return collected errors | Platform |
+| Steps run before deps complete | `json:` tags on `WorkflowDef` broke Temporal replay | Revert tags; use raw YAML for API | Platform |
+| Template crash on skipped deps | `resolveStep` called before checking dep status | Skip propagation before render | Platform |
+| `/api/inbox` 500 | Nullable DB columns scanned into `string` | Use `*string` for nullable fields | Platform |
+| Action steps silently skip | `return nil` when `GITHUB_TOKEN` missing | Return error; fail loudly | Platform |
+| Redundant clone in shared sandbox | No check for existing `.git/HEAD` | Skip clone if already present | Platform |
+| Review step wrong workdir | Step missing `repositories` declaration | Add repos; skip-if-cloned logic | Template |
+| Post-comments empty summary | Wrong output key in template | Template-specific fix | Template |
+
+#### Reliability Work Items
+
+| # | Item | Key Files | Priority | Status |
+|---|------|-----------|----------|--------|
+| H1 | **Workflow validation before execution** — check dep references, circular deps, template step/param refs, unknown action types, unreachable steps | `workflow/validate.go` (new) | P0 | ⬜ |
+| H2 | **Action step credential access + logging** — action steps get credential store access (not just worker env), log what they do, store results as step output | `activity/actions.go`, `workflow/dag.go` | P0 | ⬜ |
+| H3 | **Output schema enforcement** — extract agent output into declared schema fields, fail if required fields missing; downstream steps get predictable data | `activity/execute.go`, `workflow/dag.go` | P0 | ⬜ |
+| H4 | **Workflow integration test harness** — Temporal test environment + mock sandbox/agent; validate DAG orchestration, template rendering, credential flow, action dispatch for each builtin workflow | `workflow/dag_integration_test.go` (new) | P1 | ⬜ |
+| H5 | **Activity/action contract registry** — declared input/output schemas per action type; enables validation at parse time and future UI workflow builder | `activity/registry.go` (new), action YAML schemas | P1 | ⬜ |
+| H6 | **Template rendering safety** — validate all referenced step IDs and output keys exist before rendering; clear error messages ("step 'revew' does not exist, did you mean 'review'?") | `template/render.go` | P2 | ⬜ |
+| H7 | **Error handling audit** — grep for `return nil` after error conditions, `Warn` used for fatal conditions, `writeJSONError` without logging; enforce fail-loud policy | All handlers, activities | P2 | ⬜ |
+
+**H1–H3** are the minimum for "users can compose workflows that work." **H4–H5** prevent regressions and enable self-service. **H6–H7** improve the authoring and debugging experience.
+
+#### H1: Workflow Validation — Detail
+
+A `ValidateWorkflow(def WorkflowDef, registry ActionRegistry)` function that runs before `ExecuteWorkflow`. Catches at parse time:
+
+- **Structural:** undefined step IDs in `depends_on`, circular dependencies, unreachable steps
+- **Template refs:** `{{ .Steps.X.Output.Y }}` where step `X` doesn't exist or isn't an upstream dependency
+- **Param refs:** `{{ .Params.Z }}` where `Z` isn't declared in `parameters`
+- **Action types:** unknown `action.type` values not in the registry
+- **Credential refs:** credentials referenced but not declared, or action steps needing credentials that aren't configured
+
+Current failure mode: all of these crash at runtime with Go template panics or missing-key errors deep inside a Temporal activity.
+
+#### H2: Action Step Promotion — Detail
+
+Currently, action steps vs agent steps have very different capabilities:
+
+| Capability | Agent Steps | Action Steps |
+|------------|-------------|--------------|
+| Credential store access | ✅ via ProvisionSandbox | ❌ worker env only |
+| Log streaming | ✅ real-time to UI | ❌ no logs |
+| Step output stored | ✅ | ❌ |
+| Retries with heartbeat | ✅ | ❌ |
+| Status transitions | ✅ cloning→running→verifying | ❌ instant complete |
+
+Minimum fix: pass `teamID` + credential names to `ExecuteAction` activity; fetch from `CredStore`; log action execution; store action result as step output. This requires:
+- Adding `credentials` field to `ActionDef` struct
+- Updating `executeAction` in `dag.go` to pass team context
+- Updating `ExecuteAction` activity signature to accept team ID + credential names
+
+#### H3: Output Schema Enforcement — Detail
+
+Current flow: agent runs → raw Claude Code JSON result stored as `output` → downstream steps access `{{ .Steps.X.Output.Y }}`.
+
+Problem: the agent output is Claude Code metadata (`result`, `session_id`, `usage`, `modelUsage`, etc.), not the declared schema (`comments`, `summary`, `approval`). The `output.schema` in the YAML is documentation only — nothing extracts or validates it.
+
+Fix: after agent execution, extract declared schema fields from the raw output. The agent's `result` text needs to be parsed (likely JSON within the text) or the prompt needs to instruct the agent to produce structured output. If declared fields are missing, fail the step rather than passing empty data downstream.
+
+#### H7: Error Handling Patterns Found
+
+Patterns discovered during debugging that should be audited codebase-wide:
+
+| Pattern | Example | Fix |
+|---------|---------|-----|
+| `return nil` after error | `actionGitHubPostReviewComment` returning nil when GITHUB_TOKEN missing | Return `fmt.Errorf(...)` |
+| `writeJSONError` without logging | `inbox.go` List handler | Add `slog.Error(...)` before every `writeJSONError` with 5xx status |
+| `Warn` for fatal conditions | "GITHUB_TOKEN not set, skipping PR comment" | If the step can't do its job, return error, don't warn |
+| Swallowed DB errors | Nullable columns → scan failure → generic "failed to list" | Use correct Go types (`*string`, `pq.StringArray`, `JSONMap`) |
+
 ### Track D: OSS Positioning
 
 Independent of Track C. Can run in parallel.
@@ -86,7 +169,7 @@ Independent of Track C. Can run in parallel.
 
 ## Tier 3: Platform Capability
 
-Major new features. Do after Tiers 1-2.
+Major new features. **Requires H1–H3 (workflow engine reliability) before adding new workflows or action types.** Without validation and contracts, each new template compounds debugging burden.
 
 ### Track E: MCP Agent Interface
 
@@ -115,9 +198,9 @@ See: [`archive/2026-03-14-mcp-agent-interface.md`](archive/2026-03-14-mcp-agent-
 |---|------|--------|
 | 1 | OpenAPI spec for frontend-backend contract | ⬜ |
 | 2 | Distributed tracing (OpenTelemetry) | ⬜ |
-| 3 | Integration test suite (real Temporal + PostgreSQL) | ⬜ |
+| 3 | Integration test suite (real Temporal + PostgreSQL) — see also H4 | ⬜ |
 | 4 | Schema migration system (golang-migrate or atlas) | ⬜ |
-| 5 | Unify logging to slog everywhere with correlation IDs | ⬜ |
+| 5 | Unify logging to slog everywhere with correlation IDs — see also H7 | ⬜ |
 | 6 | Semantic memory (embeddings, dedup, decay) | ⬜ |
 
 ---
@@ -127,14 +210,18 @@ See: [`archive/2026-03-14-mcp-agent-interface.md`](archive/2026-03-14-mcp-agent-
 ```
 Tier 1 (A, B) ─────────────────────────────────┐
                                                 ▼
-Tier 2: C1 (DAG) ──▶ C2 (Run detail) ──▶ D8 (Demo video)
-        C3-C8 (parallel with C1/C2)
-        D1-D7 (independent, parallel)
+Tier 2: C (Web) ✅                       H1-H3 (Engine Reliability)
+        D (OSS Positioning)                     │
+                                                ▼
+                                         H4-H5 (Testing + Contracts)
                                                 │
-Tier 3: E1 ──▶ E2 ──▶ E3                       │
-        F (independent, parallel)               │
+Tier 3: E1 ──▶ E2 ──▶ E3 ◀── requires H3       │
+        F (parallel, benefits from H5)          │
         G (after E+F)                           ▼
+                                         H6-H7 (Polish, ongoing)
 ```
+
+**Critical path:** H1–H3 must complete before Tier 3 feature work. Every new workflow template or action type added without validation and contracts will compound the debugging burden.
 
 ---
 
