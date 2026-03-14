@@ -9,9 +9,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 <p align="center">
-  <video src="docs/images/fleetlift.webm" controls width="800">
-    <a href="docs/images/fleetlift.webm">Watch demo</a>
-  </video>
+  <a href="docs/images/fleetlift.webm">
+    <img src="docs/images/header.jpg" alt="Watch FleetLift Demo" width="800">
+    <br><em>▶ Click to watch demo</em>
+  </a>
 </p>
 
 ---
@@ -168,35 +169,20 @@ For a detailed walkthrough, see the [Getting Started guide](docs/GETTING_STARTED
 
 ## Architecture
 
-```
-  ┌──────────┐   REST/SSE   ┌──────────────────────────────────────────┐
-  │   CLI    │◄────────────►│               API Server                  │
-  └──────────┘              │  chi router · JWT middleware · handlers   │
-                            │  /api/workflows /api/runs /api/inbox ...  │
-  ┌──────────┐   REST/SSE   │  /auth/github  /auth/github/callback     │
-  │  Web UI  │◄────────────►│  /* (embedded React SPA)                  │
-  │ (React)  │              └──────────────┬───────────────────────────┘
-  └──────────┘                             │ Temporal SDK (start/signal)
-                                           ▼
-                            ┌──────────────────────────┐
-                            │       Temporal Server     │
-                            │   (workflow state store)  │
-                            └──────────────┬────────────┘
-                                           │ task queue: fleetlift
-                                           ▼
-                            ┌──────────────────────────┐
-                            │          Worker           │
-                            │  DAGWorkflow · StepWorkflow│
-                            │  Activities (agent, PR,   │
-                            │   sandbox, slack, verify) │
-                            └──────────────┬────────────┘
-                                           │ REST
-                                           ▼
-                    ┌──────────────────────────────────────┐
-                    │            OpenSandbox               │
-                    │  Ephemeral containers per step       │
-                    │  Claude Code agent runs inside       │
-                    └──────────────────────────────────────┘
+```mermaid
+flowchart TD
+    CLI["**CLI**"]
+    WebUI["**Web UI**\nReact 19 SPA"]
+    API["**API Server**\nchi router · JWT middleware\n/api/workflows · /api/runs · /api/inbox\n/auth/github · /auth/github/callback"]
+    Temporal["**Temporal Server**\nworkflow state store"]
+    Worker["**Worker**\nDAGWorkflow · StepWorkflow\nActivities: agent, PR, sandbox, slack, verify"]
+    Sandbox["**OpenSandbox**\nephemeral containers per step\nClaude Code agent runs inside"]
+
+    CLI <-->|REST/SSE| API
+    WebUI <-->|REST/SSE| API
+    API -->|"Temporal SDK\nstart/signal"| Temporal
+    Temporal -->|"task queue: fleetlift"| Worker
+    Worker -->|REST| Sandbox
 ```
 
 For the full architecture deep-dive, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
