@@ -163,6 +163,12 @@ export function RunDetailPage() {
         </div>
       )}
 
+      {run.status === 'failed' && run.error_message && (
+        <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400">
+          <span className="font-semibold">Run failed: </span>{run.error_message}
+        </div>
+      )}
+
       {/* DAG */}
       {steps.length > 0 && (
         <div className="rounded-lg border bg-card p-4">

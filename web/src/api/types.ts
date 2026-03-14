@@ -55,6 +55,7 @@ export interface Run {
   status: RunStatus
   temporal_id?: string
   triggered_by?: string
+  error_message?: string
   started_at?: string
   completed_at?: string
   created_at: string

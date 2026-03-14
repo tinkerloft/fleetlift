@@ -403,6 +403,12 @@ func (h *RunsHandler) StepLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Send an SSE comment immediately so the HTTP response headers are flushed
+	// to the client. Without this, Go buffers the headers until the first real
+	// write, leaving EventSource in a pending state with no onopen event.
+	fmt.Fprintf(w, ": connected\n\n")
+	flusher.Flush()
+
 	var cursor int64
 
 	if h.Notify == nil {

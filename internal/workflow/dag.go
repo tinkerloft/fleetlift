@@ -16,6 +16,12 @@ import (
 	fltemplate "github.com/tinkerloft/fleetlift/internal/template"
 )
 
+// dbRetry caps retries for short-lived DB/infra activities. Without a bound,
+// a permanent error (schema mismatch, wrong type, etc.) retries forever and
+// the workflow never terminates. Five attempts with exponential backoff covers
+// transient failures while failing fast on permanent ones.
+var dbRetry = &temporal.RetryPolicy{MaximumAttempts: 5}
+
 // DAGInput is the top-level input for the DAGWorkflow.
 type DAGInput struct {
 	RunID              string            `json:"run_id"`
@@ -32,7 +38,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 
 	// Mark run as running — do this in the workflow, not the HTTP handler.
 	{
-		ao := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
+		ao := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second, RetryPolicy: dbRetry}
 		if err := workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, ao),
 			UpdateRunStatusActivity, input.RunID, string(model.RunStatusRunning), "",
@@ -54,7 +60,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 				finalError = retErr.Error()
 			}
 		}
-		ao := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
+		ao := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second, RetryPolicy: dbRetry}
 		_ = workflow.ExecuteActivity(
 			workflow.WithActivityOptions(dCtx, ao),
 			UpdateRunStatusActivity, input.RunID, finalStatus, finalError,
@@ -177,7 +183,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 				// Action step — no sandbox needed
 				if step.Action != nil {
 					// Create step_run record so the step is visible in the UI.
-					createAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
+					createAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second, RetryPolicy: dbRetry}
 					var stepRunID string
 					if err = workflow.ExecuteActivity(
 						workflow.WithActivityOptions(gCtx, createAO),
@@ -226,7 +232,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 				if len(repos) <= 1 {
 					// Single execution (no fan-out) — create a step_run record first.
 					childWFID := fmt.Sprintf("%s-%s", input.RunID, step.ID)
-					createAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
+					createAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second, RetryPolicy: dbRetry}
 					var stepRunID string
 					if err = workflow.ExecuteActivity(
 						workflow.WithActivityOptions(gCtx, createAO),
@@ -286,7 +292,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 						// Create a step_run record for each fan-out child.
 						fanStepID := fmt.Sprintf("%s-%d", step.ID, j)
 						fanChildWFID := fmt.Sprintf("%s-%s-%d", input.RunID, step.ID, j)
-						createAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
+						createAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second, RetryPolicy: dbRetry}
 						var stepRunID string
 						if err := workflow.ExecuteActivity(
 							workflow.WithActivityOptions(rCtx, createAO),
