@@ -41,14 +41,18 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 			return nil, fmt.Errorf("clone %s: %w", repo.URL, err)
 		}
 
-		// Fetch and checkout a specific ref (e.g. "pull/19/head" for PRs).
+		// Fetch and checkout a specific ref (e.g. "refs/pull/19/head" for PRs).
 		if repo.Ref != "" {
 			fetchCmd := fmt.Sprintf("git fetch origin %s", shellquote.Quote(repo.Ref))
-			if _, _, err := sb.Exec(ctx, input.SandboxID, fetchCmd, repoDir); err != nil {
+			if _, stderr, err := sb.Exec(ctx, input.SandboxID, fetchCmd, repoDir); err != nil {
 				return nil, fmt.Errorf("fetch ref %s: %w", repo.Ref, err)
+			} else if gitFailed(stderr) {
+				return nil, fmt.Errorf("fetch ref %s: %s", repo.Ref, strings.TrimSpace(stderr))
 			}
-			if _, _, err := sb.Exec(ctx, input.SandboxID, "git checkout FETCH_HEAD", repoDir); err != nil {
+			if _, stderr, err := sb.Exec(ctx, input.SandboxID, "git checkout FETCH_HEAD", repoDir); err != nil {
 				return nil, fmt.Errorf("checkout ref %s: %w", repo.Ref, err)
+			} else if gitFailed(stderr) {
+				return nil, fmt.Errorf("checkout FETCH_HEAD for ref %s: %s", repo.Ref, strings.TrimSpace(stderr))
 			}
 		}
 	}

@@ -22,7 +22,7 @@ steps:
     mode: report
     repositories:
       - url: "{{ .Params.repo_url }}"
-        ref: "pull/{{ .Params.pr_number }}/head"
+        ref: "refs/pull/{{ .Params.pr_number }}/head"
     execution:
       agent: claude-code
       prompt: |
