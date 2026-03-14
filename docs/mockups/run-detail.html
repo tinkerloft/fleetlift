@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FleetLift — Run Detail (Mockup)</title>
+<style>
+  /* ── Reset & Tokens ─────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: hsl(0 0% 99%);
+    --fg: hsl(220 15% 13%);
+    --card: hsl(0 0% 100%);
+    --card-fg: hsl(220 15% 13%);
+    --muted: hsl(220 14% 96%);
+    --muted-fg: hsl(220 9% 46%);
+    --border: hsl(220 13% 91%);
+    --sidebar-bg: hsl(220 14% 97%);
+    --sidebar-accent: hsl(220 14% 93%);
+    --blue: hsl(221 83% 53%);
+    --green: hsl(142 71% 45%);
+    --red: hsl(0 72% 51%);
+    --amber: hsl(38 92% 50%);
+    --violet: hsl(262 83% 58%);
+    --radius: 0.5rem;
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+    font-size: 14px;
+    color: var(--fg);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Layout ─────────────────────────────────────────── */
+  .shell { display: flex; min-height: 100vh; }
+
+  /* Sidebar */
+  .sidebar {
+    width: 14rem; flex-shrink: 0; border-right: 1px solid var(--border);
+    background: var(--sidebar-bg); display: flex; flex-direction: column;
+    position: sticky; top: 0; height: 100vh;
+  }
+  .sidebar-logo {
+    height: 3.5rem; display: flex; align-items: center; gap: .5rem;
+    padding: 0 1rem; border-bottom: 1px solid var(--border);
+  }
+  .sidebar-logo .mark {
+    width: 1.75rem; height: 1.75rem; border-radius: 6px;
+    background: var(--fg); color: var(--bg); display: flex;
+    align-items: center; justify-content: center; font-weight: 700; font-size: 11px;
+  }
+  .sidebar-logo span { font-size: 14px; font-weight: 600; letter-spacing: -.02em; }
+
+  .sidebar nav { flex: 1; padding: .75rem; display: flex; flex-direction: column; gap: 2px; }
+  .nav-link {
+    display: flex; align-items: center; gap: .75rem; padding: .5rem .75rem;
+    border-radius: var(--radius); font-size: 13px; color: var(--muted-fg);
+    text-decoration: none; transition: background .15s;
+  }
+  .nav-link:hover { background: var(--sidebar-accent); color: var(--fg); }
+  .nav-link.active { background: var(--sidebar-accent); color: var(--fg); font-weight: 500; }
+  .nav-link svg { width: 16px; height: 16px; flex-shrink: 0; }
+  .nav-link .badge-count {
+    margin-left: auto; background: var(--blue); color: #fff;
+    font-size: 10px; font-weight: 500; padding: 1px 6px;
+    border-radius: 999px; min-width: 20px; text-align: center;
+  }
+
+  /* Profile footer */
+  .sidebar-footer {
+    border-top: 1px solid var(--border); padding: .75rem;
+  }
+  .profile-btn {
+    display: flex; align-items: center; gap: .625rem; padding: .5rem .75rem;
+    border-radius: var(--radius); width: 100%; cursor: pointer;
+    background: none; border: none; font: inherit; color: var(--fg);
+    transition: background .15s; text-align: left;
+  }
+  .profile-btn:hover { background: var(--sidebar-accent); }
+  .avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--blue); color: #fff; display: flex;
+    align-items: center; justify-content: center; font-weight: 600; font-size: 11px;
+  }
+  .profile-btn .name { font-size: 13px; font-weight: 500; }
+  .profile-btn .team { font-size: 11px; color: var(--muted-fg); }
+
+  /* Main */
+  .main { flex: 1; min-width: 0; padding: 1.5rem 2rem; }
+
+  /* ── Header ─────────────────────────────────────────── */
+  .run-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 1.5rem; }
+  .run-header h1 { font-size: 1.5rem; font-weight: 700; line-height: 1.2; }
+  .run-header .run-id { font-size: 12px; color: var(--muted-fg); font-family: 'SF Mono', 'Cascadia Code', monospace; margin-top: 2px; }
+  .run-header .right { display: flex; align-items: center; gap: .5rem; }
+
+  .status-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 500;
+  }
+  .status-running { background: hsl(221 83% 53% / .12); color: hsl(221 83% 48%); }
+  .status-complete { background: hsl(142 71% 45% / .12); color: hsl(142 60% 38%); }
+  .status-failed   { background: hsl(0 72% 51% / .12); color: hsl(0 60% 42%); }
+  .status-awaiting  { background: hsl(38 92% 50% / .12); color: hsl(38 80% 38%); }
+  .status-pending   { background: var(--muted); color: var(--muted-fg); }
+
+  .pulse-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--blue);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: .5; transform: scale(.8); }
+  }
+
+  .duration { font-size: 13px; color: var(--muted-fg); font-variant-numeric: tabular-nums; }
+  .btn { padding: 6px 14px; border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: var(--card); transition: background .15s; }
+  .btn:hover { background: var(--muted); }
+  .btn-destructive { background: hsl(0 72% 51%); color: #fff; border-color: transparent; }
+  .btn-destructive:hover { background: hsl(0 72% 44%); }
+
+  /* ── Progress Bar ───────────────────────────────────── */
+  .progress-strip {
+    display: flex; align-items: center; gap: .75rem; margin-bottom: 1.5rem;
+  }
+  .progress-text { font-size: 13px; color: var(--muted-fg); white-space: nowrap; }
+  .progress-bar {
+    flex: 1; display: flex; height: 6px; border-radius: 3px;
+    overflow: hidden; background: var(--muted); gap: 2px;
+  }
+  .progress-seg { flex: 1; border-radius: 2px; transition: background .3s; }
+  .seg-complete { background: var(--green); }
+  .seg-running  { background: var(--blue); animation: pulse 2s infinite; }
+  .seg-awaiting { background: var(--amber); }
+  .seg-failed   { background: var(--red); }
+  .seg-pending  { background: transparent; }
+
+  /* ── DAG ────────────────────────────────────────────── */
+  .dag-container {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 1.5rem; margin-bottom: 1.5rem; background: var(--card);
+    position: relative; overflow-x: auto;
+  }
+  .dag-canvas {
+    position: relative; width: 100%; min-height: 380px;
+  }
+
+  /* Edges (SVG) */
+  .dag-edges { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+  .dag-edges path {
+    fill: none; stroke: var(--border); stroke-width: 2;
+  }
+  .dag-edges path.edge-active {
+    stroke: var(--blue); stroke-dasharray: 8 4;
+    animation: dash 1s linear infinite;
+  }
+  .dag-edges path.edge-complete { stroke: var(--green); stroke-width: 2; opacity: .5; }
+  @keyframes dash { to { stroke-dashoffset: -12; } }
+
+  /* Nodes */
+  .dag-node {
+    position: absolute; width: 200px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 10px 12px;
+    cursor: pointer; transition: box-shadow .15s, border-color .15s;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .dag-node:hover { box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+  .dag-node.selected { border-color: var(--blue); box-shadow: 0 0 0 2px hsl(221 83% 53% / .2); }
+  .dag-node .accent {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    border-radius: var(--radius) 0 0 var(--radius);
+  }
+  .dag-node .node-top {
+    display: flex; align-items: center; gap: 6px; padding-left: 6px;
+  }
+  .node-dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+  .node-dot.running { animation: pulse 2s ease-in-out infinite; }
+  .dag-node .node-title { font-size: 13px; font-weight: 500; }
+  .dag-node .node-meta {
+    font-size: 11px; color: var(--muted-fg); padding-left: 20px;
+    display: flex; gap: 8px; align-items: center;
+  }
+  .mode-chip {
+    background: var(--muted); padding: 1px 6px; border-radius: 3px;
+    font-size: 10px; font-weight: 500;
+  }
+
+  /* ── Step Timeline ──────────────────────────────────── */
+  .section-title { font-size: 14px; font-weight: 600; margin-bottom: .75rem; }
+
+  .timeline { position: relative; padding-left: 1.75rem; margin-bottom: 1.5rem; }
+  .timeline::before {
+    content: ''; position: absolute; left: 7px; top: 4px; bottom: 4px;
+    width: 2px; background: var(--border); border-radius: 1px;
+  }
+  .tl-item {
+    position: relative; padding: .625rem 0 .625rem 1rem; cursor: pointer;
+    transition: background .15s; border-radius: var(--radius);
+  }
+  .tl-item:hover { background: var(--muted); }
+  .tl-item.selected { background: hsl(221 83% 53% / .06); }
+  .tl-dot {
+    position: absolute; left: -1.25rem; top: .875rem;
+    width: 10px; height: 10px; border-radius: 50%;
+    border: 2px solid var(--card); z-index: 1;
+  }
+  .tl-dot.running { animation: pulse 2s ease-in-out infinite; }
+  .tl-top { display: flex; align-items: center; justify-content: space-between; }
+  .tl-title { font-size: 13px; font-weight: 500; }
+  .tl-dur { font-size: 12px; color: var(--muted-fg); font-variant-numeric: tabular-nums; }
+  .tl-sub { font-size: 11px; color: var(--muted-fg); margin-top: 2px; }
+
+  /* ── Step Detail Panel ──────────────────────────────── */
+  .step-panel {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--card); overflow: hidden;
+  }
+  .step-panel-header {
+    padding: .75rem 1rem; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .step-panel-header h3 { font-size: 14px; font-weight: 600; }
+  .step-panel-body { padding: 1rem; }
+
+  .tabs-bar {
+    display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 1rem;
+  }
+  .tab {
+    padding: .5rem 1rem; font-size: 13px; color: var(--muted-fg);
+    border-bottom: 2px solid transparent; cursor: pointer; transition: color .15s;
+  }
+  .tab:hover { color: var(--fg); }
+  .tab.active { color: var(--fg); font-weight: 500; border-bottom-color: var(--fg); }
+
+  /* Diff */
+  .diff-view {
+    background: hsl(220 14% 98%); border-radius: var(--radius);
+    font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 12px;
+    overflow: auto; max-height: 320px; line-height: 1.6;
+  }
+  .diff-line { padding: 0 1rem; white-space: pre; }
+  .diff-add { background: hsl(142 60% 92%); color: hsl(142 50% 28%); }
+  .diff-del { background: hsl(0 60% 94%); color: hsl(0 50% 36%); }
+  .diff-hdr { color: hsl(221 70% 50%); font-weight: 500; }
+
+  /* Log Terminal */
+  .log-terminal {
+    background: hsl(220 20% 8%); border-radius: var(--radius);
+    padding: .75rem 1rem; max-height: 220px; overflow-y: auto;
+    font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 12px;
+    line-height: 1.5;
+  }
+  .log-terminal .log-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: .5rem; padding-bottom: .5rem; border-bottom: 1px solid hsl(220 14% 16%);
+  }
+  .log-terminal .log-header span { color: hsl(210 20% 60%); font-size: 11px; }
+  .log-line { color: hsl(142 60% 60%); }
+  .log-line.err { color: hsl(0 60% 60%); }
+  .log-line.dim { color: hsl(220 10% 45%); }
+
+  /* ── HITL Panel ─────────────────────────────────────── */
+  .hitl-panel {
+    border: 1px solid hsl(38 80% 60%); border-radius: var(--radius);
+    background: hsl(38 80% 97%); padding: 1rem; margin-bottom: 1.5rem;
+  }
+  .hitl-panel .hitl-header {
+    display: flex; align-items: center; gap: .5rem; margin-bottom: .75rem;
+  }
+  .hitl-panel .hitl-header .pulse-dot { background: var(--amber); }
+  .hitl-panel .hitl-header span { font-size: 14px; font-weight: 600; color: hsl(38 70% 30%); }
+  .hitl-panel .hitl-summary { font-size: 13px; color: hsl(38 50% 35%); margin-bottom: .75rem; }
+  .hitl-actions { display: flex; gap: .5rem; }
+  .btn-approve { background: var(--green); color: #fff; border-color: transparent; }
+  .btn-approve:hover { background: hsl(142 60% 38%); }
+  .btn-reject { background: var(--red); color: #fff; border-color: transparent; }
+  .btn-reject:hover { background: hsl(0 60% 42%); }
+  .steer-input {
+    flex: 1; padding: 6px 10px; border: 1px solid hsl(38 60% 75%);
+    border-radius: var(--radius); font-size: 13px; background: #fff;
+    outline: none;
+  }
+  .steer-input:focus { border-color: var(--amber); box-shadow: 0 0 0 2px hsl(38 80% 50% / .15); }
+
+  /* ── Utility ────────────────────────────────────────── */
+  .two-col { display: grid; grid-template-columns: 1fr 320px; gap: 1.5rem; align-items: start; }
+  @media (max-width: 960px) { .two-col { grid-template-columns: 1fr; } }
+  .temporal-link { font-size: 12px; color: var(--muted-fg); text-decoration: underline; }
+  .temporal-link:hover { color: var(--fg); }
+
+  .mockup-banner {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: hsl(262 83% 58%); color: #fff; text-align: center;
+    font-size: 12px; font-weight: 500; padding: 4px; letter-spacing: .02em;
+  }
+  body { padding-top: 28px; }
+</style>
+</head>
+<body>
+
+<div class="mockup-banner">MOCKUP — Track C: Run Detail (C1 + C2)</div>
+
+<div class="shell">
+  <!-- ── Sidebar ──────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="mark">FL</div>
+      <span>Fleetlift</span>
+    </div>
+    <nav>
+      <a class="nav-link active" href="#">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Runs
+      </a>
+      <a class="nav-link" href="workflow-list.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Workflows
+      </a>
+      <a class="nav-link" href="inbox.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+        Inbox
+        <span class="badge-count">3</span>
+      </a>
+      <a class="nav-link" href="#">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Reports
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="profile-btn">
+        <div class="avatar">AK</div>
+        <div>
+          <div class="name">Andrew K</div>
+          <div class="team">acme-corp</div>
+        </div>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ── Main Content ─────────────────────────────── -->
+  <div class="main">
+
+    <!-- Header -->
+    <div class="run-header">
+      <div>
+        <h1>Fleet Security Audit</h1>
+        <div class="run-id">run_8f3a2c1e-7d4b-4e9a-b6c8-3f2d1a0e9b7c</div>
+      </div>
+      <div class="right">
+        <a href="#" class="temporal-link">Temporal ↗</a>
+        <span class="duration">4m 38s</span>
+        <span class="status-badge status-running">
+          <span class="pulse-dot"></span>
+          running
+        </span>
+        <button class="btn btn-destructive">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Progress -->
+    <div class="progress-strip">
+      <span class="progress-text">4 of 7 steps</span>
+      <div class="progress-bar">
+        <div class="progress-seg seg-complete"></div>
+        <div class="progress-seg seg-complete"></div>
+        <div class="progress-seg seg-complete"></div>
+        <div class="progress-seg seg-complete"></div>
+        <div class="progress-seg seg-running"></div>
+        <div class="progress-seg seg-awaiting"></div>
+        <div class="progress-seg seg-pending"></div>
+      </div>
+    </div>
+
+    <!-- DAG Graph -->
+    <div class="dag-container">
+      <div class="dag-canvas" style="min-height: 340px;">
+
+        <!-- SVG Edges -->
+        <svg class="dag-edges" viewBox="0 0 900 340" preserveAspectRatio="xMidYMid meet">
+          <!-- Clone → Analyze -->
+          <path class="edge-complete" d="M 130,68 C 130,100 200,100 200,128" />
+          <!-- Clone → Scan deps -->
+          <path class="edge-complete" d="M 130,68 C 130,100 420,100 420,128" />
+          <!-- Clone → Lint -->
+          <path class="edge-complete" d="M 130,68 C 130,100 640,100 640,128" />
+          <!-- Analyze → Aggregate -->
+          <path class="edge-complete" d="M 200,192 C 200,218 420,218 420,248" />
+          <!-- Scan deps → Aggregate -->
+          <path class="edge-active" d="M 420,192 C 420,218 420,218 420,248" />
+          <!-- Lint → Aggregate -->
+          <path d="M 640,192 C 640,218 420,218 420,248" />
+          <!-- Aggregate → Review -->
+          <path d="M 420,312 C 420,330 420,330 420,340" />
+        </svg>
+
+        <!-- Row 0: Clone Repos -->
+        <div class="dag-node" style="left: 30px; top: 8px;">
+          <div class="accent" style="background: var(--green);"></div>
+          <div class="node-top">
+            <div class="node-dot" style="background: var(--green);"></div>
+            <span class="node-title">Clone Repos</span>
+          </div>
+          <div class="node-meta">
+            <span class="mode-chip">shell</span>
+            <span>42s</span>
+          </div>
+        </div>
+
+        <!-- Row 1: Analyze Code / Scan Dependencies / Lint Config (fan-out) -->
+        <div class="dag-node" style="left: 30px; top: 128px;">
+          <div class="accent" style="background: var(--green);"></div>
+          <div class="node-top">
+            <div class="node-dot" style="background: var(--green);"></div>
+            <span class="node-title">Analyze Code</span>
+          </div>
+          <div class="node-meta">
+            <span class="mode-chip">report</span>
+            <span>1m 52s</span>
+          </div>
+        </div>
+
+        <div class="dag-node selected" style="left: 260px; top: 128px;">
+          <div class="accent" style="background: var(--blue);"></div>
+          <div class="node-top">
+            <div class="node-dot running" style="background: var(--blue);"></div>
+            <span class="node-title">Scan Dependencies</span>
+          </div>
+          <div class="node-meta">
+            <span class="mode-chip">report</span>
+            <span>2m 04s</span>
+          </div>
+        </div>
+
+        <div class="dag-node" style="left: 500px; top: 128px;">
+          <div class="accent" style="background: var(--amber);"></div>
+          <div class="node-top">
+            <div class="node-dot" style="background: var(--amber);"></div>
+            <span class="node-title">Lint Config</span>
+          </div>
+          <div class="node-meta">
+            <span class="mode-chip">shell</span>
+            <span>awaiting input</span>
+          </div>
+        </div>
+
+        <!-- Row 2: Aggregate Results -->
+        <div class="dag-node" style="left: 260px; top: 248px;">
+          <div class="accent" style="background: var(--muted);"></div>
+          <div class="node-top">
+            <div class="node-dot" style="background: hsl(220 9% 75%);"></div>
+            <span class="node-title">Aggregate Results</span>
+          </div>
+          <div class="node-meta">
+            <span class="mode-chip">report</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HITL Panel -->
+    <div class="hitl-panel">
+      <div class="hitl-header">
+        <span class="pulse-dot" style="background: var(--amber);"></span>
+        <span>Lint Config — Awaiting Approval</span>
+      </div>
+      <div class="hitl-summary">
+        The agent found 3 new ESLint rules that would affect 47 files.
+        Review the proposed .eslintrc changes before proceeding.
+      </div>
+      <div class="hitl-actions">
+        <button class="btn btn-approve">Approve</button>
+        <button class="btn btn-reject">Reject</button>
+        <input class="steer-input" placeholder="Steer: provide new instructions..." />
+        <button class="btn">Send</button>
+      </div>
+    </div>
+
+    <!-- Two-Column: Timeline + Step Panel -->
+    <div class="two-col">
+
+      <!-- Step Timeline -->
+      <div>
+        <div class="section-title">Steps</div>
+        <div class="timeline">
+          <div class="tl-item">
+            <div class="tl-dot" style="background: var(--green);"></div>
+            <div class="tl-top">
+              <span class="tl-title">Clone Repos</span>
+              <span class="tl-dur">42s</span>
+            </div>
+            <div class="tl-sub">shell &middot; completed</div>
+          </div>
+          <div class="tl-item">
+            <div class="tl-dot" style="background: var(--green);"></div>
+            <div class="tl-top">
+              <span class="tl-title">Analyze Code</span>
+              <span class="tl-dur">1m 52s</span>
+            </div>
+            <div class="tl-sub">report &middot; completed</div>
+          </div>
+          <div class="tl-item selected">
+            <div class="tl-dot running" style="background: var(--blue);"></div>
+            <div class="tl-top">
+              <span class="tl-title">Scan Dependencies</span>
+              <span class="tl-dur" style="color: var(--blue);">2m 04s</span>
+            </div>
+            <div class="tl-sub">report &middot; running</div>
+          </div>
+          <div class="tl-item">
+            <div class="tl-dot" style="background: var(--amber);"></div>
+            <div class="tl-top">
+              <span class="tl-title">Lint Config</span>
+              <span class="tl-dur">—</span>
+            </div>
+            <div class="tl-sub">shell &middot; awaiting input</div>
+          </div>
+          <div class="tl-item">
+            <div class="tl-dot" style="background: hsl(220 9% 82%);"></div>
+            <div class="tl-top">
+              <span class="tl-title">Aggregate Results</span>
+              <span class="tl-dur">—</span>
+            </div>
+            <div class="tl-sub">report &middot; pending</div>
+          </div>
+          <div class="tl-item">
+            <div class="tl-dot" style="background: hsl(220 9% 82%);"></div>
+            <div class="tl-top">
+              <span class="tl-title">Generate Report</span>
+              <span class="tl-dur">—</span>
+            </div>
+            <div class="tl-sub">report &middot; pending</div>
+          </div>
+          <div class="tl-item">
+            <div class="tl-dot" style="background: hsl(220 9% 82%);"></div>
+            <div class="tl-top">
+              <span class="tl-title">Create PR</span>
+              <span class="tl-dur">—</span>
+            </div>
+            <div class="tl-sub">transform &middot; pending</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step Detail Panel -->
+      <div class="step-panel">
+        <div class="step-panel-header">
+          <h3>Scan Dependencies</h3>
+          <span class="status-badge status-running" style="font-size: 11px; padding: 2px 8px;">
+            <span class="pulse-dot" style="width: 6px; height: 6px;"></span>
+            running
+          </span>
+        </div>
+        <div class="step-panel-body">
+
+          <!-- Tabs -->
+          <div class="tabs-bar">
+            <div class="tab">Diff</div>
+            <div class="tab active">Logs</div>
+            <div class="tab">Output</div>
+            <div class="tab">Inputs</div>
+          </div>
+
+          <!-- Log Terminal -->
+          <div class="log-terminal">
+            <div class="log-header">
+              <span>Scan Dependencies &middot; Live</span>
+              <span style="display: flex; align-items: center; gap: 4px;">
+                <span class="pulse-dot" style="width: 5px; height: 5px; background: var(--green);"></span>
+                streaming
+              </span>
+            </div>
+            <div class="log-line dim">[14:22:01] Starting dependency scan...</div>
+            <div class="log-line">[14:22:03] Scanning package.json...</div>
+            <div class="log-line">[14:22:04] Found 142 dependencies</div>
+            <div class="log-line">[14:22:05] Checking for known vulnerabilities...</div>
+            <div class="log-line">[14:22:08] lodash@4.17.19 — CVE-2021-23337 (HIGH)</div>
+            <div class="log-line err">[14:22:08] ⚠ 3 high-severity vulnerabilities found</div>
+            <div class="log-line">[14:22:10] Scanning go.mod...</div>
+            <div class="log-line">[14:22:12] Found 68 Go dependencies</div>
+            <div class="log-line">[14:22:14] Checking govulncheck database...</div>
+            <div class="log-line dim">[14:22:16] Generating dependency report...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>
