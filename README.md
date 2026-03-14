@@ -4,7 +4,7 @@
   <img src="docs/images/header.jpg" alt="FleetLift" width="800">
 </p>
 
-**Open-source platform for orchestrating AI coding agent workflows - using DAG pipelines, human approval gates, and a knowledge loop that gets smarter over time.**
+**Open-source orchestration platform for AI agent workflows - using DAG pipelines, human approval gates, and a knowledge loop that gets smarter over time.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -34,20 +34,6 @@ FleetLift gives you:
 - **Security teams** running fleet-wide audits and automated remediation
 - **DevOps** coordinating large migrations (framework swaps, API changes, dependency upgrades)
 - **Anyone** who's tired of manually running the same AI-assisted changes across multiple repos
-
-## How it compares
-
-| Capability | FleetLift | Cursor Automations | GitHub Actions | Raw Temporal |
-|---|---|---|---|---|
-| DAG workflows | Multi-step with dependencies, conditions | Single agent per automation | YAML workflows (CI-focused) | Build from scratch |
-| Multi-repo fan-out | Native, with parallelism + failure thresholds | One repo per run | Matrix strategy (CI-focused) | Build from scratch |
-| Human-in-the-loop | Approve / reject / steer mid-execution | Send follow-ups to agents | Manual approval gates (no steering) | Build from scratch |
-| Knowledge loop | Capture → curate → inject into future runs | Agent memory tool | None | Build from scratch |
-| Event triggers | API-driven (external scheduler/webhook) | Native: cron, Slack, Linear, PagerDuty | Native: push, PR, schedule, webhook | Build from scratch |
-| Setup | Docker Compose (local) or Kubernetes (prod) | Zero (SaaS) | Zero (GitHub-hosted) | Self-hosted cluster |
-| Open source | Yes (MIT) | No | Runners are OSS, platform is not | Yes (MIT) |
-
-FleetLift is strongest when you need **complex, multi-step workflows across many repos with human oversight**. See [docs/COMPARISON.md](docs/COMPARISON.md) for a detailed breakdown.
 
 ---
 
@@ -124,6 +110,22 @@ Real-time DAG visualization, live log streaming, HITL controls, inbox notificati
 
 ### Knowledge Loop
 Agents capture insights during execution. You curate them via the Inbox. Approved knowledge is injected into future runs matching relevant tags - so your agents improve over time.
+
+---
+
+## How it compares
+
+| Capability | FleetLift | Cursor Automations | GitHub Actions | Raw Temporal |
+|---|---|---|---|---|
+| DAG workflows | Multi-step with dependencies, conditions | Single agent per automation | YAML workflows (CI-focused) | Build from scratch |
+| Multi-repo fan-out | Native, with parallelism + failure thresholds | One repo per run | Matrix strategy (CI-focused) | Build from scratch |
+| Human-in-the-loop | Approve / reject / steer mid-execution | Send follow-ups to agents | Manual approval gates (no steering) | Build from scratch |
+| Knowledge loop | Capture → curate → inject into future runs | Agent memory tool | None | Build from scratch |
+| Event triggers | API-driven (external scheduler/webhook) | Native: cron, Slack, Linear, PagerDuty | Native: push, PR, schedule, webhook | Build from scratch |
+| Setup | Docker Compose (local) or Kubernetes (prod) | Zero (SaaS) | Zero (GitHub-hosted) | Self-hosted cluster |
+| Open source | Yes (MIT) | No | Runners are OSS, platform is not | Yes (MIT) |
+
+FleetLift is strongest when you need **complex, multi-step workflows across many repos with human oversight**. See [docs/COMPARISON.md](docs/COMPARISON.md) for a detailed breakdown.
 
 ---
 
