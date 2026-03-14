@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render } from '@testing-library/react'
 import { DiffViewer } from '../DiffViewer'
 
 const SAMPLE_DIFF = `diff --git a/foo.ts b/foo.ts
