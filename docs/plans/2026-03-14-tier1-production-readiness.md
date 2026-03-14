@@ -1,6 +1,6 @@
 # Tier 1: Production Readiness
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development with an agent team or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development with an agent team or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Fix broken contracts, remove dead code, add missing tests, and close operational gaps before moving to UI polish.
 
@@ -19,7 +19,7 @@
 - Modify: `internal/server/router.go:44` (NewRouter signature)
 - Test: `internal/server/router_test.go`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 Add to `internal/server/router_test.go`:
 
@@ -45,7 +45,7 @@ func TestNewRouter_ReturnsErrorOnBadFS(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 go test ./internal/server/ -run TestNewRouter_ReturnsErrorOnBadFS -v
@@ -53,7 +53,7 @@ go test ./internal/server/ -run TestNewRouter_ReturnsErrorOnBadFS -v
 
 Expected: FAIL — `NewRouter` returns `http.Handler`, not `(http.Handler, error)`.
 
-- [ ] **Step 3: Change NewRouter to return (http.Handler, error)**
+- [x] **Step 3: Change NewRouter to return (http.Handler, error)**
 
 In `internal/server/router.go`, change:
 
@@ -84,7 +84,7 @@ func spaHandler() (http.Handler, error) {
 	// ... rest unchanged, return handler, nil at end
 ```
 
-- [ ] **Step 4: Update all callers of NewRouter**
+- [x] **Step 4: Update all callers of NewRouter**
 
 In `cmd/server/main.go`, update to:
 
@@ -103,7 +103,7 @@ Update all existing tests in `router_test.go` to:
 1. Use `router, err := NewRouter(deps)` and `require.NoError(t, err)`.
 2. Add `Knowledge: handlers.NewKnowledgeHandler(nil)` to every `Deps{}` literal that's missing it.
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```bash
 go test ./internal/server/ -v && go build ./cmd/server/
@@ -111,7 +111,7 @@ go test ./internal/server/ -v && go build ./cmd/server/
 
 Expected: all pass, builds clean.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/server/router.go internal/server/router_test.go cmd/server/main.go
@@ -126,7 +126,7 @@ git commit -m "fix: replace panic in spaHandler with returned error"
 - Modify: `internal/server/router.go`
 - Test: `internal/server/router_test.go`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 Add to `router_test.go`:
 
@@ -156,7 +156,7 @@ func TestNewRouter_HealthEndpoint(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 go test ./internal/server/ -run TestNewRouter_HealthEndpoint -v
@@ -164,7 +164,7 @@ go test ./internal/server/ -run TestNewRouter_HealthEndpoint -v
 
 Expected: FAIL — returns SPA HTML fallback, not JSON.
 
-- [ ] **Step 3: Add health endpoint**
+- [x] **Step 3: Add health endpoint**
 
 In `router.go`, add before the authenticated group:
 
@@ -177,7 +177,7 @@ In `router.go`, add before the authenticated group:
 	})
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 ```bash
 go test ./internal/server/ -run TestNewRouter_HealthEndpoint -v
@@ -185,7 +185,7 @@ go test ./internal/server/ -run TestNewRouter_HealthEndpoint -v
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/server/router.go internal/server/router_test.go
@@ -207,7 +207,7 @@ git commit -m "feat: add GET /health endpoint for load balancer probes"
 - Modify: `internal/server/handlers/knowledge.go`
 - Test: `internal/server/handlers/helpers_test.go` (new)
 
-- [ ] **Step 1: Write test for writeJSONError**
+- [x] **Step 1: Write test for writeJSONError**
 
 Create `internal/server/handlers/helpers_test.go`:
 
@@ -240,7 +240,7 @@ func TestWriteJSONError_InternalServer(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 go test ./internal/server/handlers/ -run TestWriteJSONError -v
@@ -248,7 +248,7 @@ go test ./internal/server/handlers/ -run TestWriteJSONError -v
 
 Expected: FAIL — `writeJSONError` undefined.
 
-- [ ] **Step 3: Add writeJSONError to helpers.go**
+- [x] **Step 3: Add writeJSONError to helpers.go**
 
 ```go
 // writeJSONError writes a JSON error response: {"error": "message"}.
@@ -259,7 +259,7 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 ```bash
 go test ./internal/server/handlers/ -run TestWriteJSONError -v
@@ -267,7 +267,7 @@ go test ./internal/server/handlers/ -run TestWriteJSONError -v
 
 Expected: PASS.
 
-- [ ] **Step 5: Replace all `http.Error(...)` calls with `writeJSONError(...)` across all handler files**
+- [x] **Step 5: Replace all `http.Error(...)` calls with `writeJSONError(...)` across all handler files**
 
 Use find-and-replace in each handler file. The mapping is:
 
@@ -275,7 +275,7 @@ Use find-and-replace in each handler file. The mapping is:
 
 Files to update: `runs.go`, `workflows.go`, `auth.go`, `reports.go`, `inbox.go`, `credentials.go`, `knowledge.go`, `helpers.go` (`teamIDFromRequest` and `getRunForTeam`).
 
-- [ ] **Step 6: Build and test**
+- [x] **Step 6: Build and test**
 
 ```bash
 go build ./internal/server/... && go test ./internal/server/... -v
@@ -283,7 +283,7 @@ go build ./internal/server/... && go test ./internal/server/... -v
 
 Expected: all pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add internal/server/handlers/
@@ -300,7 +300,7 @@ git commit -m "fix: standardize error responses to JSON format"
 - Modify: `internal/server/handlers/reports.go` — add artifacts handler
 - Modify: `internal/server/router.go` — register artifacts route
 
-- [ ] **Step 1: Fix getRunDiff type**
+- [x] **Step 1: Fix getRunDiff type**
 
 The backend returns `[{step_id, diff}]`. Update `client.ts`:
 
@@ -308,7 +308,7 @@ The backend returns `[{step_id, diff}]`. Update `client.ts`:
 getRunDiff: (id: string) => get<{ step_id: string; diff: string }[]>(`/runs/${id}/diff`),
 ```
 
-- [ ] **Step 2: Fix getRunOutput type**
+- [x] **Step 2: Fix getRunOutput type**
 
 The backend returns `[{step_id, output}]`. Update `client.ts`:
 
@@ -316,7 +316,7 @@ The backend returns `[{step_id, output}]`. Update `client.ts`:
 getRunOutput: (id: string) => get<{ step_id: string; output: Record<string, unknown> }[]>(`/runs/${id}/output`),
 ```
 
-- [ ] **Step 3: Add artifacts handler to reports.go**
+- [x] **Step 3: Add artifacts handler to reports.go**
 
 Add to `internal/server/handlers/reports.go`:
 
@@ -371,7 +371,7 @@ func (h *ReportsHandler) Artifacts(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-- [ ] **Step 4: Register artifacts route in router.go**
+- [x] **Step 4: Register artifacts route in router.go**
 
 Add inside the authenticated group, after the existing reports routes:
 
@@ -379,7 +379,7 @@ Add inside the authenticated group, after the existing reports routes:
 		r.Get("/api/reports/{runID}/artifacts", deps.Reports.Artifacts)
 ```
 
-- [ ] **Step 5: Add test for artifacts endpoint auth**
+- [x] **Step 5: Add test for artifacts endpoint auth**
 
 Add to `internal/server/handlers/reports_test.go` (create if needed):
 
@@ -408,7 +408,7 @@ func TestArtifacts_RequiresAuth(t *testing.T) {
 }
 ```
 
-- [ ] **Step 6: Build frontend and backend**
+- [x] **Step 6: Build frontend and backend**
 
 ```bash
 go build ./... && go test ./internal/server/handlers/ -run TestArtifacts -v && cd web && npx tsc --noEmit 2>&1 | head -20
@@ -416,7 +416,7 @@ go build ./... && go test ./internal/server/handlers/ -run TestArtifacts -v && c
 
 Expected: no errors, test passes.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add internal/server/handlers/reports.go internal/server/handlers/reports_test.go internal/server/router.go web/src/api/client.ts
@@ -438,7 +438,7 @@ git commit -m "fix: align frontend-backend contracts for diff, output, and artif
 - Modify: `internal/agent/claudecode.go` — use `shellquote.Quote`
 - Modify: `internal/agent/shell.go` — use `shellquote.Quote`
 
-- [ ] **Step 1: Create shared package with test**
+- [x] **Step 1: Create shared package with test**
 
 Create `internal/shellquote/quote.go`:
 
@@ -484,7 +484,7 @@ func TestQuote(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test**
+- [x] **Step 2: Run test**
 
 ```bash
 go test ./internal/shellquote/ -v
@@ -492,7 +492,7 @@ go test ./internal/shellquote/ -v
 
 Expected: PASS.
 
-- [ ] **Step 3: Replace usage in activity package**
+- [x] **Step 3: Replace usage in activity package**
 
 In `internal/activity/util.go`, remove the `shellQuote` function entirely.
 
@@ -506,7 +506,7 @@ Replace all `shellQuote(` with `shellquote.Quote(`.
 
 In `internal/activity/util_test.go`, remove shellQuote tests (they're now in the shared package).
 
-- [ ] **Step 4: Replace usage in agent package**
+- [x] **Step 4: Replace usage in agent package**
 
 Delete `internal/agent/quote.go`.
 
@@ -518,7 +518,7 @@ In `internal/agent/claudecode.go` and `internal/agent/shell.go`, add import:
 
 Replace all `shellQuote(` with `shellquote.Quote(`.
 
-- [ ] **Step 5: Build and test**
+- [x] **Step 5: Build and test**
 
 ```bash
 go build ./... && go test ./internal/activity/ ./internal/agent/ ./internal/shellquote/ -v
@@ -526,7 +526,7 @@ go build ./... && go test ./internal/activity/ ./internal/agent/ ./internal/shel
 
 Expected: all pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/shellquote/ internal/activity/ internal/agent/
@@ -540,7 +540,7 @@ git commit -m "refactor: consolidate duplicate shellQuote into shared shellquote
 **Files:**
 - Modify: `internal/workflow/dag.go:344-346`
 
-- [ ] **Step 1: Fix the nil result handling**
+- [x] **Step 1: Fix the nil result handling**
 
 In `internal/workflow/dag.go`, the results collection loop (around line 344) currently skips nil results silently. Replace:
 
@@ -590,7 +590,7 @@ The `ready` variable from the `findReady` call above is still in scope and has t
 		}
 ```
 
-- [ ] **Step 2: Build and test**
+- [x] **Step 2: Build and test**
 
 ```bash
 go build ./internal/workflow/ && go test ./internal/workflow/ -v
@@ -598,7 +598,7 @@ go build ./internal/workflow/ && go test ./internal/workflow/ -v
 
 Expected: all pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add internal/workflow/dag.go
@@ -628,7 +628,7 @@ The worker never assigns `KnowledgeStore` to the `Activities` struct, so `Captur
 - `internal/model/knowledge.go` — `KnowledgeItem`, `KnowledgeDef`, types all stay
 - `cmd/server/main.go` — knowledge store init for handlers stays
 
-- [ ] **Step 1: Remove KnowledgeStore from Activities struct**
+- [x] **Step 1: Remove KnowledgeStore from Activities struct**
 
 In `internal/activity/activities.go`, remove:
 
@@ -638,17 +638,17 @@ In `internal/activity/activities.go`, remove:
 
 And remove the `"github.com/tinkerloft/fleetlift/internal/knowledge"` import.
 
-- [ ] **Step 2: Delete knowledge.go and its tests**
+- [x] **Step 2: Delete knowledge.go and its tests**
 
 ```bash
 rm internal/activity/knowledge.go internal/activity/knowledge_test.go internal/activity/execute_knowledge_test.go
 ```
 
-- [ ] **Step 3: Remove knowledge enrichment/capture from execute.go**
+- [x] **Step 3: Remove knowledge enrichment/capture from execute.go**
 
 In `internal/activity/execute.go`, remove lines 70-90 (the two knowledge blocks: enrichment at 70-85 and capture prompt suffix at 87-90). Remove the `"github.com/tinkerloft/fleetlift/internal/knowledge"` import.
 
-- [ ] **Step 4: Remove knowledge constants**
+- [x] **Step 4: Remove knowledge constants**
 
 In `internal/activity/constants.go`, remove:
 
@@ -659,7 +659,7 @@ In `internal/activity/constants.go`, remove:
 
 And the comment `// Knowledge capture and prompt enrichment activities`.
 
-- [ ] **Step 5: Remove CaptureKnowledge from step.go workflow**
+- [x] **Step 5: Remove CaptureKnowledge from step.go workflow**
 
 In `internal/workflow/step.go`, remove:
 - The `CaptureKnowledgeActivity` var declaration (line 68)
@@ -667,17 +667,17 @@ In `internal/workflow/step.go`, remove:
 
 Renumber the subsequent comments (8 → 7, 9 → 8).
 
-- [ ] **Step 6: Remove CaptureKnowledge from step_test.go mocks**
+- [x] **Step 6: Remove CaptureKnowledge from step_test.go mocks**
 
 In `internal/workflow/step_test.go`:
 - Remove the `CaptureKnowledge` method from `stepMockActivities`
 - Remove `env.RegisterActivity(mocks.CaptureKnowledge)` from `newStepWorkflowEnv`
 
-- [ ] **Step 7: Remove CaptureKnowledgeInput from model**
+- [x] **Step 7: Remove CaptureKnowledgeInput from model**
 
 In `internal/model/knowledge.go`, remove the `CaptureKnowledgeInput` struct and its comment (lines 60-66).
 
-- [ ] **Step 8: Build and test everything**
+- [x] **Step 8: Build and test everything**
 
 ```bash
 go build ./... && go test ./internal/activity/ ./internal/workflow/ ./internal/server/... -v
@@ -685,7 +685,7 @@ go build ./... && go test ./internal/activity/ ./internal/workflow/ ./internal/s
 
 Expected: all pass, no compilation errors.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add -A
@@ -713,7 +713,7 @@ The OAuth callback handler (lines 43-57 of auth.go) validates the state paramete
 3. Mismatched state → 400
 4. Valid matching state proceeds (will fail on exchange, but CSRF check passes)
 
-- [ ] **Step 1: Create auth_test.go**
+- [x] **Step 1: Create auth_test.go**
 
 ```go
 package handlers_test
@@ -826,7 +826,7 @@ func TestOAuthRedirect_SetsStateCookie(t *testing.T) {
 
 Note: The `mockProvider` must satisfy `auth.Provider`. Check `internal/auth/provider.go` for the interface and adjust imports. The test uses `handlers_test` (external test package) so it can only access exported symbols.
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 ```bash
 go test ./internal/server/handlers/ -run TestOAuth -v
@@ -834,7 +834,7 @@ go test ./internal/server/handlers/ -run TestOAuth -v
 
 Expected: all PASS. The CSRF validation tests cover the callback flow.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add internal/server/handlers/auth_test.go
@@ -852,7 +852,7 @@ Verify that User A from Team A cannot access Team B's runs.
 
 These tests use `teamIDFromRequest` + `getRunForTeam` which are already the enforcement points. We test at the handler level by sending requests with JWT claims for one team and trying to access another team's resources.
 
-- [ ] **Step 1: Create isolation_test.go**
+- [x] **Step 1: Create isolation_test.go**
 
 ```go
 package handlers
@@ -923,7 +923,7 @@ func TestTeamIDFromRequest_MultiTeamRequiresHeader(t *testing.T) {
 
 Uses `package handlers` (internal test) so unexported `teamIDFromRequest` is accessible directly. Tests call the function with crafted claims and verify the returned teamID and HTTP status codes.
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 ```bash
 go test ./internal/server/handlers/ -run TestTeamIDFromRequest -v
@@ -931,7 +931,7 @@ go test ./internal/server/handlers/ -run TestTeamIDFromRequest -v
 
 Expected: all PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add internal/server/handlers/isolation_test.go
@@ -947,7 +947,7 @@ Test that the SSE stream endpoints require authentication. Full SSE integration 
 **Files:**
 - Modify: `internal/server/handlers/runs_test.go`
 
-- [ ] **Step 1: Add SSE auth tests**
+- [x] **Step 1: Add SSE auth tests**
 
 Add to `internal/server/handlers/runs_test.go`:
 
@@ -980,7 +980,7 @@ func TestStepLogs_RequiresAuth(t *testing.T) {
 // state closing) require a running test DB. Track as a future integration test task.
 ```
 
-- [ ] **Step 2: Run tests**
+- [x] **Step 2: Run tests**
 
 ```bash
 go test ./internal/server/handlers/ -run "TestStream|TestStepLogs" -v
@@ -988,7 +988,7 @@ go test ./internal/server/handlers/ -run "TestStream|TestStepLogs" -v
 
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add internal/server/handlers/runs_test.go
@@ -1001,25 +1001,25 @@ git commit -m "test: add SSE stream auth guard tests for run events and step log
 
 After all tasks are complete:
 
-- [ ] **Full build**
+- [x] **Full build**
 
 ```bash
 go build ./... 2>&1
 ```
 
-- [ ] **Full lint**
+- [x] **Full lint**
 
 ```bash
 make lint 2>&1
 ```
 
-- [ ] **Full test suite**
+- [x] **Full test suite**
 
 ```bash
 go test ./... 2>&1
 ```
 
-- [ ] **Frontend build**
+- [x] **Frontend build**
 
 ```bash
 cd web && npm run build 2>&1
