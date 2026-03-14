@@ -101,6 +101,23 @@ export interface InboxItem {
   read?: boolean
 }
 
+// User profile
+export interface UserTeam {
+  id: string
+  name: string
+  slug: string
+  role: string
+}
+
+export interface UserProfile {
+  user_id: string
+  name: string
+  email: string
+  teams: UserTeam[]
+  team_roles: Record<string, string>
+  platform_admin: boolean
+}
+
 // Reports / Artifacts
 export interface Artifact {
   id: string

@@ -1,6 +1,7 @@
 import type {
   WorkflowTemplate, Run, StepRunLog,
   InboxItem, Artifact, ListResponse, RunStatusUpdate,
+  UserProfile,
 } from './types'
 
 const BASE = '/api'
@@ -77,6 +78,9 @@ export const api = {
   // Inbox
   listInbox: () => get<ListResponse<InboxItem>>('/inbox'),
   markInboxRead: (id: string) => post<{ status: string }>(`/inbox/${id}/read`),
+
+  // User
+  getMe: () => get<UserProfile>('/me'),
 
   // Reports
   listReports: () => get<ListResponse<Run>>('/reports'),
