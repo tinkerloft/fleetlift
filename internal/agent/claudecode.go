@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
+	"github.com/tinkerloft/fleetlift/internal/shellquote"
 )
 
 // ClaudeCodeRunner implements Runner by invoking Claude Code CLI inside a sandbox.
@@ -35,7 +36,7 @@ func (r *ClaudeCodeRunner) SandboxEnv() map[string]string {
 
 func (r *ClaudeCodeRunner) Run(ctx context.Context, sandboxID string, opts RunOpts) (<-chan Event, error) {
 	cmd := fmt.Sprintf("cd %s && claude -p %s --output-format stream-json --verbose --dangerously-skip-permissions --max-turns %d",
-		shellQuote(opts.WorkDir), shellQuote(opts.Prompt), max(opts.MaxTurns, 20))
+		shellquote.Quote(opts.WorkDir), shellquote.Quote(opts.Prompt), max(opts.MaxTurns, 20))
 
 	ch := make(chan Event, 64)
 	go func() {
