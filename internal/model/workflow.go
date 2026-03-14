@@ -24,6 +24,9 @@ type WorkflowTemplate struct {
 }
 
 // WorkflowDef is the parsed form of a WorkflowTemplate's YAML.
+// WARNING: This struct is serialized into Temporal's workflow history as part of DAGInput.
+// Never add or change json: tags — the field names in history must remain stable.
+// Use workflow_yaml (raw YAML string) for API responses to the frontend.
 type WorkflowDef struct {
 	Version     int            `yaml:"version"`
 	ID          string         `yaml:"id"`

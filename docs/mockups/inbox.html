@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FleetLift — Inbox (Mockup)</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: hsl(0 0% 99%);
+    --fg: hsl(220 15% 13%);
+    --card: hsl(0 0% 100%);
+    --muted: hsl(220 14% 96%);
+    --muted-fg: hsl(220 9% 46%);
+    --border: hsl(220 13% 91%);
+    --sidebar-bg: hsl(220 14% 97%);
+    --sidebar-accent: hsl(220 14% 93%);
+    --blue: hsl(221 83% 53%);
+    --green: hsl(142 71% 45%);
+    --red: hsl(0 72% 51%);
+    --amber: hsl(38 92% 50%);
+    --violet: hsl(262 83% 58%);
+    --radius: 0.5rem;
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+    font-size: 14px;
+    color: var(--fg);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Layout (shared) ────────────────────────────────── */
+  .shell { display: flex; min-height: 100vh; }
+  .sidebar {
+    width: 14rem; flex-shrink: 0; border-right: 1px solid var(--border);
+    background: var(--sidebar-bg); display: flex; flex-direction: column;
+    position: sticky; top: 0; height: 100vh;
+  }
+  .sidebar-logo {
+    height: 3.5rem; display: flex; align-items: center; gap: .5rem;
+    padding: 0 1rem; border-bottom: 1px solid var(--border);
+  }
+  .sidebar-logo .mark {
+    width: 1.75rem; height: 1.75rem; border-radius: 6px;
+    background: var(--fg); color: var(--bg); display: flex;
+    align-items: center; justify-content: center; font-weight: 700; font-size: 11px;
+  }
+  .sidebar-logo span { font-size: 14px; font-weight: 600; letter-spacing: -.02em; }
+  .sidebar nav { flex: 1; padding: .75rem; display: flex; flex-direction: column; gap: 2px; }
+  .nav-link {
+    display: flex; align-items: center; gap: .75rem; padding: .5rem .75rem;
+    border-radius: var(--radius); font-size: 13px; color: var(--muted-fg);
+    text-decoration: none; transition: background .15s;
+  }
+  .nav-link:hover { background: var(--sidebar-accent); color: var(--fg); }
+  .nav-link.active { background: var(--sidebar-accent); color: var(--fg); font-weight: 500; }
+  .nav-link svg { width: 16px; height: 16px; flex-shrink: 0; }
+  .nav-link .badge-count {
+    margin-left: auto; background: var(--blue); color: #fff;
+    font-size: 10px; font-weight: 500; padding: 1px 6px;
+    border-radius: 999px; min-width: 20px; text-align: center;
+  }
+  .sidebar-footer { border-top: 1px solid var(--border); padding: .75rem; }
+  .profile-btn {
+    display: flex; align-items: center; gap: .625rem; padding: .5rem .75rem;
+    border-radius: var(--radius); width: 100%; cursor: pointer;
+    background: none; border: none; font: inherit; color: var(--fg);
+    transition: background .15s; text-align: left;
+  }
+  .profile-btn:hover { background: var(--sidebar-accent); }
+  .avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--blue); color: #fff; display: flex;
+    align-items: center; justify-content: center; font-weight: 600; font-size: 11px;
+  }
+  .profile-btn .name { font-size: 13px; font-weight: 500; }
+  .profile-btn .team { font-size: 11px; color: var(--muted-fg); }
+
+  .main { flex: 1; min-width: 0; padding: 1.5rem 2rem; }
+
+  /* ── Page ────────────────────────────────────────────── */
+  .page-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 1.5rem;
+  }
+  .page-header h1 { font-size: 1.5rem; font-weight: 700; }
+  .page-header .subtitle { font-size: 13px; color: var(--muted-fg); margin-top: 2px; }
+
+  /* Filter tabs */
+  .filter-tabs {
+    display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 1rem;
+  }
+  .filter-tab {
+    padding: .5rem 1rem; font-size: 13px; color: var(--muted-fg);
+    border-bottom: 2px solid transparent; cursor: pointer; transition: color .15s;
+    background: none; border-top: none; border-left: none; border-right: none;
+    font-family: inherit;
+  }
+  .filter-tab:hover { color: var(--fg); }
+  .filter-tab.active { color: var(--fg); font-weight: 500; border-bottom-color: var(--fg); }
+  .filter-tab .count {
+    margin-left: 4px; font-size: 11px; background: var(--muted);
+    padding: 1px 6px; border-radius: 999px; font-weight: 500;
+  }
+  .filter-tab.active .count { background: var(--fg); color: var(--bg); }
+
+  /* ── Inbox Items ────────────────────────────────────── */
+  .inbox-list { display: flex; flex-direction: column; gap: .5rem; }
+
+  .inbox-item {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--card); padding: 1rem;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .inbox-item:hover {
+    border-color: hsl(220 13% 82%);
+    box-shadow: 0 2px 8px rgba(0,0,0,.04);
+  }
+  .inbox-item.unread { border-left: 3px solid var(--blue); }
+  .inbox-item.urgent { border-left: 3px solid var(--amber); }
+
+  .inbox-top {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;
+  }
+  .inbox-left { flex: 1; min-width: 0; }
+
+  .inbox-kind-row { display: flex; align-items: center; gap: .5rem; margin-bottom: .375rem; }
+
+  .kind-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 500;
+  }
+  .kind-action {
+    background: hsl(38 92% 50% / .12); color: hsl(38 70% 30%);
+  }
+  .kind-failure {
+    background: hsl(0 72% 51% / .12); color: hsl(0 60% 38%);
+  }
+  .kind-output {
+    background: hsl(142 71% 45% / .12); color: hsl(142 60% 32%);
+  }
+
+  .pulse-dot-sm {
+    width: 6px; height: 6px; border-radius: 50%;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: .5; transform: scale(.8); }
+  }
+
+  .inbox-title {
+    font-size: 14px; font-weight: 500; margin-bottom: .25rem;
+  }
+  .inbox-title a { color: inherit; text-decoration: none; }
+  .inbox-title a:hover { text-decoration: underline; }
+
+  .inbox-summary { font-size: 13px; color: var(--muted-fg); margin-bottom: .5rem; line-height: 1.4; }
+
+  .inbox-meta {
+    display: flex; align-items: center; gap: .75rem;
+    font-size: 12px; color: var(--muted-fg);
+  }
+  .inbox-meta .workflow-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .inbox-meta .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+  .inbox-right { display: flex; flex-direction: column; align-items: flex-end; gap: .5rem; flex-shrink: 0; }
+  .inbox-time { font-size: 12px; color: var(--muted-fg); }
+
+  /* Inline Actions */
+  .inbox-actions { display: flex; gap: .375rem; }
+  .btn-sm {
+    padding: 4px 12px; border-radius: var(--radius); font-size: 12px;
+    font-weight: 500; cursor: pointer; border: 1px solid var(--border);
+    background: var(--card); transition: background .15s; font-family: inherit;
+  }
+  .btn-sm:hover { background: var(--muted); }
+  .btn-approve { background: var(--green); color: #fff; border-color: transparent; }
+  .btn-approve:hover { background: hsl(142 60% 38%); }
+  .btn-reject { background: var(--red); color: #fff; border-color: transparent; }
+  .btn-reject:hover { background: hsl(0 60% 42%); }
+  .btn-steer { background: var(--amber); color: hsl(38 70% 15%); border-color: transparent; }
+  .btn-steer:hover { background: hsl(38 80% 45%); }
+
+  /* Steer inline form */
+  .steer-form {
+    display: flex; gap: .375rem; margin-top: .75rem;
+    padding-top: .75rem; border-top: 1px solid var(--border);
+  }
+  .steer-input {
+    flex: 1; padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: var(--radius); font-size: 13px;
+    outline: none; font-family: inherit;
+  }
+  .steer-input:focus { border-color: var(--blue); box-shadow: 0 0 0 2px hsl(221 83% 53% / .15); }
+
+  /* ── Empty State ────────────────────────────────────── */
+  .empty-state {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: .75rem; padding: 4rem; color: var(--muted-fg); text-align: center;
+    border: 2px dashed var(--border); border-radius: var(--radius);
+  }
+  .empty-state svg { width: 48px; height: 48px; opacity: .4; }
+  .empty-state .msg { font-size: 14px; font-weight: 500; }
+  .empty-state .sub { font-size: 13px; }
+
+  .mockup-banner {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: hsl(262 83% 58%); color: #fff; text-align: center;
+    font-size: 12px; font-weight: 500; padding: 4px; letter-spacing: .02em;
+  }
+  body { padding-top: 28px; }
+
+  .section-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted-fg); margin-bottom: .5rem; margin-top: 2.5rem; }
+</style>
+</head>
+<body>
+
+<div class="mockup-banner">MOCKUP — Track C: Inbox Enhancements (C5 + C6)</div>
+
+<div class="shell">
+  <!-- ── Sidebar ──────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="mark">FL</div>
+      <span>Fleetlift</span>
+    </div>
+    <nav>
+      <a class="nav-link" href="run-detail.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Runs
+      </a>
+      <a class="nav-link" href="workflow-list.html">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Workflows
+      </a>
+      <a class="nav-link active" href="#">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+        Inbox
+        <span class="badge-count">3</span>
+      </a>
+      <a class="nav-link" href="#">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Reports
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="profile-btn">
+        <div class="avatar">AK</div>
+        <div>
+          <div class="name">Andrew K</div>
+          <div class="team">acme-corp</div>
+        </div>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ── Main Content ─────────────────────────────── -->
+  <div class="main">
+    <div class="page-header">
+      <div>
+        <h1>Inbox</h1>
+        <div class="subtitle">3 unread notifications</div>
+      </div>
+    </div>
+
+    <!-- Filter Tabs -->
+    <div class="filter-tabs">
+      <button class="filter-tab active">All <span class="count">5</span></button>
+      <button class="filter-tab">Action Required <span class="count">2</span></button>
+      <button class="filter-tab">Failures <span class="count">1</span></button>
+      <button class="filter-tab">Output Ready <span class="count">2</span></button>
+    </div>
+
+    <!-- Inbox Items -->
+    <div class="inbox-list">
+
+      <!-- HITL: Awaiting Approval (unread, urgent) -->
+      <div class="inbox-item urgent">
+        <div class="inbox-top">
+          <div class="inbox-left">
+            <div class="inbox-kind-row">
+              <span class="kind-badge kind-action">
+                <span class="pulse-dot-sm" style="background: var(--amber);"></span>
+                Action Required
+              </span>
+            </div>
+            <div class="inbox-title">
+              <a href="run-detail.html">Lint Config — Awaiting Approval</a>
+            </div>
+            <div class="inbox-summary">
+              The agent found 3 new ESLint rules that would affect 47 files. Review the proposed .eslintrc changes before proceeding.
+            </div>
+            <div class="inbox-meta">
+              <span class="workflow-tag">
+                <span class="dot" style="background: var(--violet);"></span>
+                Fleet Security Audit
+              </span>
+              <span>Step 4 of 7</span>
+            </div>
+          </div>
+          <div class="inbox-right">
+            <span class="inbox-time">2 min ago</span>
+            <div class="inbox-actions">
+              <button class="btn-sm btn-approve">Approve</button>
+              <button class="btn-sm btn-reject">Reject</button>
+              <button class="btn-sm btn-steer">Steer</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- HITL: Awaiting Approval #2 (unread) -->
+      <div class="inbox-item unread">
+        <div class="inbox-top">
+          <div class="inbox-left">
+            <div class="inbox-kind-row">
+              <span class="kind-badge kind-action">
+                <span class="pulse-dot-sm" style="background: var(--amber);"></span>
+                Action Required
+              </span>
+            </div>
+            <div class="inbox-title">
+              <a href="#">PR Review — Code Changes Need Approval</a>
+            </div>
+            <div class="inbox-summary">
+              The agent proposes refactoring the authentication middleware to use JWT refresh tokens. 12 files modified across 3 services.
+            </div>
+            <div class="inbox-meta">
+              <span class="workflow-tag">
+                <span class="dot" style="background: var(--red);"></span>
+                Bug Fix
+              </span>
+              <span>Step 3 of 5</span>
+            </div>
+          </div>
+          <div class="inbox-right">
+            <span class="inbox-time">18 min ago</span>
+            <div class="inbox-actions">
+              <button class="btn-sm btn-approve">Approve</button>
+              <button class="btn-sm btn-reject">Reject</button>
+              <button class="btn-sm btn-steer">Steer</button>
+            </div>
+          </div>
+        </div>
+        <!-- Expanded steer form example -->
+        <div class="steer-form">
+          <input class="steer-input" placeholder="Provide alternative instructions to the agent..." />
+          <button class="btn-sm" style="background: var(--fg); color: var(--bg); border-color: transparent;">Send</button>
+        </div>
+      </div>
+
+      <!-- Failure notification (unread) -->
+      <div class="inbox-item unread">
+        <div class="inbox-top">
+          <div class="inbox-left">
+            <div class="inbox-kind-row">
+              <span class="kind-badge kind-failure">Step Failed</span>
+            </div>
+            <div class="inbox-title">
+              <a href="#">Dependency Scan — sandbox timeout</a>
+            </div>
+            <div class="inbox-summary">
+              Step "Scan Dependencies" failed after 10m with error: sandbox execution timeout exceeded. The agent was scanning go.mod when the sandbox was terminated.
+            </div>
+            <div class="inbox-meta">
+              <span class="workflow-tag">
+                <span class="dot" style="background: var(--blue);"></span>
+                Dependency Update
+              </span>
+              <span>Step 2 of 4</span>
+              <span style="color: var(--red);">Run failed</span>
+            </div>
+          </div>
+          <div class="inbox-right">
+            <span class="inbox-time">42 min ago</span>
+            <div class="inbox-actions">
+              <button class="btn-sm">View Run</button>
+              <button class="btn-sm">Retry</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Output ready (read) -->
+      <div class="inbox-item">
+        <div class="inbox-top">
+          <div class="inbox-left">
+            <div class="inbox-kind-row">
+              <span class="kind-badge kind-output">Output Ready</span>
+            </div>
+            <div class="inbox-title">
+              <a href="#">Fleet Research — Analysis Complete</a>
+            </div>
+            <div class="inbox-summary">
+              Research across 8 repositories complete. Found 3 common patterns for error handling improvement. Report and artifacts ready for review.
+            </div>
+            <div class="inbox-meta">
+              <span class="workflow-tag">
+                <span class="dot" style="background: var(--teal, hsl(172 66% 40%));"></span>
+                Fleet Research
+              </span>
+              <span>Completed in 6m 14s</span>
+            </div>
+          </div>
+          <div class="inbox-right">
+            <span class="inbox-time">1h ago</span>
+            <div class="inbox-actions">
+              <button class="btn-sm">View Report</button>
+              <button class="btn-sm">Mark Read</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Output ready (read) -->
+      <div class="inbox-item">
+        <div class="inbox-top">
+          <div class="inbox-left">
+            <div class="inbox-kind-row">
+              <span class="kind-badge kind-output">Output Ready</span>
+            </div>
+            <div class="inbox-title">
+              <a href="#">Migration — PRs Created</a>
+            </div>
+            <div class="inbox-summary">
+              Fleet transform complete across 5 repos. Created 5 pull requests for the React 18→19 migration. All tests passing.
+            </div>
+            <div class="inbox-meta">
+              <span class="workflow-tag">
+                <span class="dot" style="background: var(--blue);"></span>
+                Migration
+              </span>
+              <span>Completed in 14m 52s</span>
+              <span>5 PRs</span>
+            </div>
+          </div>
+          <div class="inbox-right">
+            <span class="inbox-time">3h ago</span>
+            <div class="inbox-actions">
+              <button class="btn-sm">View Report</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Empty State ────────────────────────────────── -->
+    <div class="section-label">Empty State (C4)</div>
+    <div class="empty-state">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
+        <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
+      </svg>
+      <div class="msg">All caught up</div>
+      <div class="sub">No pending notifications. New items will appear here when workflows need your attention.</div>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>

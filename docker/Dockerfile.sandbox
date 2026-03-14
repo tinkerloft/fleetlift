@@ -36,3 +36,7 @@ WORKDIR /workspace
 ENV HOME=/home/agent
 ENV ANTHROPIC_API_KEY=""
 ENV GITHUB_TOKEN=""
+
+# Configure git to use GITHUB_TOKEN for HTTPS authentication when set.
+RUN git config --global credential.helper \
+    '!f() { echo username=x-access-token; echo password=$GITHUB_TOKEN; }; f'

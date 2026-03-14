@@ -23,33 +23,104 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 	sb := a.Sandbox
 	stepInput := input.StepInput
 
-	// 1. Clone repos
+	// Log buffer is active for the entire step (clone + agent phases) so
+	// clone progress and errors appear in the UI log stream immediately.
+	buf := newLogBuffer(a, stepInput.StepRunID, "stdout", LogFlushThreshold)
+	var seq int64
+
+	// logLine writes a single line to the step log with the given stream and flushes immediately.
+	logLine := func(stream, content string) {
+		if content == "" {
+			return
+		}
+		_ = batchInsertLogs(ctx, a, stepInput.StepRunID, []logLine{{Seq: seq, Stream: stream, Content: content}})
+		seq++
+	}
+
+	// Validate all repo URLs before any Temporal-specific calls.
 	for _, repo := range stepInput.ResolvedOpts.Repos {
 		if !strings.HasPrefix(repo.URL, "https://") {
 			return nil, fmt.Errorf("repo URL must use https:// scheme, got: %q", repo.URL)
 		}
+	}
+
+	// Show a retry banner so users can tell when Temporal is re-running the activity.
+	if attempt := activity.GetInfo(ctx).Attempt; attempt > 1 {
+		logLine("stderr", fmt.Sprintf("--- retry attempt %d ---", attempt))
+	}
+
+	// 1. Clone repos
+	for _, repo := range stepInput.ResolvedOpts.Repos {
+		repoDir := "/workspace/" + repoName(repo)
+
+		// If a prior step in the same sandbox already cloned this repo, reuse it.
+		// This allows downstream steps to declare repositories for workdir purposes
+		// without triggering a redundant clone.
+		if head, _, _ := sb.Exec(ctx, input.SandboxID, "cat "+shellquote.Quote(repoDir+"/.git/HEAD"), "/"); head != "" {
+			logLine("stdout", "Using existing clone at "+repoDir)
+			continue
+		}
+
 		cloneCmd := fmt.Sprintf("git clone --depth %s", DefaultCloneDepth)
 		if repo.Branch != "" {
 			cloneCmd += fmt.Sprintf(" --branch %s", shellquote.Quote(repo.Branch))
 		}
-		repoDir := "/workspace/" + repoName(repo)
 		cloneCmd += fmt.Sprintf(" %s %s", shellquote.Quote(repo.URL), shellquote.Quote(repoDir))
 		activity.RecordHeartbeat(ctx, "cloning "+repoName(repo))
 		a.updateStepStatus(ctx, stepInput.StepRunID, model.StepStatusCloning)
+		logLine("stdout", "Cloning "+repo.URL+"…")
 
-		if _, _, err := sb.Exec(ctx, input.SandboxID, cloneCmd, "/"); err != nil {
-			return nil, fmt.Errorf("clone %s: %w", repo.URL, err)
+		// Remove any leftover directory from a previous attempt (e.g. sandbox reuse on retry).
+		if _, _, err := sb.Exec(ctx, input.SandboxID, "rm -rf "+shellquote.Quote(repoDir), "/"); err != nil {
+			return nil, fmt.Errorf("clean repo dir %s: %w", repoDir, err)
 		}
 
-		// Fetch and checkout a specific ref (e.g. "pull/19/head" for PRs).
+		if _, stderr, err := sb.Exec(ctx, input.SandboxID, cloneCmd, "/"); err != nil {
+			msg := fmt.Sprintf("clone failed: %v", err)
+			logLine("stderr", msg)
+			return nil, fmt.Errorf("clone %s: %w", repo.URL, err)
+		} else if gitFailed(stderr) {
+			msg := "clone failed: " + strings.TrimSpace(stderr)
+			logLine("stderr", msg)
+			return nil, fmt.Errorf("clone %s: %s", repo.URL, strings.TrimSpace(stderr))
+		} else if stderr != "" {
+			logLine("stdout", strings.TrimSpace(stderr))
+		}
+
+		// Verify the clone actually created a .git directory. ExecStream may not
+		// flush all stderr before execution_complete, so gitFailed can miss auth
+		// errors that appear after the initial "Cloning into..." message.
+		if head, _, _ := sb.Exec(ctx, input.SandboxID, "cat "+shellquote.Quote(repoDir+"/.git/HEAD"), "/"); head == "" {
+			msg := "clone failed: repository not cloned (check GITHUB_TOKEN credential is configured if the repo is private)"
+			logLine("stderr", msg)
+			return nil, fmt.Errorf("clone %s: no .git directory after clone", repo.URL)
+		}
+
+		// Fetch and checkout a specific ref (e.g. "refs/pull/19/head" for PRs).
+		// Use `git -C <dir>` to explicitly set the working directory (more reliable than cwd).
 		if repo.Ref != "" {
-			fetchCmd := fmt.Sprintf("git fetch origin %s", shellquote.Quote(repo.Ref))
-			if _, _, err := sb.Exec(ctx, input.SandboxID, fetchCmd, repoDir); err != nil {
+			logLine("stdout", "Fetching ref "+repo.Ref+"…")
+			fetchCmd := fmt.Sprintf("git -C %s fetch origin %s", shellquote.Quote(repoDir), shellquote.Quote(repo.Ref))
+			if _, stderr, err := sb.Exec(ctx, input.SandboxID, fetchCmd, "/"); err != nil {
+				msg := fmt.Sprintf("fetch failed: %v", err)
+				logLine("stderr", msg)
 				return nil, fmt.Errorf("fetch ref %s: %w", repo.Ref, err)
+			} else if gitFailed(stderr) {
+				msg := "fetch failed: " + strings.TrimSpace(stderr)
+				logLine("stderr", msg)
+				return nil, fmt.Errorf("fetch ref %s: %s", repo.Ref, strings.TrimSpace(stderr))
 			}
-			if _, _, err := sb.Exec(ctx, input.SandboxID, "git checkout FETCH_HEAD", repoDir); err != nil {
+			checkoutCmd := fmt.Sprintf("git -C %s checkout FETCH_HEAD", shellquote.Quote(repoDir))
+			if _, stderr, err := sb.Exec(ctx, input.SandboxID, checkoutCmd, "/"); err != nil {
+				msg := fmt.Sprintf("checkout failed: %v", err)
+				logLine("stderr", msg)
 				return nil, fmt.Errorf("checkout ref %s: %w", repo.Ref, err)
+			} else if gitFailed(stderr) {
+				msg := "checkout failed: " + strings.TrimSpace(stderr)
+				logLine("stderr", msg)
+				return nil, fmt.Errorf("checkout FETCH_HEAD for ref %s: %s", repo.Ref, strings.TrimSpace(stderr))
 			}
+			logLine("stdout", "Checked out ref "+repo.Ref)
 		}
 	}
 
@@ -81,8 +152,6 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 		return nil, fmt.Errorf("start agent: %w", err)
 	}
 
-	buf := newLogBuffer(a, stepInput.StepRunID, "stdout", LogFlushThreshold)
-	var seq int64
 	var lastOutput map[string]any
 	var gotComplete bool
 	for event := range events {
@@ -144,7 +213,7 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 	var diffParts []string
 	for _, repo := range stepInput.ResolvedOpts.Repos {
 		repoDir := "/workspace/" + repoName(repo)
-		if d, _, err := sb.Exec(ctx, input.SandboxID, "git diff", repoDir); err == nil && d != "" {
+		if d, _, err := sb.Exec(ctx, input.SandboxID, "git -C "+shellquote.Quote(repoDir)+" diff", "/"); err == nil && d != "" {
 			diffParts = append(diffParts, d)
 		}
 	}

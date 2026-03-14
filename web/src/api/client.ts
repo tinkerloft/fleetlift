@@ -1,6 +1,7 @@
 import type {
   WorkflowTemplate, Run, StepRunLog,
   InboxItem, Artifact, ListResponse, RunStatusUpdate,
+  UserProfile,
 } from './types'
 
 const BASE = '/api'
@@ -63,8 +64,8 @@ export const api = {
   createRun: (workflowId: string, parameters: Record<string, unknown>) =>
     post<Run>('/runs', { workflow_id: workflowId, parameters }),
   listRuns: () => get<ListResponse<Run>>('/runs'),
-  getRun: (id: string) => get<{ run: Run; steps: Run['steps'] }>(`/runs/${id}`)
-    .then(({ run, steps }) => ({ ...run, steps })),
+  getRun: (id: string) => get<{ run: Run; steps: Run['steps']; workflow_yaml?: string }>(`/runs/${id}`)
+    .then(({ run, steps, workflow_yaml }) => ({ ...run, steps, workflow_yaml })),
   getRunLogs: (id: string) => get<ListResponse<StepRunLog>>(`/runs/${id}/logs`),
   getRunDiff: (id: string) => get<{ step_id: string; diff: string }[]>(`/runs/${id}/diff`),
   getRunOutput: (id: string) => get<{ step_id: string; output: Record<string, unknown> }[]>(`/runs/${id}/output`),
@@ -77,6 +78,9 @@ export const api = {
   // Inbox
   listInbox: () => get<ListResponse<InboxItem>>('/inbox'),
   markInboxRead: (id: string) => post<{ status: string }>(`/inbox/${id}/read`),
+
+  // User
+  getMe: () => get<UserProfile>('/me'),
 
   // Reports
   listReports: () => get<ListResponse<Run>>('/reports'),

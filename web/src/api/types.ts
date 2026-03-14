@@ -55,10 +55,12 @@ export interface Run {
   status: RunStatus
   temporal_id?: string
   triggered_by?: string
+  error_message?: string
   started_at?: string
   completed_at?: string
   created_at: string
   steps?: StepRun[]
+  workflow_yaml?: string
 }
 
 export interface StepRun {
@@ -99,6 +101,23 @@ export interface InboxItem {
   summary?: string
   created_at: string
   read?: boolean
+}
+
+// User profile
+export interface UserTeam {
+  id: string
+  name: string
+  slug: string
+  role: string
+}
+
+export interface UserProfile {
+  user_id: string
+  name: string
+  email: string
+  teams: UserTeam[]
+  team_roles: Record<string, string>
+  platform_admin: boolean
 }
 
 // Reports / Artifacts

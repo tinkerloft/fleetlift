@@ -17,6 +17,15 @@ Project-specific instructions for Claude Code when working on this repository.
 3. **Build verification**: `go build ./...`
    - Code must compile without errors
 
+## Workflow & Activity Pre-merge Checklist
+
+For any new or modified workflow, activity, or sandbox integration code, verify all four:
+
+- [ ] **Failure propagation** — every failure path sets an explicit error return or non-success status. No function falls through to a default "success" result when subordinate work has failed. Step failed → run must fail. Clone failed → activity must error.
+- [ ] **Bounded retries** — every `workflow.ActivityOptions` that touches external state (DB, APIs, sandbox) has an explicit `RetryPolicy` with `MaximumAttempts`. Use `dbRetry` (5) for DB writes, 2–3 for execution steps. Unlimited retries on a permanent error (type mismatch, wrong field name, missing resource) means the workflow never terminates.
+- [ ] **Integration contract verification** — never trust HTTP 200 = success for external calls. Check that fields sent to external APIs are actually the names those APIs expect (consult the spec/source). Verify side effects (e.g. `.git/HEAD` after clone) rather than assuming the call succeeded.
+- [ ] **Streaming buffer sizes** — any `bufio.Scanner` or similar reader over agent/tool output must set an explicit buffer size (`scanner.Buffer(..., 4*1024*1024)`). The 64 KB default is too small for large file reads or diffs output as single JSON lines.
+
 ## Project Structure
 
 - `cmd/cli/` - cobra CLI (`fleetlift` binary)

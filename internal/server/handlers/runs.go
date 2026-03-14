@@ -150,9 +150,25 @@ func (h *RunsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	_ = h.db.SelectContext(r.Context(), &steps,
 		`SELECT * FROM step_runs WHERE run_id = $1 ORDER BY created_at`, runID)
 
+	// Return the raw YAML so the frontend can parse it client-side.
+	// We deliberately avoid serializing WorkflowDef (which has no json: tags —
+	// they must stay stable for Temporal history deserialization).
+	var workflowYAML string
+	if t, err := h.registry.Get(r.Context(), teamID, run.WorkflowID); err == nil {
+		workflowYAML = t.YAMLBody
+	} else {
+		var t model.WorkflowTemplate
+		if dbErr := h.db.GetContext(r.Context(), &t,
+			`SELECT yaml_body FROM workflow_templates WHERE id = $1`, run.WorkflowID,
+		); dbErr == nil {
+			workflowYAML = t.YAMLBody
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"run":   run,
-		"steps": steps,
+		"run":           run,
+		"steps":         steps,
+		"workflow_yaml": workflowYAML,
 	})
 }
 
@@ -402,6 +418,12 @@ func (h *RunsHandler) StepLogs(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, "streaming unsupported")
 		return
 	}
+
+	// Send an SSE comment immediately so the HTTP response headers are flushed
+	// to the client. Without this, Go buffers the headers until the first real
+	// write, leaving EventSource in a pending state with no onopen event.
+	fmt.Fprintf(w, ": connected\n\n")
+	flusher.Flush()
 
 	var cursor int64
 

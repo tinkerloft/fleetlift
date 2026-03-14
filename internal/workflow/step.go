@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/tinkerloft/fleetlift/internal/model"
@@ -105,6 +106,7 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 		ao := workflow.ActivityOptions{
 			StartToCloseTimeout: timeout,
 			HeartbeatTimeout:    2 * time.Minute,
+			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 2},
 		}
 		err := workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, ao),
@@ -145,7 +147,7 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 		}
 
 		// 5. Signal: awaiting_input
-		statusAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
+		statusAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second, RetryPolicy: dbRetry}
 		if err := workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, statusAO),
 			UpdateStepStatusActivity, input.StepRunID, string(model.StepStatusAwaitingInput),
@@ -230,7 +232,7 @@ func finalizeStep(ctx workflow.Context, logger log.Logger, stepRunID string, out
 	if stepRunID == "" || output == nil {
 		return
 	}
-	ao := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
+	ao := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second, RetryPolicy: dbRetry}
 	if err := workflow.ExecuteActivity(
 		workflow.WithActivityOptions(ctx, ao),
 		CompleteStepRunActivity,

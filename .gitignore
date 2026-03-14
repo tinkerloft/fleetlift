@@ -76,4 +76,5 @@ docker/fleetlift-agent
 .worktrees/
 /cli
 .worktrees/
-.env
+.env*
+node_modules/

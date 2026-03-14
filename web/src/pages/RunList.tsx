@@ -1,17 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '@/api/client'
-import { Badge } from '@/components/ui/badge'
-import type { RunStatus } from '@/api/types'
-
-const STATUS_VARIANT: Record<RunStatus, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-  pending: 'outline',
-  running: 'secondary',
-  awaiting_input: 'default',
-  complete: 'default',
-  failed: 'destructive',
-  cancelled: 'outline',
-}
+import { StatusBadge } from '@/components/StatusBadge'
+import { SkeletonRow } from '@/components/Skeleton'
+import { EmptyState } from '@/components/EmptyState'
+import { Activity } from 'lucide-react'
 
 export function RunListPage() {
   const { data, isLoading } = useQuery({
@@ -24,7 +17,11 @@ export function RunListPage() {
     <div className="space-y-6">
       <h1 className="text-2xl font-bold">Runs</h1>
 
-      {isLoading && <p className="text-muted-foreground text-sm">Loading...</p>}
+      {isLoading && (
+        <div className="rounded-lg border">
+          <SkeletonRow /><SkeletonRow /><SkeletonRow />
+        </div>
+      )}
 
       <div className="rounded-lg border">
         <table className="w-full text-sm">
@@ -45,7 +42,7 @@ export function RunListPage() {
                   </Link>
                 </td>
                 <td className="px-4 py-3">
-                  <Badge variant={STATUS_VARIANT[run.status]}>{run.status}</Badge>
+                  <StatusBadge status={run.status} />
                 </td>
                 <td className="px-4 py-3 text-muted-foreground">
                   {run.started_at ? new Date(run.started_at).toLocaleString() : '-'}
@@ -57,8 +54,8 @@ export function RunListPage() {
             ))}
             {data?.items?.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
-                  No runs yet
+                <td colSpan={4} className="p-0">
+                  <EmptyState icon={Activity} title="No runs yet" description="Start a workflow to see runs here." action={{ label: 'Browse Workflows', href: '/workflows' }} />
                 </td>
               </tr>
             )}

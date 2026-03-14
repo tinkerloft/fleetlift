@@ -2,12 +2,16 @@ package handlers_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/tinkerloft/fleetlift/internal/auth"
@@ -102,4 +106,71 @@ func TestOAuthRedirect_SetsStateCookie(t *testing.T) {
 		}
 	}
 	assert.True(t, found, "oauth_state cookie should be set")
+}
+
+// openTestDB opens a DB connection for integration tests.
+// Skipped unless DATABASE_URL is set.
+func openTestDB(t *testing.T) *sqlx.DB {
+	t.Helper()
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("requires DB: set DATABASE_URL")
+	}
+	db, err := sqlx.Connect("postgres", dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+func TestHandleMeEnriched(t *testing.T) {
+	db := openTestDB(t)
+
+	// Insert test user + team
+	userID := "test-user-me-" + fmt.Sprintf("%d", os.Getpid())
+	teamID := "test-team-me-" + fmt.Sprintf("%d", os.Getpid())
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM team_members WHERE user_id = $1`, userID)
+		_, _ = db.Exec(`DELETE FROM teams WHERE id = $1`, teamID)
+		_, _ = db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+	})
+
+	db.MustExec(`INSERT INTO users (id, name, email, provider, provider_id) VALUES ($1, 'Alice', 'alice@example.com', 'github', $1) ON CONFLICT DO NOTHING`, userID)
+	db.MustExec(`INSERT INTO teams (id, name, slug) VALUES ($1, 'Acme Corp', $1) ON CONFLICT DO NOTHING`, teamID)
+	db.MustExec(`INSERT INTO team_members (team_id, user_id, role) VALUES ($1, $2, 'admin') ON CONFLICT DO NOTHING`, teamID, userID)
+
+	h := handlers.NewAuthHandler(db, nil, []byte("test-secret"))
+
+	claims := &auth.Claims{UserID: userID, TeamRoles: map[string]string{teamID: "admin"}}
+	req := httptest.NewRequest("GET", "/api/me", nil)
+	req = req.WithContext(auth.SetClaimsInContext(req.Context(), claims))
+	w := httptest.NewRecorder()
+
+	h.HandleMe(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var body map[string]any
+	err := json.NewDecoder(w.Body).Decode(&body)
+	assert.NoError(t, err)
+	assert.Equal(t, "Alice", body["name"])
+	assert.Equal(t, "alice@example.com", body["email"])
+
+	teams, ok := body["teams"].([]any)
+	assert.True(t, ok, "teams should be an array")
+	if len(teams) > 0 {
+		team := teams[0].(map[string]any)
+		assert.Equal(t, "Acme Corp", team["name"])
+	}
+}
+
+func TestHandleMe_Unauthorized(t *testing.T) {
+	h := handlers.NewAuthHandler(nil, nil, []byte("test-secret"))
+	req := httptest.NewRequest("GET", "/api/me", nil)
+	w := httptest.NewRecorder()
+
+	h.HandleMe(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }

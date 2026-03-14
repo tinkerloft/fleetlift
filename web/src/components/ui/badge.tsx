@@ -14,6 +14,10 @@ const badgeVariants = cva(
           "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80",
         destructive:
           "border-transparent bg-destructive text-destructive-foreground shadow hover:bg-destructive/80",
+        success:
+          "border-transparent bg-green-500/15 text-green-700 dark:text-green-400",
+        warning:
+          "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400",
         outline: "text-foreground",
       },
     },
@@ -33,4 +37,5 @@ function Badge({ className, variant, ...props }: BadgeProps) {
   )
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export { Badge, badgeVariants }

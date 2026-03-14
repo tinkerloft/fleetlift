@@ -1,10 +1,48 @@
+import { useState, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/EmptyState'
+import { Skeleton } from '@/components/Skeleton'
+import { formatTimeAgo } from '@/lib/format'
+import { cn } from '@/lib/utils'
+import { Inbox as InboxIcon } from 'lucide-react'
+import type { InboxItem } from '@/api/types'
+
+type Filter = 'all' | 'awaiting_input' | 'failure' | 'output_ready'
+
+const FILTERS: { key: Filter; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'awaiting_input', label: 'Action Required' },
+  { key: 'failure', label: 'Failures' },
+  { key: 'output_ready', label: 'Output Ready' },
+]
+
+function KindBadge({ kind }: { kind: string }) {
+  if (kind === 'awaiting_input') {
+    return (
+      <Badge variant="warning" className="gap-1">
+        <span className="relative flex h-1.5 w-1.5">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-50" />
+          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-current" />
+        </span>
+        Action Required
+      </Badge>
+    )
+  }
+  if (kind === 'failure') {
+    return <Badge variant="destructive">Step Failed</Badge>
+  }
+  return <Badge variant="success">Output Ready</Badge>
+}
 
 export function InboxPage() {
   const queryClient = useQueryClient()
+  const [filter, setFilter] = useState<Filter>('all')
+  const [steerOpenId, setSteerOpenId] = useState<string | null>(null)
+  const [steerText, setSteerText] = useState('')
 
   const { data, isLoading } = useQuery({
     queryKey: ['inbox'],
@@ -17,56 +55,165 @@ export function InboxPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['inbox'] }),
   })
 
+  const [actionError, setActionError] = useState<string | null>(null)
+
+  const handleApprove = useCallback(async (item: InboxItem) => {
+    setActionError(null)
+    try {
+      await api.approveRun(item.run_id)
+      queryClient.invalidateQueries({ queryKey: ['inbox'] })
+    } catch (err) { setActionError(err instanceof Error ? err.message : 'Action failed') }
+  }, [queryClient])
+
+  const handleReject = useCallback(async (item: InboxItem) => {
+    setActionError(null)
+    try {
+      await api.rejectRun(item.run_id)
+      queryClient.invalidateQueries({ queryKey: ['inbox'] })
+    } catch (err) { setActionError(err instanceof Error ? err.message : 'Action failed') }
+  }, [queryClient])
+
+  const handleSteer = useCallback(async (item: InboxItem) => {
+    if (!steerText.trim()) return
+    setActionError(null)
+    try {
+      await api.steerRun(item.run_id, steerText)
+      setSteerText('')
+      setSteerOpenId(null)
+      queryClient.invalidateQueries({ queryKey: ['inbox'] })
+    } catch (err) { setActionError(err instanceof Error ? err.message : 'Action failed') }
+  }, [steerText, queryClient])
+
+  const items = data?.items ?? []
+  const filtered = filter === 'all' ? items : items.filter(i => i.kind === filter)
+
+  const counts: Record<Filter, number> = {
+    all: items.length,
+    awaiting_input: items.filter(i => i.kind === 'awaiting_input').length,
+    failure: items.filter(i => i.kind === 'failure').length,
+    output_ready: items.filter(i => i.kind === 'output_ready').length,
+  }
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Inbox</h1>
+      <div>
+        <h1 className="text-2xl font-bold">Inbox</h1>
+        {items.length > 0 && (
+          <p className="text-sm text-muted-foreground mt-1">{items.filter(i => !i.read).length} unread</p>
+        )}
+      </div>
 
-      {isLoading && <p className="text-muted-foreground text-sm">Loading...</p>}
+      {/* Filter tabs */}
+      <div className="flex gap-0 border-b">
+        {FILTERS.map(f => (
+          <button
+            key={f.key}
+            onClick={() => setFilter(f.key)}
+            className={cn(
+              'px-4 py-2 text-sm border-b-2 transition-colors',
+              filter === f.key
+                ? 'border-foreground text-foreground font-medium'
+                : 'border-transparent text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {f.label}
+            <span className={cn(
+              'ml-1.5 text-[11px] px-1.5 py-px rounded-full',
+              filter === f.key ? 'bg-foreground text-background' : 'bg-muted',
+            )}>
+              {counts[f.key]}
+            </span>
+          </button>
+        ))}
+      </div>
 
-      {data?.items?.length === 0 && (
-        <p className="text-muted-foreground text-sm">No inbox items</p>
+      {actionError && (
+        <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400">
+          {actionError}
+        </div>
+      )}
+
+      {isLoading && (
+        <div className="space-y-3">
+          <Skeleton className="h-20 rounded-lg" />
+          <Skeleton className="h-20 rounded-lg" />
+          <Skeleton className="h-20 rounded-lg" />
+        </div>
+      )}
+
+      {!isLoading && filtered.length === 0 && (
+        <EmptyState icon={InboxIcon} title="All caught up" description="No pending notifications." />
       )}
 
       <div className="space-y-2">
-        {data?.items?.map((item) => (
+        {filtered.map(item => (
           <div
             key={item.id}
-            className="flex items-center justify-between rounded-lg border p-4 hover:bg-muted/50 transition-colors"
+            className={cn(
+              'rounded-lg border bg-card p-4 transition-all',
+              !item.read && item.kind === 'awaiting_input' && 'border-l-4 border-l-amber-500',
+              !item.read && item.kind !== 'awaiting_input' && 'border-l-4 border-l-blue-500',
+            )}
           >
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <Badge variant={item.kind === 'awaiting_input' ? 'default' : 'secondary'}>
-                  {item.kind === 'awaiting_input' ? 'Action Required' : 'Output Ready'}
-                </Badge>
-                <Link
-                  to={`/runs/${item.run_id}`}
-                  className="font-medium hover:underline"
-                >
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex-1 min-w-0 space-y-1">
+                <div className="flex items-center gap-2">
+                  <KindBadge kind={item.kind} />
+                </div>
+                <Link to={`/runs/${item.run_id}`} className="text-sm font-medium hover:underline block">
                   {item.title}
                 </Link>
+                {item.summary && (
+                  <p className="text-[13px] text-muted-foreground line-clamp-2">{item.summary}</p>
+                )}
+                <p className="text-xs text-muted-foreground">{formatTimeAgo(item.created_at)}</p>
               </div>
-              {item.summary && (
-                <p className="text-sm text-muted-foreground">{item.summary}</p>
-              )}
-              <p className="text-xs text-muted-foreground">
-                {new Date(item.created_at).toLocaleString()}
-              </p>
+              <div className="flex flex-col items-end gap-2 shrink-0">
+                {item.kind === 'awaiting_input' && (
+                  <div className="flex gap-1.5">
+                    <Button size="sm" variant="default" className="h-7 text-xs bg-green-600 hover:bg-green-700" onClick={() => handleApprove(item)}>
+                      Approve
+                    </Button>
+                    <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => handleReject(item)}>
+                      Reject
+                    </Button>
+                    <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => {
+                      setSteerOpenId(steerOpenId === item.id ? null : item.id)
+                      setSteerText('')
+                    }}>
+                      Steer
+                    </Button>
+                  </div>
+                )}
+                {item.kind !== 'awaiting_input' && (
+                  <div className="flex gap-1.5">
+                    <Button size="sm" variant="secondary" className="h-7 text-xs" asChild>
+                      <Link to={`/runs/${item.run_id}`}>View</Link>
+                    </Button>
+                    {!item.read && (
+                      <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => markReadMutation.mutate(item.id)}>
+                        Mark Read
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Link to={`/runs/${item.run_id}`}>
-                <button className="rounded-md border px-3 py-1.5 text-xs hover:bg-muted transition-colors">
-                  View
-                </button>
-              </Link>
-              {!item.read && (
-                <button
-                  onClick={() => markReadMutation.mutate(item.id)}
-                  className="rounded-md border px-3 py-1.5 text-xs hover:bg-muted transition-colors"
-                >
-                  Mark Read
-                </button>
-              )}
-            </div>
+            {/* Steer form */}
+            {steerOpenId === item.id && (
+              <div className="flex gap-2 mt-3 pt-3 border-t">
+                <input
+                  className="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="Provide alternative instructions..."
+                  value={steerText}
+                  onChange={e => setSteerText(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSteer(item)}
+                />
+                <Button size="sm" onClick={() => handleSteer(item)} disabled={!steerText.trim()}>
+                  Send
+                </Button>
+              </div>
+            )}
           </div>
         ))}
       </div>

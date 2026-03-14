@@ -1,6 +1,8 @@
 import type { StepRun } from '@/api/types'
 import { LogStream } from './LogStream'
-import { Badge } from './ui/badge'
+import { DiffViewer } from './DiffViewer'
+import { JsonViewer } from './JsonViewer'
+import { StatusBadge } from './StatusBadge'
 
 interface StepPanelProps {
   stepRun: StepRun
@@ -66,18 +68,14 @@ export function StepPanel({ stepRun, runParameters, allStepRuns }: StepPanelProp
       {stepRun.diff && (
         <div className="space-y-2">
           <h4 className="text-sm font-medium text-muted-foreground">Diff</h4>
-          <pre className="max-h-64 overflow-auto rounded-md bg-muted p-3 text-xs font-mono">
-            {stepRun.diff}
-          </pre>
+          <DiffViewer diff={stepRun.diff} />
         </div>
       )}
 
       {stepRun.output && Object.keys(stepRun.output).length > 0 && (
         <div className="space-y-2">
           <h4 className="text-sm font-medium text-muted-foreground">Output</h4>
-          <pre className="max-h-48 overflow-auto rounded-md bg-muted p-3 text-xs font-mono">
-            {JSON.stringify(stepRun.output, null, 2)}
-          </pre>
+          <JsonViewer data={stepRun.output} />
         </div>
       )}
 
@@ -89,9 +87,3 @@ export function StepPanel({ stepRun, runParameters, allStepRuns }: StepPanelProp
   )
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const variant = status === 'complete' ? 'default'
-    : status === 'failed' ? 'destructive'
-    : 'secondary'
-  return <Badge variant={variant}>{status}</Badge>
-}
