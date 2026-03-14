@@ -95,20 +95,53 @@ The DAG is the centerpiece of both the workflow detail and run detail pages. Mak
 
 **Files:** `web/src/components/DAGGraph.tsx` (major rewrite), new `web/src/components/DAGNode.tsx` custom node component.
 
-### Phase 2: Workflow Pages
+### Phase 2: Workflow Pages — Color and Identity
 
-**WorkflowList — add visual identity per workflow:**
-- Add a subtle **icon or color accent** per workflow type. Map workflow tags to an icon from Lucide (e.g., `Shield` for audit, `Bug` for bug-fix, `GitBranch` for migration, `Search` for research). Display in the card header.
-- Show **step count** and **mode summary** (e.g., "4 steps · transform") as a small detail line.
-- Add a subtle hover elevation (shadow increase) instead of just border color change.
+The workflow catalog is currently a grid of identical white boxes. Every workflow looks the same — you scan titles and tags to tell them apart. This is the page that sets expectations for what FleetLift can do, and right now it undersells the breadth of the platform.
 
-**WorkflowDetail — structure the page better:**
-- **Hero section:** Workflow title + description with more breathing room. Show the icon and a summary line ("5 steps, 2 approval gates, fan-out on step 3").
-- **DAG preview:** Use the improved DAG component. Show step titles and modes even without runs.
+**WorkflowList — give each workflow a visual identity via color:**
+
+Each workflow gets a **category color** based on its primary tag or type. The color appears as a **top border accent** (4px) and tints the card's icon. This is enough to create visual variety without becoming garish.
+
+Category-to-color mapping (using the existing chart/status palette):
+
+| Category | Color | Hue | Workflows |
+|----------|-------|-----|-----------|
+| Security/Audit | Violet | `var(--chart-4)` 262° | audit |
+| Bug/Fix | Red/Orange | `var(--chart-1)` 221° | bug-fix, incident-response |
+| Migration/Transform | Blue | `var(--chart-1)` 221° | migration, fleet-transform, dependency-update |
+| Research/Review | Teal | `var(--chart-2)` 142° | fleet-research, pr-review |
+| Triage/Ops | Amber | `var(--chart-3)` 38° | triage |
+| Diagnostic | Gray | `var(--muted-foreground)` | sandbox-test |
+
+Card design:
+
+```
+┌─ violet ──────────────────────┐  ← 4px top border in category color
+│  🛡  Audit                    │  ← icon (Lucide) tinted in category color + title
+│  Parallel security scan       │  ← description (muted)
+│  across fleet with report     │
+│                               │
+│  6 steps · fan-out · report   │  ← step count + mode chips
+│  ┌────┐ ┌────────┐ ┌───┐     │
+│  │ audit │ security │ fleet │  │  ← tag badges (outline, as today)
+│  └────┘ └────────┘ └───┘     │
+└───────────────────────────────┘
+```
+
+Implementation: a `workflowColor(tags: string[])` utility function that maps the first recognized tag to a color. Falls back to a neutral blue-gray for unrecognized workflows. Add `--workflow-accent` CSS custom property per card so the top border and icon color stay in sync.
+
+- Add a **Lucide icon per category**: `Shield` (audit), `Bug` (bug-fix), `Ambulance` (incident), `GitBranch` (migration), `RefreshCw` (transform), `ArrowUpCircle` (dependency), `Search` (research), `MessageSquare` (pr-review), `Tag` (triage), `Terminal` (sandbox-test). Icon renders at 20x20 in the card header, tinted with the category color.
+- Show **step count** and **mode chips** (e.g., "6 steps · fan-out · report") as a small detail line below the description. This gives a sense of workflow complexity at a glance.
+- **Hover effect**: subtle shadow elevation + slight border color intensification. Not just the current border-opacity change.
+
+**WorkflowDetail — carry the color through:**
+- **Hero section:** Show the category icon (larger, 28x28) and color accent. Workflow title + description with more breathing room. Add a summary line ("5 steps, 2 approval gates, fan-out on step 3") derived from parsing the YAML.
+- **DAG preview:** Use the improved DAG component. Show step titles and modes even without runs. The DAG section inherits a subtle background tint from the category color (very low opacity, like `bg-violet-500/3`).
 - **Parameters form:** Group required vs optional parameters. Add a subtle card background to the form area to distinguish it from the DAG.
 - **YAML view:** Use CodeMirror (already a dependency for YAML editing elsewhere) with syntax highlighting instead of raw `<pre>`. Keep it in a collapsible section but make the toggle more prominent.
 
-**Files:** `web/src/pages/WorkflowList.tsx`, `web/src/pages/WorkflowDetail.tsx`.
+**Files:** `web/src/pages/WorkflowList.tsx`, `web/src/pages/WorkflowDetail.tsx`, new `web/src/lib/workflow-colors.ts` (category mapping utility).
 
 ### Phase 3: Run Detail — The Whoa Moment Page
 
