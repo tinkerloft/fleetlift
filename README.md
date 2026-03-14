@@ -4,7 +4,7 @@
   <img src="docs/images/header.jpg" alt="FleetLift" width="800">
 </p>
 
-**Open-source platform for running AI coding agents across your entire fleet of repositories — with DAG orchestration, human approval gates, and a knowledge loop that gets smarter over time.**
+**Open-source platform for orchestrating AI coding agent workflows - using DAG pipelines, human approval gates, and a knowledge loop that gets smarter over time.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
@@ -16,21 +16,22 @@
 
 ## Why FleetLift?
 
-AI coding agents are powerful — but running one agent on one repo is just the beginning. Platform teams need to apply changes **consistently across dozens or hundreds of repositories**, with human oversight, audit trails, and the ability to stop or redirect agents mid-execution.
+AI coding agents are powerful - but running one agent on one repo is just the beginning. Sometimes you need to apply changes **consistently across dozens of repositories**, with human oversight, audit trails, and the ability to stop or redirect agents mid-execution.
 
 FleetLift gives you:
 
-- **DAG workflows** — not just "run an agent." Define multi-step pipelines where analysis feeds into transformation, transformation gets verified, and PRs only get created after human approval.
-- **Fleet-scale fan-out** — one template, 50 repos, max 10 parallel. Aggregated results in one report. Failure thresholds so one bad repo doesn't tank the whole run.
-- **Human-in-the-loop** — approve, reject, or *steer* any step mid-execution. Four approval policies (`always`, `never`, `agent`, `on_changes`) so you control exactly where humans gate the pipeline.
-- **Knowledge loop** — agents capture insights during execution. You curate them. Future runs get enriched with approved knowledge, so agents get better over time.
-- **Self-hosted** — your infrastructure, your data, your API keys. No vendor lock-in.
+- **DAG workflows** - not just "run an agent." Define multi-step pipelines where analysis feeds into transformation, transformation gets verified, and PRs only get created after human approval.
+- **Fleet-scale fan-out** - one template, 50 repos, max 10 parallel. Aggregated results in one report. Failure thresholds so one bad repo doesn't tank the whole run.
+- **Human-in-the-loop** - approve, reject, or *steer* any step mid-execution. Four approval policies (`always`, `never`, `agent`, `on_changes`) so you control exactly where humans gate the pipeline.
+- **Knowledge loop** - agents capture insights during execution. You curate them. Future runs get enriched with approved knowledge, so agents get better over time.
+- **Self-hosted** - your infrastructure, your data, your API keys. No vendor lock-in.
+- **Multiple agents supported** - designed to support multiple coding agents (Claude Code, Gemini, Codex, bring your own)
 
 ## Who is this for?
 
 - **Platform teams** managing 10+ repositories that need consistent changes
 - **Security teams** running fleet-wide audits and automated remediation
-- **DevOps leads** coordinating large migrations (framework swaps, API changes, dependency upgrades)
+- **DevOps** coordinating large migrations (framework swaps, API changes, dependency upgrades)
 - **Anyone** who's tired of manually running the same AI-assisted changes across multiple repos
 
 ## How it compares
@@ -52,7 +53,7 @@ FleetLift is strongest when you need **complex, multi-step workflows across many
 ## Features
 
 ### DAG Workflows
-Define workflows as YAML. Steps run in parallel where possible, with explicit dependencies, conditional execution, and shared sandbox groups for multi-step operations.
+Define workflows as YAML. Steps run in parallel where possible, with explicit dependencies, conditional execution, and shared sandbox VMs for multi-step operations.
 
 ```yaml
 steps:
@@ -118,16 +119,16 @@ Ready-to-use workflows for common platform operations:
 | `add-tests` | Generate test coverage for under-tested code |
 
 ### Web UI
-Real-time DAG visualization, live log streaming, HITL controls, inbox notifications, knowledge management, and structured reports — all in a React 19 SPA.
+Real-time DAG visualization, live log streaming, HITL controls, inbox notifications, knowledge management, and structured reports - all in one place.
 
 ### Knowledge Loop
-Agents capture insights during execution. You curate them via the Inbox. Approved knowledge is injected into future runs matching relevant tags — so your agents improve over time.
+Agents capture insights during execution. You curate them via the Inbox. Approved knowledge is injected into future runs matching relevant tags - so your agents improve over time.
 
 ---
 
 ## Quick Start
 
-**Prerequisites:** Docker, Go 1.24+, Node 20+, an [Anthropic API key](https://console.anthropic.com/)
+**Prerequisites:** Docker, Go 1.24+, Node 20+, an [Anthropic API key](https://console.anthropic.com/) (or Claude Code OAUTH token).
 
 ```bash
 # Clone the repo
@@ -136,8 +137,10 @@ git clone https://github.com/your-org/fleetlift.git && cd fleetlift
 # Start Temporal + PostgreSQL
 docker compose up -d
 
-# Set required env vars
+# Set required env vars 
+# One of ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN is required
 export ANTHROPIC_API_KEY="sk-ant-..."
+export CLAUDE_CODE_OAUTH_TOKEN="sk-..."  
 export JWT_SECRET="$(openssl rand -hex 32)"
 export CREDENTIAL_ENCRYPTION_KEY="$(openssl rand -hex 32)"
 
@@ -169,11 +172,11 @@ For a detailed walkthrough, see the [Getting Started guide](docs/GETTING_STARTED
 ```mermaid
 flowchart LR
     CLI["**CLI**"]
-    WebUI["**Web UI**<br/>React 19 SPA"]
-    API["**API Server**<br/>chi router · JWT middleware<br/>/api/workflows · /api/runs · /api/inbox<br/>/auth/github · /auth/github/callback"]
-    Temporal["**Temporal Server**<br/>workflow state store"]
-    Worker["**Worker**<br/>DAGWorkflow · StepWorkflow<br/>Activities: agent, PR, sandbox, slack, verify"]
-    Sandbox["**OpenSandbox**<br/>ephemeral containers per step<br/>Claude Code agent runs inside"]
+    WebUI["**Web UI**]
+    API["**API Server**"]
+    Temporal["**Temporal Workflows**]
+    Worker["**Fleetlift Temporal Worker**"]
+    Sandbox["**OpenSandbox**<br/>ephemeral containers per step<br/>Coding agents run inside VMs"]
 
     CLI <-->|REST/SSE| API
     WebUI <-->|REST/SSE| API
@@ -192,29 +195,29 @@ For the full architecture deep-dive, see [docs/ARCHITECTURE.md](docs/ARCHITECTUR
 |----------|---------|---------|
 | `DATABASE_URL` | PostgreSQL DSN | `postgres://fleetlift:fleetlift@localhost:5432/fleetlift` |
 | `TEMPORAL_ADDRESS` | Temporal gRPC address | `localhost:7233` |
-| `OPENSANDBOX_DOMAIN` | OpenSandbox API base URL | — |
-| `OPENSANDBOX_API_KEY` | OpenSandbox auth key | — |
+| `OPENSANDBOX_DOMAIN` | OpenSandbox API base URL | - |
+| `OPENSANDBOX_API_KEY` | OpenSandbox auth key | - |
 | `AGENT_IMAGE` | Default sandbox image | `claude-code:latest` |
-| `JWT_SECRET` | Server JWT signing key | — |
-| `CREDENTIAL_ENCRYPTION_KEY` | 32-byte hex key for AES-256-GCM | — |
-| `GITHUB_CLIENT_ID` | OAuth app client ID | — |
-| `GITHUB_CLIENT_SECRET` | OAuth app client secret | — |
-| `ANTHROPIC_API_KEY` | Claude API key for agent | — |
+| `JWT_SECRET` | Server JWT signing key | - |
+| `CREDENTIAL_ENCRYPTION_KEY` | 32-byte hex key for AES-256-GCM | - |
+| `GITHUB_CLIENT_ID` | OAuth app client ID | - |
+| `GITHUB_CLIENT_SECRET` | OAuth app client secret | - |
+| `ANTHROPIC_API_KEY` | Claude API key for agent | - |
 | `FLEETLIFT_API_URL` | CLI base URL | `http://localhost:8080` |
 
 ---
 
 ## Documentation
 
-- [Use Cases](docs/USE_CASES.md) — concrete scenarios and how FleetLift handles them
-- [Comparison](docs/COMPARISON.md) — FleetLift vs Cursor Automations, GitHub Actions, and others
-- [Workflow Reference](docs/WORKFLOW_REFERENCE.md) — YAML schema for workflow templates
-- [CLI Reference](docs/CLI_REFERENCE.md) — all CLI commands
-- [Architecture](docs/ARCHITECTURE.md) — system design deep-dive
-- [Getting Started](docs/GETTING_STARTED.md) — first workflow tutorial
-- [Deployment](docs/DEPLOYMENT.md) — production deployment guide
-- [Troubleshooting](docs/TROUBLESHOOTING.md) — common issues and fixes
-- [Examples](examples/) — 15 example workflow templates
+- [Use Cases](docs/USE_CASES.md) - concrete scenarios and how FleetLift handles them
+- [Comparison](docs/COMPARISON.md) - FleetLift vs Cursor Automations, GitHub Actions, and others
+- [Workflow Reference](docs/WORKFLOW_REFERENCE.md) - YAML schema for workflow templates
+- [CLI Reference](docs/CLI_REFERENCE.md) - all CLI commands
+- [Architecture](docs/ARCHITECTURE.md) - system design deep-dive
+- [Getting Started](docs/GETTING_STARTED.md) - first workflow tutorial
+- [Deployment](docs/DEPLOYMENT.md) - production deployment guide
+- [Troubleshooting](docs/TROUBLESHOOTING.md) - common issues and fixes
+- [Examples](examples/) - 15 example workflow templates
 
 ---
 
