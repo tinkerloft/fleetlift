@@ -67,6 +67,7 @@ var (
 	CleanupSandboxActivity    = "CleanupSandbox"
 	CaptureKnowledgeActivity  = "CaptureKnowledge"
 	CompleteStepRunActivity    = "CompleteStepRun"
+	CreateInboxItemActivity   = "CreateInboxItem"
 )
 
 // StepWorkflow orchestrates a single step: provision sandbox, run agent, handle HITL signals, optionally create PR.

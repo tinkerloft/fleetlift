@@ -57,7 +57,13 @@ func (a *Activities) actionGitHubPostReviewComment(ctx context.Context, config m
 
 	ghClient := newGitHubClient(ctx)
 	if ghClient == nil {
-		return fmt.Errorf("GITHUB_TOKEN not set")
+		activity.GetLogger(ctx).Warn("github_pr_review: GITHUB_TOKEN not set, skipping PR comment")
+		return nil
+	}
+
+	if summary == "" {
+		activity.GetLogger(ctx).Warn("github_pr_review: empty summary, skipping")
+		return nil
 	}
 
 	owner, repo := extractOwnerRepo(repoURL)

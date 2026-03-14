@@ -84,7 +84,7 @@ func (a *Activities) UpdateRunStatus(ctx context.Context, runID string, status s
 func (a *Activities) CreateInboxItem(ctx context.Context, teamID, runID, stepRunID, kind, title, summary string) error {
 	_, err := a.DB.ExecContext(ctx,
 		`INSERT INTO inbox_items (team_id, run_id, step_run_id, kind, title, summary)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		 VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6)`,
 		teamID, runID, stepRunID, kind, title, summary)
 	if err != nil {
 		return fmt.Errorf("create inbox item: %w", err)

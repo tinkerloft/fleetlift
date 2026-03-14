@@ -59,6 +59,27 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 			workflow.WithActivityOptions(dCtx, ao),
 			UpdateRunStatusActivity, input.RunID, finalStatus, finalError,
 		).Get(dCtx, nil)
+
+		// Create inbox notification for completed/failed runs.
+		if finalStatus != string(model.RunStatusCancelled) {
+			kind := "output_ready"
+			title := input.WorkflowDef.Title
+			if title == "" {
+				title = input.WorkflowTemplateID
+			}
+			summary := "Run completed successfully"
+			if finalStatus == string(model.RunStatusFailed) {
+				kind = "output_ready"
+				summary = "Run failed"
+				if finalError != "" {
+					summary = "Run failed: " + finalError
+				}
+			}
+			_ = workflow.ExecuteActivity(
+				workflow.WithActivityOptions(dCtx, ao),
+				CreateInboxItemActivity, input.TeamID, input.RunID, "", kind, title, summary,
+			).Get(dCtx, nil)
+		}
 	}()
 
 	steps := input.WorkflowDef.Steps
@@ -155,6 +176,21 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 
 				// Action step — no sandbox needed
 				if step.Action != nil {
+					// Create step_run record so the step is visible in the UI.
+					createAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
+					var stepRunID string
+					if err = workflow.ExecuteActivity(
+						workflow.WithActivityOptions(gCtx, createAO),
+						CreateStepRunActivity, input.RunID, step.ID, step.Title, "",
+					).Get(gCtx, &stepRunID); err != nil {
+						results[i] = &model.StepOutput{
+							StepID: step.ID,
+							Status: model.StepStatusFailed,
+							Error:  fmt.Sprintf("create step run: %v", err),
+						}
+						return
+					}
+
 					// Resolve template strings in action config.
 					resolvedConfig := make(map[string]any, len(step.Action.Config))
 					for k, v := range step.Action.Config {
@@ -164,11 +200,13 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 								Steps:  outputs,
 							})
 							if renderErr != nil {
-								results[i] = &model.StepOutput{
+								failOutput := &model.StepOutput{
 									StepID: step.ID,
 									Status: model.StepStatusFailed,
 									Error:  fmt.Sprintf("render action config %s: %v", k, renderErr),
 								}
+								finalizeStep(gCtx, logger, stepRunID, failOutput)
+								results[i] = failOutput
 								return
 							}
 							resolvedConfig[k] = rendered
@@ -178,6 +216,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 					}
 					step.Action.Config = resolvedConfig
 					results[i] = executeAction(gCtx, step, resolved)
+					finalizeStep(gCtx, logger, stepRunID, results[i])
 					return
 				}
 

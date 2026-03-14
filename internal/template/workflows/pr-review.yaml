@@ -77,5 +77,4 @@ steps:
       config:
         repo_url: "{{ .Params.repo_url }}"
         pr_number: "{{ .Params.pr_number }}"
-        comments: "{{ .Steps.review.Output.comments | toJSON }}"
-        summary: "{{ .Steps.review.Output.summary }}"
+        summary: "{{ .Steps.review.Output.result }}"
