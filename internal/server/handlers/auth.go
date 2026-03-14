@@ -209,15 +209,51 @@ func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"token": token})
 }
 
-// HandleMe returns the authenticated user's identity.
+// HandleMe returns the authenticated user's identity with enriched profile data.
 func (h *AuthHandler) HandleMe(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
 		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+
+	// Fetch user profile from DB
+	var name, email string
+	_ = h.db.QueryRowContext(r.Context(),
+		`SELECT COALESCE(name, ''), COALESCE(email, '') FROM users WHERE id = $1`,
+		claims.UserID,
+	).Scan(&name, &email)
+
+	// Fetch team details
+	type teamInfo struct {
+		ID   string `json:"id" db:"id"`
+		Name string `json:"name" db:"name"`
+		Slug string `json:"slug" db:"slug"`
+		Role string `json:"role" db:"role"`
+	}
+	var teams []teamInfo
+	rows, err := h.db.QueryxContext(r.Context(),
+		`SELECT t.id, t.name, t.slug, tm.role
+		 FROM teams t JOIN team_members tm ON t.id = tm.team_id
+		 WHERE tm.user_id = $1 ORDER BY t.name`, claims.UserID)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var t teamInfo
+			if rows.StructScan(&t) == nil {
+				teams = append(teams, t)
+			}
+		}
+	}
+	if teams == nil {
+		teams = []teamInfo{}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"user_id":        claims.UserID,
+		"name":           name,
+		"email":          email,
+		"teams":          teams,
 		"team_roles":     claims.TeamRoles,
 		"platform_admin": claims.PlatformAdmin,
 	})
