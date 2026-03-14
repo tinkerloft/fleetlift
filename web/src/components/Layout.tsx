@@ -3,9 +3,10 @@ import { Link, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import {
-  Inbox, List, LayoutTemplate, FileText, Activity, BookOpen,
+  Inbox, LayoutTemplate, FileText, Activity, BookOpen,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { UserMenu } from './UserMenu'
 
 const NAV_ITEMS = [
   { href: '/runs',      label: 'Runs',      icon: Activity },
@@ -86,12 +87,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Footer */}
         <div className="border-t px-3 py-3">
-          <NavLink
-            href="/runs"
-            label="All Runs"
-            icon={List}
-            active={false}
-          />
+          <UserMenu />
         </div>
       </aside>
 
