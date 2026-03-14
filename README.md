@@ -167,7 +167,7 @@ For a detailed walkthrough, see the [Getting Started guide](docs/GETTING_STARTED
 ## Architecture
 
 ```mermaid
-flowchart TD
+flowchart LR
     CLI["**CLI**"]
     WebUI["**Web UI**<br/>React 19 SPA"]
     API["**API Server**<br/>chi router · JWT middleware<br/>/api/workflows · /api/runs · /api/inbox<br/>/auth/github · /auth/github/callback"]
