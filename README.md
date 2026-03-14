@@ -1,14 +1,18 @@
 # FleetLift
 
+<p align="center">
+  <img src="docs/images/header.jpg" alt="FleetLift" width="800">
+</p>
+
 **Open-source platform for running AI coding agents across your entire fleet of repositories — with DAG orchestration, human approval gates, and a knowledge loop that gets smarter over time.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 <p align="center">
-  <img src="docs/images/demo.gif" alt="FleetLift in action" width="800">
+  <video src="docs/images/fleetlift.webm" controls width="800">
+    <a href="docs/images/fleetlift.webm">Watch demo</a>
+  </video>
 </p>
-
-<!-- TODO: Replace demo.gif with web UI recording showing DAG execution -->
 
 ---
 
@@ -96,6 +100,8 @@ fleetlift run steer <run-id> --prompt "Also handle the edge case for empty array
 # Reject and stop
 fleetlift run reject <run-id>
 ```
+
+<img src="docs/images/demo.gif" alt="FleetLift CLI interaction" width="500">
 
 ### 10 Built-in Templates
 Ready-to-use workflows for common platform operations:
