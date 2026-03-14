@@ -3,15 +3,17 @@ package workflow
 import (
 	"fmt"
 	"regexp"
+	"sort"
+	"text/template/parse"
 
 	"github.com/tinkerloft/fleetlift/internal/model"
 )
 
 // ValidationError describes a single structural or semantic problem found in a WorkflowDef.
 type ValidationError struct {
-	StepID  string
-	Field   string
-	Message string
+	StepID  string `json:"step_id,omitempty"`
+	Field   string `json:"field,omitempty"`
+	Message string `json:"message"`
 }
 
 func (e ValidationError) Error() string {
@@ -258,10 +260,239 @@ func validateCredentialNames(def model.WorkflowDef) []ValidationError {
 			}
 		}
 	}
+	// Note: step.Action.Credentials is not checked here because ActionDef.Credentials
+	// does not exist yet — it is added in H2 (Task 4). Once that lands, add the check here.
 	return errs
 }
 
-// validateTemplateRefs is a stub — template ref validation is implemented in Task 2.
+// StepRef describes a reference to another step's output or status in a template.
+type StepRef struct {
+	StepID    string
+	Field     string // "Output", "Status", "Diff", "Error", or lowercase condition variants
+	OutputKey string // non-empty only for .Steps.X.Output.Y
+}
+
+// extractTemplateRefs parses a Go template string and extracts .Params.X and .Steps.X.Field
+// references. When conditionCtx is true, it expects lowercase keys (params/steps) as used
+// by evalCondition in dag.go.
+//
+// Template parse errors are silently ignored (returning nil, nil, nil) because the runtime
+// will catch those when the template is actually executed.
+func extractTemplateRefs(templateStr string, conditionCtx bool) (paramRefs []string, stepRefs []StepRef, err error) {
+	if templateStr == "" {
+		return nil, nil, nil
+	}
+
+	paramKey := "Params"
+	stepsKey := "Steps"
+	if conditionCtx {
+		paramKey = "params"
+		stepsKey = "steps"
+	}
+
+	trees, parseErr := parse.Parse("t", templateStr, "{{", "}}", nil)
+	if parseErr != nil {
+		// Silently ignore parse errors — runtime will catch them
+		return nil, nil, nil
+	}
+	tree, ok := trees["t"]
+	if !ok || tree == nil || tree.Root == nil {
+		return nil, nil, nil
+	}
+
+	var paramSet []string
+	var seenParams = make(map[string]bool)
+
+	var walkNode func(n parse.Node)
+	walkNode = func(n parse.Node) {
+		if n == nil {
+			return
+		}
+		switch node := n.(type) {
+		case *parse.ListNode:
+			if node == nil {
+				return
+			}
+			for _, child := range node.Nodes {
+				walkNode(child)
+			}
+		case *parse.ActionNode:
+			walkNode(node.Pipe)
+		case *parse.IfNode:
+			walkNode(node.Pipe)
+			walkNode(node.List)
+			walkNode(node.ElseList)
+		case *parse.RangeNode:
+			walkNode(node.Pipe)
+			walkNode(node.List)
+			walkNode(node.ElseList)
+		case *parse.WithNode:
+			walkNode(node.Pipe)
+			walkNode(node.List)
+			walkNode(node.ElseList)
+		case *parse.PipeNode:
+			if node == nil {
+				return
+			}
+			for _, cmd := range node.Cmds {
+				walkNode(cmd)
+			}
+		case *parse.CommandNode:
+			for _, arg := range node.Args {
+				walkNode(arg)
+			}
+		case *parse.FieldNode:
+			idents := node.Ident
+			if len(idents) >= 2 && idents[0] == paramKey {
+				key := idents[1]
+				if !seenParams[key] {
+					seenParams[key] = true
+					paramSet = append(paramSet, key)
+				}
+			} else if len(idents) >= 3 && idents[0] == stepsKey {
+				ref := StepRef{
+					StepID: idents[1],
+					Field:  idents[2],
+				}
+				if len(idents) >= 4 && idents[2] == "Output" {
+					ref.OutputKey = idents[3]
+				}
+				stepRefs = append(stepRefs, ref)
+			}
+		}
+	}
+
+	walkNode(tree.Root)
+
+	sort.Strings(paramSet)
+	if len(paramSet) == 0 {
+		paramSet = nil
+	}
+	if len(stepRefs) == 0 {
+		stepRefs = nil
+	}
+	return paramSet, stepRefs, nil
+}
+
+// upstreamOf returns a set of all step IDs that are upstream of (ancestors of) the given step,
+// using BFS over DependsOn links.
+func upstreamOf(stepID string, def model.WorkflowDef) map[string]bool {
+	// Build direct-parent map: stepID -> list of steps it depends on
+	dependsMap := make(map[string][]string, len(def.Steps))
+	for _, step := range def.Steps {
+		dependsMap[step.ID] = step.DependsOn
+	}
+
+	visited := make(map[string]bool)
+	queue := []string{stepID}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, dep := range dependsMap[cur] {
+			if !visited[dep] {
+				visited[dep] = true
+				queue = append(queue, dep)
+			}
+		}
+	}
+	return visited
+}
+
+// validateTemplateRefs validates all template references in step prompts, action configs,
+// and step conditions, checking that referenced params and steps exist and are reachable.
 func validateTemplateRefs(def model.WorkflowDef) []ValidationError {
-	return nil
+	var errs []ValidationError
+
+	// Build lookup maps
+	paramSet := make(map[string]bool, len(def.Parameters))
+	for _, p := range def.Parameters {
+		paramSet[p.Name] = true
+	}
+
+	stepByID := make(map[string]*model.StepDef, len(def.Steps))
+	for i := range def.Steps {
+		stepByID[def.Steps[i].ID] = &def.Steps[i]
+	}
+
+	for i := range def.Steps {
+		step := &def.Steps[i]
+		upstream := upstreamOf(step.ID, def)
+
+		// Collect template strings from execution prompt
+		var templates []string
+		if step.Execution != nil && step.Execution.Prompt != "" {
+			templates = append(templates, step.Execution.Prompt)
+		}
+		// Collect string values from action config
+		if step.Action != nil {
+			for _, v := range step.Action.Config {
+				if s, ok := v.(string); ok && s != "" {
+					templates = append(templates, s)
+				}
+			}
+		}
+
+		for _, tmpl := range templates {
+			paramRefs, stepRefs, _ := extractTemplateRefs(tmpl, false)
+
+			for _, pRef := range paramRefs {
+				if !paramSet[pRef] {
+					errs = append(errs, ValidationError{
+						StepID:  step.ID,
+						Field:   "prompt",
+						Message: fmt.Sprintf("template references unknown parameter %q", pRef),
+					})
+				}
+			}
+
+			for _, sRef := range stepRefs {
+				refStep, exists := stepByID[sRef.StepID]
+				if !exists {
+					errs = append(errs, ValidationError{
+						StepID:  step.ID,
+						Field:   "prompt",
+						Message: fmt.Sprintf("template references unknown step %q", sRef.StepID),
+					})
+					continue
+				}
+				if !upstream[sRef.StepID] {
+					errs = append(errs, ValidationError{
+						StepID:  step.ID,
+						Field:   "prompt",
+						Message: fmt.Sprintf("template references step %q which is not an upstream dependency", sRef.StepID),
+					})
+					continue
+				}
+				// If step has an output schema and OutputKey is specified, validate the field exists
+				if sRef.OutputKey != "" && refStep.Execution != nil && refStep.Execution.Output != nil {
+					schema := refStep.Execution.Output.Schema
+					if _, fieldExists := schema[sRef.OutputKey]; !fieldExists {
+						errs = append(errs, ValidationError{
+							StepID:  step.ID,
+							Field:   "prompt",
+							Message: fmt.Sprintf("template references output field %q on step %q which is not in its output schema", sRef.OutputKey, sRef.StepID),
+						})
+					}
+				}
+			}
+		}
+
+		// Validate condition template (conditionCtx=true)
+		if step.Condition != "" {
+			_, stepRefs, _ := extractTemplateRefs(step.Condition, true)
+			for _, sRef := range stepRefs {
+				if _, exists := stepByID[sRef.StepID]; !exists {
+					errs = append(errs, ValidationError{
+						StepID:  step.ID,
+						Field:   "condition",
+						Message: fmt.Sprintf("condition references unknown step %q", sRef.StepID),
+					})
+				}
+				// Note: upstream check intentionally skipped for conditions —
+				// conditions can reference any completed step
+			}
+		}
+	}
+
+	return errs
 }
