@@ -65,7 +65,6 @@ var (
 	CreateStepRunActivity     = "CreateStepRun"
 	CreatePRActivity          = "CreatePullRequest"
 	CleanupSandboxActivity    = "CleanupSandbox"
-	CaptureKnowledgeActivity  = "CaptureKnowledge"
 	CompleteStepRunActivity    = "CompleteStepRun"
 	CreateInboxItemActivity   = "CreateInboxItem"
 )
@@ -208,24 +207,7 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 		}
 	}
 
-	// 7. Capture knowledge if configured
-	if input.StepDef.Knowledge != nil && input.StepDef.Knowledge.Capture {
-		captureAO := workflow.ActivityOptions{StartToCloseTimeout: 2 * time.Minute}
-		captureInput := model.CaptureKnowledgeInput{
-			SandboxID:          sandboxID,
-			TeamID:             input.TeamID,
-			WorkflowTemplateID: input.WorkflowTemplateID,
-			StepRunID:          input.StepRunID,
-		}
-		if err := workflow.ExecuteActivity(
-			workflow.WithActivityOptions(ctx, captureAO),
-			CaptureKnowledgeActivity, captureInput,
-		).Get(ctx, nil); err != nil {
-			logger.Warn("failed to capture knowledge", "step_id", input.StepDef.ID, "error", err)
-		}
-	}
-
-	// 8. Cleanup (unless sandbox_group — DAGWorkflow handles that)
+	// 7. Cleanup (unless sandbox_group — DAGWorkflow handles that)
 	if input.StepDef.SandboxGroup == "" && input.SandboxID == "" {
 		cleanupAO := workflow.ActivityOptions{StartToCloseTimeout: 2 * time.Minute}
 		if err := workflow.ExecuteActivity(
