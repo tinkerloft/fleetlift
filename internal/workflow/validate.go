@@ -268,25 +268,30 @@ func validateAgentTypes(def model.WorkflowDef) []ValidationError {
 	return errs
 }
 
-// validateCredentialNames checks that execution credential names are well-formed and not reserved.
+// validateCredentialNames checks that execution and action credential names are well-formed and not reserved.
 func validateCredentialNames(def model.WorkflowDef) []ValidationError {
 	var errs []ValidationError
-	for _, step := range def.Steps {
-		if step.Execution == nil {
-			continue
-		}
-		for _, cred := range step.Execution.Credentials {
+
+	checkNames := func(stepID string, creds []string) {
+		for _, cred := range creds {
 			if !credNameRe.MatchString(cred) {
-				errs = append(errs, ValidationError{StepID: step.ID, Field: "credentials", Message: fmt.Sprintf("credential name %q must match ^[A-Z][A-Z0-9_]*$", cred)})
+				errs = append(errs, ValidationError{StepID: stepID, Field: "credentials", Message: fmt.Sprintf("credential name %q must match ^[A-Z][A-Z0-9_]*$", cred)})
 				continue
 			}
 			if reservedCredNames[cred] {
-				errs = append(errs, ValidationError{StepID: step.ID, Field: "credentials", Message: fmt.Sprintf("credential name %q is reserved and cannot be used", cred)})
+				errs = append(errs, ValidationError{StepID: stepID, Field: "credentials", Message: fmt.Sprintf("credential name %q is reserved and cannot be used", cred)})
 			}
 		}
 	}
-	// Note: step.Action.Credentials is not checked here because ActionDef.Credentials
-	// does not exist yet — it is added in H2 (Task 4). Once that lands, add the check here.
+
+	for _, step := range def.Steps {
+		if step.Execution != nil {
+			checkNames(step.ID, step.Execution.Credentials)
+		}
+		if step.Action != nil {
+			checkNames(step.ID, step.Action.Credentials)
+		}
+	}
 	return errs
 }
 

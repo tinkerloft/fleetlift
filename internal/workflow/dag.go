@@ -240,7 +240,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 						}
 					}
 					step.Action.Config = resolvedConfig
-					results[i] = executeAction(gCtx, step, resolved)
+					results[i] = executeAction(gCtx, step, input.TeamID, stepRunID, step.Action.Credentials)
 					_ = finalizeStep(gCtx, logger, stepRunID, results[i])
 					return
 				}
@@ -569,7 +569,7 @@ func evalCondition(ctx workflow.Context, condition string, params map[string]any
 }
 
 // executeAction runs a non-agent action step (e.g., slack notification, GitHub action).
-func executeAction(ctx workflow.Context, step model.StepDef, _ ResolvedStepOpts) *model.StepOutput {
+func executeAction(ctx workflow.Context, step model.StepDef, teamID, stepRunID string, credNames []string) *model.StepOutput {
 	// Action steps are dispatched to specific activities based on action type
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
@@ -578,7 +578,7 @@ func executeAction(ctx workflow.Context, step model.StepDef, _ ResolvedStepOpts)
 	actCtx := workflow.WithActivityOptions(ctx, ao)
 
 	var result map[string]any
-	err := workflow.ExecuteActivity(actCtx, "ExecuteAction", step.Action.Type, step.Action.Config).Get(actCtx, &result)
+	err := workflow.ExecuteActivity(actCtx, "ExecuteAction", stepRunID, step.Action.Type, step.Action.Config, teamID, credNames).Get(actCtx, &result)
 	if err != nil {
 		return &model.StepOutput{
 			StepID: step.ID,
