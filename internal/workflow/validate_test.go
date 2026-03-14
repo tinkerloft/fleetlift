@@ -612,6 +612,55 @@ func TestValidateWorkflow_ConditionRef(t *testing.T) {
 	}
 }
 
+func TestValidateWorkflow_ConditionUnknownParamRef(t *testing.T) {
+	def := model.WorkflowDef{
+		Parameters: []model.ParameterDef{{Name: "env", Type: "string"}},
+		Steps: []model.StepDef{
+			{ID: "a", Execution: &model.ExecutionDef{Prompt: "hi"}},
+			{
+				ID:        "b",
+				DependsOn: []string{"a"},
+				Condition: `{{ eq .params.typo "prod" }}`,
+				Execution: &model.ExecutionDef{Prompt: "run"},
+			},
+		},
+	}
+	errs := ValidateWorkflow(def, map[string]any{"env": "prod"})
+	assert.NotEmpty(t, errs)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Message, "typo") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected error for undefined param 'typo' in condition")
+}
+
+func TestValidateWorkflow_ConditionUnknownStep(t *testing.T) {
+	def := model.WorkflowDef{
+		Steps: []model.StepDef{
+			{ID: "a", Execution: &model.ExecutionDef{Prompt: "hi"}},
+			{
+				ID:        "b",
+				DependsOn: []string{"a"},
+				Condition: `{{ eq .steps.ghost.status "complete" }}`,
+				Execution: &model.ExecutionDef{Prompt: "run"},
+			},
+		},
+	}
+	errs := ValidateWorkflow(def, nil)
+	assert.NotEmpty(t, errs)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Message, "ghost") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected error for undefined step 'ghost' in condition")
+}
+
 // --- extractTemplateRefs unit tests ---
 
 func TestExtractTemplateRefs_ParamAndStepRefs(t *testing.T) {

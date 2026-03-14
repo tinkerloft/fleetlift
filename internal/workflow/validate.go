@@ -43,6 +43,31 @@ var validAgentTypes = map[string]bool{
 
 var credNameRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 
+// templateBuiltinFuncs is a stub funcs map passed to parse.Parse so that templates using
+// built-in functions like "eq", "index", "len" etc. can be parsed without a function-not-found
+// error. The values are never called during validation — they only satisfy the parser.
+var templateBuiltinFuncs = map[string]any{
+	"and":      func() {},
+	"call":     func() {},
+	"html":     func() {},
+	"index":    func() {},
+	"slice":    func() {},
+	"js":       func() {},
+	"len":      func() {},
+	"not":      func() {},
+	"or":       func() {},
+	"print":    func() {},
+	"printf":   func() {},
+	"println":  func() {},
+	"urlquery": func() {},
+	"eq":       func() {},
+	"ge":       func() {},
+	"gt":       func() {},
+	"le":       func() {},
+	"lt":       func() {},
+	"ne":       func() {},
+}
+
 var reservedCredNames = map[string]bool{
 	"PATH":            true,
 	"HOME":            true,
@@ -290,7 +315,7 @@ func extractTemplateRefs(templateStr string, conditionCtx bool) (paramRefs []str
 		stepsKey = "steps"
 	}
 
-	trees, parseErr := parse.Parse("t", templateStr, "{{", "}}", nil)
+	trees, parseErr := parse.Parse("t", templateStr, "{{", "}}", templateBuiltinFuncs)
 	if parseErr != nil {
 		// Silently ignore parse errors — runtime will catch them
 		return nil, nil, nil
@@ -302,6 +327,7 @@ func extractTemplateRefs(templateStr string, conditionCtx bool) (paramRefs []str
 
 	var paramSet []string
 	var seenParams = make(map[string]bool)
+	var seenSteps = make(map[string]bool)
 
 	var walkNode func(n parse.Node)
 	walkNode = func(n parse.Node) {
@@ -357,7 +383,11 @@ func extractTemplateRefs(templateStr string, conditionCtx bool) (paramRefs []str
 				if len(idents) >= 4 && idents[2] == "Output" {
 					ref.OutputKey = idents[3]
 				}
-				stepRefs = append(stepRefs, ref)
+				compositeKey := ref.StepID + "." + ref.Field + "." + ref.OutputKey
+				if !seenSteps[compositeKey] {
+					seenSteps[compositeKey] = true
+					stepRefs = append(stepRefs, ref)
+				}
 			}
 		}
 	}
@@ -418,28 +448,32 @@ func validateTemplateRefs(def model.WorkflowDef) []ValidationError {
 		step := &def.Steps[i]
 		upstream := upstreamOf(step.ID, def)
 
-		// Collect template strings from execution prompt
-		var templates []string
+		// Collect template strings with their source field label
+		type taggedTemplate struct {
+			tmpl  string
+			field string
+		}
+		var templates []taggedTemplate
 		if step.Execution != nil && step.Execution.Prompt != "" {
-			templates = append(templates, step.Execution.Prompt)
+			templates = append(templates, taggedTemplate{tmpl: step.Execution.Prompt, field: "execution.prompt"})
 		}
 		// Collect string values from action config
 		if step.Action != nil {
 			for _, v := range step.Action.Config {
 				if s, ok := v.(string); ok && s != "" {
-					templates = append(templates, s)
+					templates = append(templates, taggedTemplate{tmpl: s, field: "action.config"})
 				}
 			}
 		}
 
-		for _, tmpl := range templates {
-			paramRefs, stepRefs, _ := extractTemplateRefs(tmpl, false)
+		for _, tt := range templates {
+			paramRefs, stepRefs, _ := extractTemplateRefs(tt.tmpl, false)
 
 			for _, pRef := range paramRefs {
 				if !paramSet[pRef] {
 					errs = append(errs, ValidationError{
 						StepID:  step.ID,
-						Field:   "prompt",
+						Field:   tt.field,
 						Message: fmt.Sprintf("template references unknown parameter %q", pRef),
 					})
 				}
@@ -450,7 +484,7 @@ func validateTemplateRefs(def model.WorkflowDef) []ValidationError {
 				if !exists {
 					errs = append(errs, ValidationError{
 						StepID:  step.ID,
-						Field:   "prompt",
+						Field:   tt.field,
 						Message: fmt.Sprintf("template references unknown step %q", sRef.StepID),
 					})
 					continue
@@ -458,7 +492,7 @@ func validateTemplateRefs(def model.WorkflowDef) []ValidationError {
 				if !upstream[sRef.StepID] {
 					errs = append(errs, ValidationError{
 						StepID:  step.ID,
-						Field:   "prompt",
+						Field:   tt.field,
 						Message: fmt.Sprintf("template references step %q which is not an upstream dependency", sRef.StepID),
 					})
 					continue
@@ -469,7 +503,7 @@ func validateTemplateRefs(def model.WorkflowDef) []ValidationError {
 					if _, fieldExists := schema[sRef.OutputKey]; !fieldExists {
 						errs = append(errs, ValidationError{
 							StepID:  step.ID,
-							Field:   "prompt",
+							Field:   tt.field,
 							Message: fmt.Sprintf("template references output field %q on step %q which is not in its output schema", sRef.OutputKey, sRef.StepID),
 						})
 					}
@@ -479,7 +513,16 @@ func validateTemplateRefs(def model.WorkflowDef) []ValidationError {
 
 		// Validate condition template (conditionCtx=true)
 		if step.Condition != "" {
-			_, stepRefs, _ := extractTemplateRefs(step.Condition, true)
+			paramRefs, stepRefs, _ := extractTemplateRefs(step.Condition, true)
+			for _, pRef := range paramRefs {
+				if !paramSet[pRef] {
+					errs = append(errs, ValidationError{
+						StepID:  step.ID,
+						Field:   "condition",
+						Message: fmt.Sprintf("condition references unknown parameter %q", pRef),
+					})
+				}
+			}
 			for _, sRef := range stepRefs {
 				if _, exists := stepByID[sRef.StepID]; !exists {
 					errs = append(errs, ValidationError{
