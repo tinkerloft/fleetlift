@@ -99,7 +99,9 @@ The DAG is the centerpiece of both the workflow detail and run detail pages. Mak
 
 The workflow catalog is currently a grid of identical white boxes. Every workflow looks the same — you scan titles and tags to tell them apart. This is the page that sets expectations for what FleetLift can do, and right now it undersells the breadth of the platform.
 
-**WorkflowList — give each workflow a visual identity via color:**
+**WorkflowList — sort and give each workflow a visual identity via color:**
+
+**Sorting fix:** Workflows currently display in arbitrary order (likely map iteration or unsorted DB query). Sort alphabetically by title in the frontend (`data.items.sort((a, b) => a.title.localeCompare(b.title))`) and also fix the backend `ListWorkflows` query to `ORDER BY title` so the API returns a stable order. This is a bug, not polish — fix it first.
 
 Each workflow gets a **category color** based on its primary tag or type. The color appears as a **top border accent** (4px) and tints the card's icon. This is enough to create visual variety without becoming garish.
 
