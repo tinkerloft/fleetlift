@@ -172,9 +172,9 @@ For a detailed walkthrough, see the [Getting Started guide](docs/GETTING_STARTED
 ```mermaid
 flowchart LR
     CLI["**CLI**"]
-    WebUI["**Web UI**]
+    WebUI["**Web UI**"]
     API["**API Server**"]
-    Temporal["**Temporal Workflows**]
+    Temporal["**Temporal Workflows**"]
     Worker["**Fleetlift Temporal Worker**"]
     Sandbox["**OpenSandbox**<br/>ephemeral containers per step<br/>Coding agents run inside VMs"]
 
