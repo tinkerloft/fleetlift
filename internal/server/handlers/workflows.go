@@ -30,7 +30,7 @@ func NewWorkflowsHandler(registry *template.Registry) *WorkflowsHandler {
 func (h *WorkflowsHandler) List(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -40,7 +40,7 @@ func (h *WorkflowsHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	templates, err := h.registry.List(r.Context(), teamID)
 	if err != nil {
-		http.Error(w, "failed to list workflows", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to list workflows")
 		return
 	}
 
@@ -51,7 +51,7 @@ func (h *WorkflowsHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *WorkflowsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -62,7 +62,7 @@ func (h *WorkflowsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := h.registry.Get(r.Context(), teamID, slug)
 	if err != nil {
-		http.Error(w, "workflow not found", http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, "workflow not found")
 		return
 	}
 
@@ -73,24 +73,24 @@ func (h *WorkflowsHandler) Get(w http.ResponseWriter, r *http.Request) {
 func (h *WorkflowsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	if h.writable == nil {
-		http.Error(w, "no writable template store", http.StatusNotImplemented)
+		writeJSONError(w, http.StatusNotImplemented, "no writable template store")
 		return
 	}
 
 	var t model.WorkflowTemplate
 	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	var def model.WorkflowDef
 	if err := model.ParseWorkflowYAML([]byte(t.YAMLBody), &def); err != nil {
-		http.Error(w, fmt.Sprintf("invalid workflow YAML: %s", err.Error()), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("invalid workflow YAML: %s", err.Error()))
 		return
 	}
 
@@ -100,7 +100,7 @@ func (h *WorkflowsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	t.TeamID = teamID
 	if err := h.writable.Save(r.Context(), teamID, &t); err != nil {
-		http.Error(w, "failed to save workflow", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to save workflow")
 		return
 	}
 
@@ -111,24 +111,24 @@ func (h *WorkflowsHandler) Create(w http.ResponseWriter, r *http.Request) {
 func (h *WorkflowsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	if h.writable == nil {
-		http.Error(w, "no writable template store", http.StatusNotImplemented)
+		writeJSONError(w, http.StatusNotImplemented, "no writable template store")
 		return
 	}
 
 	var t model.WorkflowTemplate
 	if err := json.NewDecoder(r.Body).Decode(&t); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	var def model.WorkflowDef
 	if err := model.ParseWorkflowYAML([]byte(t.YAMLBody), &def); err != nil {
-		http.Error(w, fmt.Sprintf("invalid workflow YAML: %s", err.Error()), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("invalid workflow YAML: %s", err.Error()))
 		return
 	}
 
@@ -139,7 +139,7 @@ func (h *WorkflowsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	t.TeamID = teamID
 	t.Slug = chi.URLParam(r, "id")
 	if err := h.writable.Save(r.Context(), teamID, &t); err != nil {
-		http.Error(w, "failed to update workflow", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to update workflow")
 		return
 	}
 
@@ -150,12 +150,12 @@ func (h *WorkflowsHandler) Update(w http.ResponseWriter, r *http.Request) {
 func (h *WorkflowsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	if h.writable == nil {
-		http.Error(w, "no writable template store", http.StatusNotImplemented)
+		writeJSONError(w, http.StatusNotImplemented, "no writable template store")
 		return
 	}
 
@@ -165,7 +165,7 @@ func (h *WorkflowsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	slug := chi.URLParam(r, "id")
 	if err := h.writable.Delete(r.Context(), teamID, slug); err != nil {
-		http.Error(w, "failed to delete workflow", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to delete workflow")
 		return
 	}
 
@@ -176,12 +176,12 @@ func (h *WorkflowsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 func (h *WorkflowsHandler) Fork(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	if h.writable == nil {
-		http.Error(w, "no writable template store", http.StatusNotImplemented)
+		writeJSONError(w, http.StatusNotImplemented, "no writable template store")
 		return
 	}
 
@@ -192,7 +192,7 @@ func (h *WorkflowsHandler) Fork(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "id")
 	t, err := h.registry.Get(r.Context(), teamID, slug)
 	if err != nil {
-		http.Error(w, "workflow not found", http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, "workflow not found")
 		return
 	}
 
@@ -204,7 +204,7 @@ func (h *WorkflowsHandler) Fork(w http.ResponseWriter, r *http.Request) {
 	forked.Slug = slug + "-fork"
 
 	if err := h.writable.Save(r.Context(), teamID, &forked); err != nil {
-		http.Error(w, "failed to fork workflow", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to fork workflow")
 		return
 	}
 

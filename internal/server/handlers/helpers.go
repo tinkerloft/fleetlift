@@ -17,6 +17,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// writeJSONError writes a JSON error response: {"error": "message"}.
+func writeJSONError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
 // mustJSON marshals v to a JSON string, returning "null" on error.
 func mustJSON(v any) string {
 	b, err := json.Marshal(v)
@@ -43,7 +50,7 @@ func teamIDFromRequest(w http.ResponseWriter, r *http.Request, claims *auth.Clai
 	}
 	if teamID != "" {
 		if _, ok := claims.TeamRoles[teamID]; !ok {
-			http.Error(w, "team not found in token", http.StatusForbidden)
+			writeJSONError(w, http.StatusForbidden, "team not found in token")
 			return ""
 		}
 		return teamID
@@ -54,7 +61,7 @@ func teamIDFromRequest(w http.ResponseWriter, r *http.Request, claims *auth.Clai
 			return id
 		}
 	}
-	http.Error(w, "X-Team-ID header (or ?team_id= param) required for multi-team accounts", http.StatusBadRequest)
+	writeJSONError(w, http.StatusBadRequest, "X-Team-ID header (or ?team_id= param) required for multi-team accounts")
 	return ""
 }
 
@@ -64,7 +71,7 @@ func getRunForTeam(ctx context.Context, db *sqlx.DB, w http.ResponseWriter, runI
 	var run model.Run
 	err := db.GetContext(ctx, &run, `SELECT * FROM runs WHERE id = $1 AND team_id = $2`, runID, teamID)
 	if err != nil {
-		http.Error(w, "run not found", http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, "run not found")
 		return nil
 	}
 	return &run

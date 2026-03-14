@@ -44,7 +44,7 @@ func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Reques
 	// Validate OAuth state to prevent CSRF
 	stateCookie, err := r.Cookie("oauth_state")
 	if err != nil || stateCookie.Value == "" {
-		http.Error(w, "missing oauth state", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "missing oauth state")
 		return
 	}
 	// Clear the cookie regardless
@@ -52,20 +52,20 @@ func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Reques
 
 	returnedState := r.URL.Query().Get("state")
 	if returnedState == "" || returnedState != stateCookie.Value {
-		http.Error(w, "invalid oauth state", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid oauth state")
 		return
 	}
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
-		http.Error(w, "missing code parameter", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "missing code parameter")
 		return
 	}
 
 	identity, err := h.provider.Exchange(r.Context(), code)
 	if err != nil {
 		log.Printf("oauth exchange error: %v", err)
-		http.Error(w, "oauth exchange failed", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "oauth exchange failed")
 		return
 	}
 
@@ -78,7 +78,7 @@ func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Reques
 		 RETURNING id`,
 		identity.Email, identity.Name, identity.Provider, identity.ProviderID)
 	if err != nil {
-		http.Error(w, "failed to upsert user", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to upsert user")
 		return
 	}
 
@@ -128,7 +128,7 @@ func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Reques
 
 	token, err := auth.IssueToken(h.jwtSecret, userID, teamRoles, platformAdmin)
 	if err != nil {
-		http.Error(w, "failed to issue token", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to issue token")
 		return
 	}
 
@@ -162,13 +162,13 @@ func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Reques
 func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("refresh_token")
 	if err != nil {
-		http.Error(w, "missing refresh token", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "missing refresh token")
 		return
 	}
 
 	newRefreshToken, userID, err := auth.RotateRefreshToken(r.Context(), h.db, cookie.Value)
 	if err != nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -192,7 +192,7 @@ func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 
 	token, err := auth.IssueToken(h.jwtSecret, userID, teamRoles, platformAdmin)
 	if err != nil {
-		http.Error(w, "failed to issue token", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to issue token")
 		return
 	}
 
@@ -213,7 +213,7 @@ func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) HandleMe(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

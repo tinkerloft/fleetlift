@@ -26,7 +26,7 @@ func NewReportsHandler(db *sqlx.DB) *ReportsHandler {
 func (h *ReportsHandler) List(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -42,7 +42,7 @@ func (h *ReportsHandler) List(w http.ResponseWriter, r *http.Request) {
 		 ORDER BY r.completed_at DESC LIMIT 50`,
 		teamID, string(model.RunStatusComplete))
 	if err != nil {
-		http.Error(w, "failed to list reports", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to list reports")
 		return
 	}
 
@@ -53,7 +53,7 @@ func (h *ReportsHandler) List(w http.ResponseWriter, r *http.Request) {
 func (h *ReportsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	teamID := teamIDFromRequest(w, r, claims)
@@ -65,7 +65,7 @@ func (h *ReportsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	var count int
 	if err := h.db.GetContext(r.Context(), &count,
 		`SELECT COUNT(*) FROM runs WHERE id = $1 AND team_id = $2`, runID, teamID); err != nil || count == 0 {
-		http.Error(w, "run not found", http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, "run not found")
 		return
 	}
 
@@ -73,7 +73,7 @@ func (h *ReportsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	err := h.db.SelectContext(r.Context(), &steps,
 		`SELECT * FROM step_runs WHERE run_id = $1 ORDER BY created_at`, runID)
 	if err != nil {
-		http.Error(w, "failed to get report", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to get report")
 		return
 	}
 
@@ -87,7 +87,7 @@ func (h *ReportsHandler) Get(w http.ResponseWriter, r *http.Request) {
 func (h *ReportsHandler) Export(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	teamID := teamIDFromRequest(w, r, claims)
@@ -99,14 +99,14 @@ func (h *ReportsHandler) Export(w http.ResponseWriter, r *http.Request) {
 
 	var run model.Run
 	if err := h.db.GetContext(r.Context(), &run, `SELECT * FROM runs WHERE id=$1 AND team_id=$2`, runID, teamID); err != nil {
-		http.Error(w, "run not found", http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, "run not found")
 		return
 	}
 
 	var steps []model.StepRun
 	if err := h.db.SelectContext(r.Context(), &steps,
 		`SELECT * FROM step_runs WHERE run_id=$1 ORDER BY created_at`, runID); err != nil {
-		http.Error(w, "failed to get steps", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to get steps")
 		return
 	}
 

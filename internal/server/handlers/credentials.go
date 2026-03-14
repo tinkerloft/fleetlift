@@ -41,7 +41,7 @@ type credentialEntry struct {
 func (h *CredentialsHandler) List(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -54,7 +54,7 @@ func (h *CredentialsHandler) List(w http.ResponseWriter, r *http.Request) {
 		`SELECT name, created_at, updated_at FROM credentials WHERE team_id = $1 ORDER BY name`,
 		teamID)
 	if err != nil {
-		http.Error(w, "failed to list credentials", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to list credentials")
 		return
 	}
 
@@ -70,18 +70,18 @@ type setCredentialRequest struct {
 func (h *CredentialsHandler) Set(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
 	var req setCredentialRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if req.Name == "" || req.Value == "" {
-		http.Error(w, "name and value are required", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "name and value are required")
 		return
 	}
 
@@ -92,7 +92,7 @@ func (h *CredentialsHandler) Set(w http.ResponseWriter, r *http.Request) {
 
 	encrypted, err := flcrypto.EncryptAESGCM(h.encryptionKey, req.Value)
 	if err != nil {
-		http.Error(w, "encryption failed", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "encryption failed")
 		return
 	}
 
@@ -102,7 +102,7 @@ func (h *CredentialsHandler) Set(w http.ResponseWriter, r *http.Request) {
 		 ON CONFLICT (team_id, name) DO UPDATE SET value_enc = $3, updated_at = now()`,
 		teamID, req.Name, encrypted)
 	if err != nil {
-		http.Error(w, "failed to save credential", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to save credential")
 		return
 	}
 
@@ -113,7 +113,7 @@ func (h *CredentialsHandler) Set(w http.ResponseWriter, r *http.Request) {
 func (h *CredentialsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -127,13 +127,13 @@ func (h *CredentialsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		`DELETE FROM credentials WHERE team_id = $1 AND name = $2`,
 		teamID, name)
 	if err != nil {
-		http.Error(w, "failed to delete credential", http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, "failed to delete credential")
 		return
 	}
 
 	rows, _ := result.RowsAffected()
 	if rows == 0 {
-		http.Error(w, "credential not found", http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, "credential not found")
 		return
 	}
 
