@@ -36,6 +36,30 @@ func TestNewRouter_ReturnsErrorOnBadFS(t *testing.T) {
 	assert.NotNil(t, router)
 }
 
+func TestNewRouter_HealthEndpoint(t *testing.T) {
+	registry := template.NewRegistry()
+	deps := Deps{
+		JWTSecret:   []byte("test-secret"),
+		Auth:        handlers.NewAuthHandler(nil, nil, []byte("test-secret")),
+		Workflows:   handlers.NewWorkflowsHandler(registry),
+		Runs:        handlers.NewRunsHandler(nil, nil, registry, nil),
+		Inbox:       handlers.NewInboxHandler(nil),
+		Reports:     handlers.NewReportsHandler(nil),
+		Credentials: newTestCredentialsHandler(),
+		Knowledge:   handlers.NewKnowledgeHandler(nil),
+	}
+	router, err := NewRouter(deps)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Header().Get("Content-Type"), "application/json")
+	assert.Contains(t, w.Body.String(), `"status"`)
+}
+
 func TestNewRouter_SPAFallback(t *testing.T) {
 	registry := template.NewRegistry()
 	deps := Deps{

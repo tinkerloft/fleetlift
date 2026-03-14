@@ -53,6 +53,13 @@ func NewRouter(deps Deps) (http.Handler, error) {
 	r.Get("/auth/github", deps.Auth.HandleGitHubRedirect)
 	r.Get("/auth/github/callback", deps.Auth.HandleGitHubCallback)
 
+	// Health check (no auth required)
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+
 	// Public config (no auth required)
 	temporalUIURL := deps.TemporalUIURL
 	r.Get("/api/config", func(w http.ResponseWriter, r *http.Request) {
