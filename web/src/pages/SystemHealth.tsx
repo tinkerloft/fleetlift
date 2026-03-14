@@ -8,7 +8,12 @@ export function SystemHealthPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">System Health</h1>
+      <div>
+        <h1 className="text-2xl font-bold">System Health</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Placeholder — real health data requires <code className="text-xs font-mono">GET /api/health/system</code> (not yet implemented).
+        </p>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {/* Temporal connection */}
@@ -18,7 +23,8 @@ export function SystemHealthPage() {
             <span className="text-sm font-medium">Temporal</span>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant="success">Connected</Badge>
+            <Badge variant="outline">Unknown</Badge>
+            <span className="text-xs text-muted-foreground">(coming soon)</span>
           </div>
           {config?.temporal_ui_url && (
             <a
@@ -38,7 +44,8 @@ export function SystemHealthPage() {
             <Activity className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">API Server</span>
           </div>
-          <Badge variant="success">Healthy</Badge>
+          <Badge variant="outline">Unknown</Badge>
+          <span className="text-xs text-muted-foreground">(coming soon)</span>
         </div>
 
         {/* Placeholder */}

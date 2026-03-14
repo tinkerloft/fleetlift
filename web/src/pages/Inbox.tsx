@@ -177,7 +177,10 @@ export function InboxPage() {
                     <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => handleReject(item)}>
                       Reject
                     </Button>
-                    <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => setSteerOpenId(steerOpenId === item.id ? null : item.id)}>
+                    <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => {
+                      setSteerOpenId(steerOpenId === item.id ? null : item.id)
+                      setSteerText('')
+                    }}>
                       Steer
                     </Button>
                   </div>

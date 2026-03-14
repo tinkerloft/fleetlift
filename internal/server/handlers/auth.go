@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"log"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -219,10 +221,12 @@ func (h *AuthHandler) HandleMe(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch user profile from DB
 	var name, email string
-	_ = h.db.QueryRowContext(r.Context(),
+	if err := h.db.QueryRowContext(r.Context(),
 		`SELECT COALESCE(name, ''), COALESCE(email, '') FROM users WHERE id = $1`,
 		claims.UserID,
-	).Scan(&name, &email)
+	).Scan(&name, &email); err != nil && err != sql.ErrNoRows {
+		slog.Warn("failed to fetch user profile", "err", err, "user_id", claims.UserID)
+	}
 
 	// Fetch team details
 	type teamInfo struct {
@@ -243,6 +247,9 @@ func (h *AuthHandler) HandleMe(w http.ResponseWriter, r *http.Request) {
 			if rows.StructScan(&t) == nil {
 				teams = append(teams, t)
 			}
+		}
+		if err := rows.Err(); err != nil {
+			slog.Warn("error iterating team rows", "err", err, "user_id", claims.UserID)
 		}
 	}
 	if teams == nil {

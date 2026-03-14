@@ -7,14 +7,18 @@ interface LogStreamProps {
 
 export function LogStream({ stepRunId }: LogStreamProps) {
   const [logs, setLogs] = useState<StepRunLog[]>([])
+  const [connected, setConnected] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const autoScrollRef = useRef(true)
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reset logs when stepRunId changes before subscribing
     setLogs([])
+    setConnected(false)
     const seen = new Set<number>()
     const es = new EventSource(`/api/runs/steps/${stepRunId}/logs`)
+
+    es.onopen = () => setConnected(true)
 
     es.onmessage = (e) => {
       try {
@@ -30,11 +34,15 @@ export function LogStream({ stepRunId }: LogStreamProps) {
 
     // Server closes connection when step is terminal; prevent EventSource auto-reconnect.
     es.onerror = () => {
+      setConnected(false)
       if (es.readyState === EventSource.CLOSED) return
       es.close()
     }
 
-    return () => es.close()
+    return () => {
+      es.close()
+      setConnected(false)
+    }
   }, [stepRunId])
 
   useEffect(() => {
@@ -59,7 +67,7 @@ export function LogStream({ stepRunId }: LogStreamProps) {
       <div className="flex items-center justify-between bg-gray-900 px-3 py-1.5 border-b border-gray-800">
         <span className="text-[11px] text-gray-400">Logs</span>
         <div className="flex items-center gap-2">
-          {logs.length > 0 && (
+          {connected && logs.length > 0 && (
             <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
               <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
               streaming

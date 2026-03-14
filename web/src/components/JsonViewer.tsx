@@ -1,8 +1,10 @@
 /** Simple syntax-colored JSON viewer */
 export function JsonViewer({ data }: { data: unknown }) {
   const json = JSON.stringify(data, null, 2)
+  // HTML-escape before injecting into DOM to prevent XSS
+  const escaped = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   // Colorize: keys, strings, numbers, booleans, nulls
-  const html = json.replace(
+  const html = escaped.replace(
     /("(?:\\.|[^"\\])*")\s*:/g, '<span class="text-blue-600 dark:text-blue-400">$1</span>:'
   ).replace(
     /:\s*("(?:\\.|[^"\\])*")/g, ': <span class="text-green-700 dark:text-green-400">$1</span>'

@@ -39,67 +39,32 @@ See: [`2026-03-14-tier1-production-readiness.md`](2026-03-14-tier1-production-re
 
 Makes FleetLift feel finished. Tracks C and D can run in parallel.
 
-### Track C: Web Experience
+### Track C: Web Experience ✅
 
-Merges the web interface enrichment remaining phases, visual polish plan, profile menu, and inbox notifications into a single track.
+Merges the web interface enrichment remaining phases, visual polish plan, profile menu, and inbox notifications into a single track. **Complete — all phases implemented. See code review follow-ups below.**
 
-#### C1: DAG Graph Overhaul (from Visual Polish Phase 1)
-- Custom node component: status dot + title + mode badge + duration
-- Left accent bar in status color, white/dark background
-- Pulsing dot for `running` nodes
-- `smoothstep` edges, animated dashed stroke for active edges
-- Dynamic height: `min(400px, levels * 140 + 100)`
-- **Files:** `DAGGraph.tsx` (rewrite), new `DAGNode.tsx`
+See: [`2026-03-14-track-c-web-experience.md`](2026-03-14-track-c-web-experience.md) for the full implementation plan.
 
-#### C2: Run Detail — The Whoa Moment (from Visual Polish Phase 3)
-- Live duration counter next to status badge
-- Progress indicator: `3 of 7 steps` with segmented bar
-- Step list → vertical timeline component
-- Fan-out visualization (one node → parallel lanes)
-- Data flow animation on edges when step completes
-- Diff syntax coloring (`+` green, `-` red, `@@` blue)
-- JSON output syntax coloring
-- **Files:** `RunDetail.tsx`, `StepPanel.tsx`, `LogStream.tsx`, new `StepTimeline.tsx`
+| Phase | Item | Status |
+|-------|------|--------|
+| C1 | DAG Graph Overhaul — custom nodes, smoothstep edges, dynamic height | ✅ |
+| C2 | Run Detail — live duration, progress bar, step timeline, diff/JSON coloring | ✅ |
+| C3 | Workflow Pages — category colors, icons, CodeMirror YAML, alphabetical sort | ✅ |
+| C4 | Global Polish — skeleton loaders, empty states, enhanced badges | ✅ |
+| C5 | Profile Menu — /api/me enrichment, Radix dropdown, UserMenu | ✅ |
+| C6 | Inbox Enhancements — filter tabs, inline approve/reject/steer | ✅ |
+| C7 | Enhanced Components — DiffViewer, JsonViewer, StepTimeline | ✅ |
+| C8 | System Health Page — placeholder UI (backend endpoint deferred) | ✅ |
 
-#### C3: Workflow Pages — Color & Identity (from Visual Polish Phase 2)
-- Category color per workflow (top border accent + icon tint)
-- Lucide icon per category (Shield, Bug, GitBranch, etc.)
-- Step count + mode chips on cards
-- Sort workflow list alphabetically (fix backend `ORDER BY title` too)
-- Workflow detail: hero section with icon, CodeMirror YAML view
-- **Files:** `WorkflowList.tsx`, `WorkflowDetail.tsx`, new `workflow-colors.ts`
-
-#### C4: Global Polish (from Visual Polish Phase 4)
-- Skeleton loading states (replace "Loading..." text)
-- Empty states with muted icons + CTAs
-- Enhanced status badges (pulsing dot for `running`, amber for `awaiting_input`)
-- Monospace text backgrounds, section separators
-- **Files:** `badge.tsx`, `index.css`, multiple pages
-
-#### C5: Profile Menu (from Profile Menu plan)
-- Radix DropdownMenu ui primitive
-- Enrich `/api/me` with user name, email, team details
-- `UserMenu` component with initials avatar, team list, sign out
-- Header bar in Layout.tsx
-- **Files:** `dropdown-menu.tsx`, `UserMenu.tsx`, `Layout.tsx`, `auth.go`
-
-#### C6: Inbox Enhancements (from Inbox Notifications + Web Enrichment Phase 12)
-- HITL inbox notifications (create item when step enters `awaiting_input`)
-- Per-step failure notifications (non-optional step fails → inbox item)
-- Inline approve/reject/steer buttons in inbox
-- Unread count badge on Inbox nav link
-- **Files:** `step.go`, `dag.go`, `Inbox.tsx`, `Sidebar.tsx`
-
-#### C7: Enhanced Components (from Web Enrichment Phase 11)
-- Syntax-highlighted diff viewer (Prism or CSS-only)
-- CodeMirror YAML editor with real-time validation
-- Execution timeline component
-- **Files:** new components, `TaskDetail.tsx`
-
-#### C8: System Health Page (from Web Enrichment Phase 12)
-- Worker status, task queue depth (via Temporal API)
-- Recent workflow failure rate
-- Links to full Temporal UI
+#### Code Review Follow-ups (pre-merge) — ✅ All resolved
+- [x] **P1:** Fix XSS in `JsonViewer.tsx` — HTML-escape before regex colorization
+- [x] **P1:** Add `rows.Err()` check in `auth.go` `HandleMe` after SQL iteration
+- [x] **P2:** Log DB errors on user profile lookup in `HandleMe`
+- [x] **P2:** Use `replaceAll('_', ' ')` in `StatusBadge` and `StepTimeline`
+- [x] **P2:** Track EventSource connection state in `LogStream` for streaming indicator
+- [x] **P2:** Clear steer text when switching inbox items
+- [x] **P2:** Mark SystemHealth as placeholder (no hardcoded green badges)
+- [x] **P2:** Add component-level tests for StatusBadge, DiffViewer, UserMenu
 
 ### Track D: OSS Positioning
 

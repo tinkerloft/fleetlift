@@ -66,7 +66,7 @@ function StepTimelineItem({ sr, selectedStepId, onSelect }: { sr: StepRun; selec
           </span>
         </div>
         <span className="text-[11px] text-muted-foreground">
-          {sr.status.replace('_', ' ')}
+          {sr.status.replaceAll('_', ' ')}
         </span>
       </div>
     </button>
