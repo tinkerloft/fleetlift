@@ -169,15 +169,15 @@ For a detailed walkthrough, see the [Getting Started guide](docs/GETTING_STARTED
 ```mermaid
 flowchart TD
     CLI["**CLI**"]
-    WebUI["**Web UI**\nReact 19 SPA"]
-    API["**API Server**\nchi router · JWT middleware\n/api/workflows · /api/runs · /api/inbox\n/auth/github · /auth/github/callback"]
-    Temporal["**Temporal Server**\nworkflow state store"]
-    Worker["**Worker**\nDAGWorkflow · StepWorkflow\nActivities: agent, PR, sandbox, slack, verify"]
-    Sandbox["**OpenSandbox**\nephemeral containers per step\nClaude Code agent runs inside"]
+    WebUI["**Web UI**<br/>React 19 SPA"]
+    API["**API Server**<br/>chi router · JWT middleware<br/>/api/workflows · /api/runs · /api/inbox<br/>/auth/github · /auth/github/callback"]
+    Temporal["**Temporal Server**<br/>workflow state store"]
+    Worker["**Worker**<br/>DAGWorkflow · StepWorkflow<br/>Activities: agent, PR, sandbox, slack, verify"]
+    Sandbox["**OpenSandbox**<br/>ephemeral containers per step<br/>Claude Code agent runs inside"]
 
     CLI <-->|REST/SSE| API
     WebUI <-->|REST/SSE| API
-    API -->|"Temporal SDK\nstart/signal"| Temporal
+    API -->|"Temporal SDK<br/>start/signal"| Temporal
     Temporal -->|"task queue: fleetlift"| Worker
     Worker -->|REST| Sandbox
 ```
