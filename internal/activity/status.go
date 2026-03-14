@@ -92,6 +92,25 @@ func (a *Activities) CreateInboxItem(ctx context.Context, teamID, runID, stepRun
 	return nil
 }
 
+// CompleteStepRun sets the final status, output, diff, and error for a step run.
+func (a *Activities) CompleteStepRun(ctx context.Context, stepRunID string, status string, output map[string]any, diff string, errorMsg string) error {
+	now := time.Now()
+	_, err := a.DB.ExecContext(ctx,
+		`UPDATE step_runs
+		 SET status = $1,
+		     output = $2,
+		     diff = NULLIF($3, ''),
+		     error_message = NULLIF($4, ''),
+		     started_at = COALESCE(started_at, $5),
+		     completed_at = $6
+		 WHERE id = $7`,
+		status, model.JSONMap(output), diff, errorMsg, now, now, stepRunID)
+	if err != nil {
+		return fmt.Errorf("complete step run: %w", err)
+	}
+	return nil
+}
+
 // CleanupSandbox kills a sandbox.
 func (a *Activities) CleanupSandbox(ctx context.Context, sandboxID string) error {
 	return a.Sandbox.Kill(ctx, sandboxID)
@@ -115,15 +134,17 @@ type logLine struct {
 }
 
 // logBuffer is a simple buffer of log lines with a configurable flush threshold.
+// It also flushes on a time interval to support real-time log streaming.
 type logBuffer struct {
 	stepRunID string
 	stream    string
 	lines     []logLine
 	threshold int
 	acts      *Activities
+	lastFlush time.Time
 }
 
-// newLogBuffer creates a logBuffer that flushes every threshold lines.
+// newLogBuffer creates a logBuffer that flushes every threshold lines or every second.
 func newLogBuffer(acts *Activities, stepRunID, stream string, threshold int) *logBuffer {
 	return &logBuffer{
 		stepRunID: stepRunID,
@@ -131,16 +152,17 @@ func newLogBuffer(acts *Activities, stepRunID, stream string, threshold int) *lo
 		lines:     make([]logLine, 0, threshold),
 		threshold: threshold,
 		acts:      acts,
+		lastFlush: time.Now(),
 	}
 }
 
-// add appends a log line and flushes if the threshold is reached.
+// add appends a log line and flushes if the threshold is reached or 1 second has passed.
 func (b *logBuffer) add(ctx context.Context, seq int64, content string) {
 	if content == "" {
 		return
 	}
 	b.lines = append(b.lines, logLine{Seq: seq, Stream: b.stream, Content: content})
-	if len(b.lines) >= b.threshold {
+	if len(b.lines) >= b.threshold || time.Since(b.lastFlush) >= time.Second {
 		b.flush(ctx)
 	}
 }
@@ -153,6 +175,7 @@ func (b *logBuffer) flush(ctx context.Context) {
 	}
 	_ = batchInsertLogs(ctx, b.acts, b.stepRunID, b.lines)
 	b.lines = b.lines[:0]
+	b.lastFlush = time.Now()
 }
 
 // batchInsertLogs writes a slice of log lines to step_run_logs in one INSERT.

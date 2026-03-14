@@ -88,12 +88,17 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 	buf := newLogBuffer(a, stepInput.StepRunID, "stdout", LogFlushThreshold)
 	var seq int64
 	var lastOutput map[string]any
+	var gotComplete bool
 	for event := range events {
+		if event.Type == "" && event.Content == "" {
+			continue // skip empty events (filtered noise)
+		}
 		activity.RecordHeartbeat(ctx, "agent running: "+event.Type)
 		buf.add(ctx, seq, event.Content)
 		seq++
 		if event.Type == "complete" {
 			lastOutput = event.Output
+			gotComplete = true
 		}
 		if event.Type == "error" {
 			buf.flush(ctx)
@@ -101,6 +106,43 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 		}
 	}
 	buf.flush(ctx)
+
+	// If the agent never emitted a completion event, the command failed.
+	if !gotComplete {
+		return &model.StepOutput{
+			StepID: stepInput.StepDef.ID,
+			Status: model.StepStatusFailed,
+			Error:  "agent exited without producing a result",
+		}, nil
+	}
+
+	// Check for agent-reported error (Claude CLI sets is_error: true on failure).
+	if isErr, ok := lastOutput["is_error"]; ok {
+		if b, isBool := isErr.(bool); isBool && b {
+			errMsg := "agent reported an error"
+			if result, ok := lastOutput["result"].(string); ok && result != "" {
+				errMsg = result
+			}
+			return &model.StepOutput{
+				StepID: stepInput.StepDef.ID,
+				Status: model.StepStatusFailed,
+				Output: lastOutput,
+				Error:  errMsg,
+			}, nil
+		}
+	}
+
+	// Check for non-zero exit code (shell runner includes exit_code in output).
+	if exitCode, ok := lastOutput["exit_code"]; ok {
+		if code, isNum := exitCode.(float64); isNum && code != 0 {
+			return &model.StepOutput{
+				StepID: stepInput.StepDef.ID,
+				Status: model.StepStatusFailed,
+				Output: lastOutput,
+				Error:  fmt.Sprintf("command exited with code %d", int(code)),
+			}, nil
+		}
+	}
 
 	// 3. Extract git diff — run in each repo dir and concatenate
 	var diffParts []string

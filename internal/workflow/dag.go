@@ -9,6 +9,7 @@ import (
 	"text/template"
 	"time"
 
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/tinkerloft/fleetlift/internal/model"
@@ -41,17 +42,23 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 	}
 
 	defer func() {
+		// Use a disconnected context so cleanup activities run even after cancellation.
+		dCtx, _ := workflow.NewDisconnectedContext(ctx)
 		finalStatus := string(model.RunStatusComplete)
 		finalError := ""
 		if retErr != nil {
-			finalStatus = string(model.RunStatusFailed)
-			finalError = retErr.Error()
+			if temporal.IsCanceledError(retErr) {
+				finalStatus = string(model.RunStatusCancelled)
+			} else {
+				finalStatus = string(model.RunStatusFailed)
+				finalError = retErr.Error()
+			}
 		}
 		ao := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
 		_ = workflow.ExecuteActivity(
-			workflow.WithActivityOptions(ctx, ao),
+			workflow.WithActivityOptions(dCtx, ao),
 			UpdateRunStatusActivity, input.RunID, finalStatus, finalError,
-		).Get(ctx, nil)
+		).Get(dCtx, nil)
 	}()
 
 	steps := input.WorkflowDef.Steps
@@ -82,6 +89,11 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 	}()
 
 	for len(pending) > 0 {
+		// Check for cancellation before starting new steps.
+		if ctx.Err() != nil {
+			return temporal.NewCanceledError()
+		}
+
 		ready := findReady(pending, outputs)
 		if len(ready) == 0 {
 			return fmt.Errorf("DAG deadlock: circular dependency or all steps blocked")
@@ -91,10 +103,20 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 		for _, step := range ready {
 			if step.SandboxGroup != "" && sandboxes[step.SandboxGroup] == "" {
 				ao := workflow.ActivityOptions{StartToCloseTimeout: 5 * time.Minute}
+				// Build a proper StepInput so ProvisionSandbox gets the right agent/credentials.
+				provisionInput := StepInput{
+					TeamID: input.TeamID,
+				}
+				if step.Execution != nil {
+					provisionInput.ResolvedOpts = ResolvedStepOpts{
+						Agent:       step.Execution.Agent,
+						Credentials: step.Execution.Credentials,
+					}
+				}
 				var sandboxID string
 				err := workflow.ExecuteActivity(
 					workflow.WithActivityOptions(ctx, ao),
-					ProvisionSandboxActivity, step,
+					ProvisionSandboxActivity, provisionInput,
 				).Get(ctx, &sandboxID)
 				if err != nil {
 					return fmt.Errorf("provision sandbox group %s: %w", step.SandboxGroup, err)
@@ -251,6 +273,11 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 			})
 		}
 		wg.Wait(ctx)
+
+		// Check for cancellation after parallel step execution.
+		if ctx.Err() != nil {
+			return temporal.NewCanceledError()
+		}
 
 		// Collect results
 		for _, r := range results {

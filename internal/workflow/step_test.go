@@ -105,6 +105,11 @@ func (m *stepMockActivities) VerifyStep(_ context.Context, sandboxID, stepRunID 
 	return args.Error(0)
 }
 
+func (m *stepMockActivities) CompleteStepRun(_ context.Context, stepRunID, status string, output map[string]any, diff, errorMsg string) error {
+	args := m.Called(stepRunID, status, output, diff, errorMsg)
+	return args.Error(0)
+}
+
 // newStepWorkflowEnv creates a configured Temporal test environment with all
 // StepWorkflow activities registered from the mock struct.
 func newStepWorkflowEnv(t *testing.T) (*testsuite.TestWorkflowEnvironment, *stepMockActivities) {
@@ -119,6 +124,7 @@ func newStepWorkflowEnv(t *testing.T) (*testsuite.TestWorkflowEnvironment, *step
 	env.RegisterActivity(mocks.CreatePullRequest)
 	env.RegisterActivity(mocks.CaptureKnowledge)
 	env.RegisterActivity(mocks.VerifyStep)
+	env.RegisterActivity(mocks.CompleteStepRun)
 	return env, mocks
 }
 
@@ -152,9 +158,7 @@ func TestStepWorkflow_ReusesSandboxID(t *testing.T) {
 	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
 		return ei.SandboxID == "existing-sandbox-abc"
 	})).Return(expectedOutput, nil)
-
-	// CleanupSandbox must NOT be called because input.SandboxID is non-empty.
-	// (No .On registration — calling it would cause a test failure.)
+	mocks.On("CompleteStepRun", "sr-1", "complete", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	env.ExecuteWorkflow(StepWorkflow, input)
 
@@ -169,6 +173,8 @@ func TestStepWorkflow_ReusesSandboxID(t *testing.T) {
 	mocks.AssertNotCalled(t, "ProvisionSandbox", mock.Anything)
 	// CleanupSandbox must not have been called.
 	mocks.AssertNotCalled(t, "CleanupSandbox", mock.Anything)
+	// CompleteStepRun must have been called with 'complete' status.
+	mocks.AssertCalled(t, "CompleteStepRun", "sr-1", "complete", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // TestStepWorkflow_ProvisionAndCleanup verifies that when SandboxID is empty and
@@ -204,6 +210,7 @@ func TestStepWorkflow_ProvisionAndCleanup(t *testing.T) {
 		return ei.SandboxID == "provisioned-sandbox-xyz"
 	})).Return(expectedOutput, nil)
 	mocks.On("CleanupSandbox", "provisioned-sandbox-xyz").Return(nil)
+	mocks.On("CompleteStepRun", "sr-2", "complete", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	env.ExecuteWorkflow(StepWorkflow, input)
 
@@ -216,6 +223,7 @@ func TestStepWorkflow_ProvisionAndCleanup(t *testing.T) {
 
 	mocks.AssertCalled(t, "ProvisionSandbox", input)
 	mocks.AssertCalled(t, "CleanupSandbox", "provisioned-sandbox-xyz")
+	mocks.AssertCalled(t, "CompleteStepRun", "sr-2", "complete", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // TestStepWorkflow_SandboxGroupSkipsCleanup verifies that when SandboxGroup is set
@@ -251,6 +259,7 @@ func TestStepWorkflow_SandboxGroupSkipsCleanup(t *testing.T) {
 	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
 		return ei.SandboxID == "group-sandbox-123"
 	})).Return(expectedOutput, nil)
+	mocks.On("CompleteStepRun", "sr-3", "complete", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	// CleanupSandbox must NOT be called because SandboxGroup is set.
 
@@ -265,4 +274,5 @@ func TestStepWorkflow_SandboxGroupSkipsCleanup(t *testing.T) {
 
 	mocks.AssertCalled(t, "ProvisionSandbox", input)
 	mocks.AssertNotCalled(t, "CleanupSandbox", mock.Anything)
+	mocks.AssertCalled(t, "CompleteStepRun", "sr-3", "complete", mock.Anything, mock.Anything, mock.Anything)
 }

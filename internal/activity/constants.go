@@ -32,6 +32,7 @@ const (
 	ActivityUpdateRunStatus  = "UpdateRunStatus"
 	ActivityCreateInboxItem  = "CreateInboxItem"
 	ActivityExecuteAction    = "ExecuteAction"
+	ActivityCompleteStepRun  = "CompleteStepRun"
 
 	// Knowledge capture and prompt enrichment activities
 	ActivityCaptureKnowledge = "CaptureKnowledge"

@@ -1,0 +1,36 @@
+version: 1
+id: sandbox-test
+title: Sandbox Test
+description: Diagnostic workflow — runs shell commands to verify sandbox operations and step output passing.
+tags:
+  - test
+  - diagnostic
+parameters:
+  - name: duration
+    type: int
+    required: false
+    default: 3
+    description: "How many seconds to stream output in step 1"
+  - name: command2
+    type: string
+    required: false
+    default: "echo received-from-step1"
+    description: "Shell command to run in step 2 (step 1 output available via template)"
+steps:
+  - id: run_command
+    title: Run shell command
+    sandbox_group: test
+    mode: report
+    execution:
+      agent: shell
+      prompt: 'echo hello-from-sandbox && hostname && date -u && for i in $(seq 1 {{ .Params.duration }}); do echo "[tick $i/{{ .Params.duration }}] $(date -u +%H:%M:%S)"; sleep 1; done && echo done'
+
+  - id: use_output
+    title: Use step 1 output
+    depends_on:
+      - run_command
+    sandbox_group: test
+    mode: report
+    execution:
+      agent: shell
+      prompt: '{{ .Params.command2 }} && echo step1-output={{ .Steps.run_command.Output | toJSON }}'

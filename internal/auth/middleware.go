@@ -2,72 +2,9 @@ package auth
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"net/http"
 	"strings"
-	"sync"
-	"time"
 )
-
-func init() {
-	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
-		defer ticker.Stop()
-		for range ticker.C {
-			now := time.Now()
-			sseTicketMu.Lock()
-			for k, t := range sseTickets {
-				if now.After(t.expires) {
-					delete(sseTickets, k)
-				}
-			}
-			sseTicketMu.Unlock()
-		}
-	}()
-}
-
-var (
-	sseTicketMu sync.Mutex
-	sseTickets  = map[string]sseTicket{}
-)
-
-type sseTicket struct {
-	claims     *Claims
-	resourceID string // run ID or step run ID the ticket is valid for
-	expires    time.Time
-}
-
-// IssueSSETicket creates a short-lived ticket that can be exchanged for a session in SSE endpoints.
-// The ticket is bound to resourceID (a run ID or step run ID) and will be rejected if presented
-// for a different resource.
-func IssueSSETicket(claims *Claims, resourceID string) string {
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	ticket := hex.EncodeToString(b)
-	sseTicketMu.Lock()
-	sseTickets[ticket] = sseTicket{claims: claims, resourceID: resourceID, expires: time.Now().Add(60 * time.Second)}
-	sseTicketMu.Unlock()
-	return ticket
-}
-
-// ConsumeSSETicket validates and removes a ticket, returning its claims.
-// resourceID must match what was provided to IssueSSETicket; a mismatch returns false.
-func ConsumeSSETicket(ticket, resourceID string) (*Claims, bool) {
-	sseTicketMu.Lock()
-	defer sseTicketMu.Unlock()
-	t, ok := sseTickets[ticket]
-	if !ok || time.Now().After(t.expires) {
-		delete(sseTickets, ticket)
-		return nil, false
-	}
-	if t.resourceID != resourceID {
-		// Do not consume — mismatched resource; leave ticket in place to avoid timing side-channels.
-		return nil, false
-	}
-	delete(sseTickets, ticket)
-	return t.claims, true
-}
 
 type contextKey string
 
@@ -98,6 +35,11 @@ func Middleware(secret []byte) func(http.Handler) http.Handler {
 func ClaimsFromContext(ctx context.Context) *Claims {
 	c, _ := ctx.Value(claimsKey).(*Claims)
 	return c
+}
+
+// SetClaimsInContext stores claims in the context (used by dev auth bypass).
+func SetClaimsInContext(ctx context.Context, claims *Claims) context.Context {
+	return context.WithValue(ctx, claimsKey, claims)
 }
 
 func extractToken(r *http.Request) string {

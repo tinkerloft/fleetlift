@@ -86,7 +86,7 @@ type EgressPolicy struct {
 }
 
 type ExecutionDef struct {
-	Agent       string           `yaml:"agent"` // "claude-code" | "codex"
+	Agent       string           `yaml:"agent"` // "claude-code" | "codex" | "shell"
 	Prompt      string           `yaml:"prompt"`
 	Verifiers   any              `yaml:"verifiers,omitempty"`
 	Credentials []string         `yaml:"credentials,omitempty"`

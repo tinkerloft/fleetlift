@@ -43,6 +43,13 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 		}
 	}
 
+	// Inject agent-specific env vars (e.g. Claude auth keys)
+	if runner, ok := a.AgentRunners[input.ResolvedOpts.Agent]; ok {
+		for k, v := range runner.SandboxEnv() {
+			env[k] = v
+		}
+	}
+
 	// Inject git identity from worker env
 	if email := os.Getenv("GIT_USER_EMAIL"); email != "" {
 		env["GIT_USER_EMAIL"] = email
@@ -73,6 +80,11 @@ func agentImage(agentName string) string {
 			return img
 		}
 		return "codex:latest"
+	case "shell":
+		if img := os.Getenv("SHELL_IMAGE"); img != "" {
+			return img
+		}
+		return "ubuntu:22.04"
 	default: // claude-code
 		if img := os.Getenv("AGENT_IMAGE"); img != "" {
 			return img

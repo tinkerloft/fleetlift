@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/tinkerloft/fleetlift/internal/model"
@@ -65,6 +66,7 @@ var (
 	CreatePRActivity          = "CreatePullRequest"
 	CleanupSandboxActivity    = "CleanupSandbox"
 	CaptureKnowledgeActivity  = "CaptureKnowledge"
+	CompleteStepRunActivity    = "CompleteStepRun"
 )
 
 // StepWorkflow orchestrates a single step: provision sandbox, run agent, handle HITL signals, optionally create PR.
@@ -127,11 +129,13 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 				workflow.WithActivityOptions(ctx, verifyAO),
 				VerifyStepActivity, sandboxID, input.StepRunID, input.ResolvedOpts.Verifiers,
 			).Get(ctx, nil); verifyErr != nil {
-				return &model.StepOutput{
+				failOutput := &model.StepOutput{
 					StepID: input.StepDef.ID,
 					Status: model.StepStatusFailed,
 					Error:  fmt.Sprintf("verification failed: %v", verifyErr),
-				}, nil
+				}
+				finalizeStep(ctx, logger, input.StepRunID, failOutput)
+				return failOutput, nil
 			}
 		}
 
@@ -177,11 +181,13 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 			break
 		}
 		if rejected || cancelled {
-			return &model.StepOutput{
+			rejectOutput := &model.StepOutput{
 				StepID: input.StepDef.ID,
 				Status: model.StepStatusFailed,
 				Error:  "rejected by user",
-			}, nil
+			}
+			finalizeStep(ctx, logger, input.StepRunID, rejectOutput)
+			return rejectOutput, nil
 		}
 		// Steer: rebuild prompt with history and new instruction
 		conversationHistory = fmt.Sprintf("%s\n\nPrevious attempt output:\n%s\n\nSteering instruction:\n%s",
@@ -230,7 +236,29 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 		}
 	}
 
+	// 9. Finalize step_run record with status, output, diff, and error.
+	finalizeStep(ctx, logger, input.StepRunID, output)
+
 	return output, nil
+}
+
+// finalizeStep updates the step_run DB record with the final result.
+func finalizeStep(ctx workflow.Context, logger log.Logger, stepRunID string, output *model.StepOutput) {
+	if stepRunID == "" || output == nil {
+		return
+	}
+	ao := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
+	if err := workflow.ExecuteActivity(
+		workflow.WithActivityOptions(ctx, ao),
+		CompleteStepRunActivity,
+		stepRunID,
+		string(output.Status),
+		output.Output,
+		output.Diff,
+		output.Error,
+	).Get(ctx, nil); err != nil {
+		logger.Error("failed to finalize step run", "step_run_id", stepRunID, "error", err)
+	}
 }
 
 func shouldPause(def model.StepDef, output *model.StepOutput) bool {

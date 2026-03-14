@@ -84,16 +84,14 @@ export const api = {
   getReportArtifacts: (runId: string) => get<ListResponse<Artifact>>(`/reports/${runId}/artifacts`),
 }
 
-/** Subscribe to live run updates via SSE. Returns a Promise of an unsubscribe function. */
-export async function subscribeToRun(
+/** Subscribe to live run updates via SSE. Returns an unsubscribe function. */
+export function subscribeToRun(
   runId: string,
   onStatus: (update: RunStatusUpdate) => void,
   onLog: (log: StepRunLog) => void,
   onError?: (e: Event) => void,
-): Promise<() => void> {
-  const { ticket } = await post<{ ticket: string }>(`/runs/${runId}/events/ticket`, {})
-  const url = `${BASE}/runs/${runId}/events?ticket=${ticket}`
-  const es = new EventSource(url)
+): () => void {
+  const es = new EventSource(`${BASE}/runs/${runId}/events`)
 
   es.addEventListener('status', (e) => {
     try {
@@ -111,6 +109,11 @@ export async function subscribeToRun(
     } catch { /* ignore malformed events */ }
   }
 
-  if (onError) es.onerror = onError
+  es.onerror = (e) => {
+    if (onError) onError(e)
+    // Server closes connection when run is terminal; prevent auto-reconnect.
+    if (es.readyState === EventSource.CLOSED) return
+    es.close()
+  }
   return () => es.close()
 }
