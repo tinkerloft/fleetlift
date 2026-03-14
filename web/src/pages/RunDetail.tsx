@@ -4,10 +4,25 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, subscribeToRun, getConfig } from '@/api/client'
 import { DAGGraph } from '@/components/DAGGraph'
 import { StepPanel } from '@/components/StepPanel'
+import { StepTimeline } from '@/components/StepTimeline'
 import { HITLPanel } from '@/components/HITLPanel'
-import { Badge } from '@/components/ui/badge'
+import { StatusBadge } from '@/components/StatusBadge'
+import { Skeleton } from '@/components/Skeleton'
 import { Button } from '@/components/ui/button'
+import { useLiveDuration } from '@/lib/use-live-duration'
+import { cn } from '@/lib/utils'
 import type { StepDef, StepRun, Run, RunStatusUpdate, StepRunLog } from '@/api/types'
+
+const SEG_COLOR: Record<string, string> = {
+  complete: 'bg-green-500',
+  running: 'bg-blue-500 animate-pulse',
+  cloning: 'bg-blue-500 animate-pulse',
+  verifying: 'bg-violet-500 animate-pulse',
+  awaiting_input: 'bg-amber-500',
+  failed: 'bg-red-500',
+  pending: 'bg-transparent',
+  skipped: 'bg-transparent',
+}
 
 export function RunDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -26,122 +41,99 @@ export function RunDetailPage() {
     refetchInterval: sseConnected ? false : 5000,
   })
 
-  // SSE subscription for live updates
+  const duration = useLiveDuration(run?.started_at, run?.completed_at)
+
   useEffect(() => {
     if (!id) return
-    let cleanup: (() => void) | undefined
     setSseConnected(false)
-
-    cleanup = subscribeToRun(
+    const cleanup = subscribeToRun(
       id,
-      (_update: RunStatusUpdate) => {
-        queryClient.invalidateQueries({ queryKey: ['run', id] })
-      },
-      (_log: StepRunLog) => {
-        // Logs are handled by LogStream component per step
-      },
+      (_update: RunStatusUpdate) => queryClient.invalidateQueries({ queryKey: ['run', id] }),
+      (_log: StepRunLog) => {},
       () => setSseConnected(false),
     )
     setSseConnected(true)
-
     return () => cleanup?.()
   }, [id, queryClient])
 
   const handleApprove = useCallback(async () => {
     if (!id) return
     setActionError(null)
-    try {
-      await api.approveRun(id)
-      queryClient.invalidateQueries({ queryKey: ['run', id] })
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Action failed')
-    }
+    try { await api.approveRun(id); queryClient.invalidateQueries({ queryKey: ['run', id] }) }
+    catch (err) { setActionError(err instanceof Error ? err.message : 'Action failed') }
   }, [id, queryClient])
 
   const handleReject = useCallback(async () => {
     if (!id) return
     setActionError(null)
-    try {
-      await api.rejectRun(id)
-      queryClient.invalidateQueries({ queryKey: ['run', id] })
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Action failed')
-    }
+    try { await api.rejectRun(id); queryClient.invalidateQueries({ queryKey: ['run', id] }) }
+    catch (err) { setActionError(err instanceof Error ? err.message : 'Action failed') }
   }, [id, queryClient])
 
   const handleSteer = useCallback(async (prompt: string) => {
     if (!id) return
     setActionError(null)
-    try {
-      await api.steerRun(id, prompt)
-      queryClient.invalidateQueries({ queryKey: ['run', id] })
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Action failed')
-    }
+    try { await api.steerRun(id, prompt); queryClient.invalidateQueries({ queryKey: ['run', id] }) }
+    catch (err) { setActionError(err instanceof Error ? err.message : 'Action failed') }
   }, [id, queryClient])
 
   const handleCancel = useCallback(async () => {
     if (!id) return
     setActionError(null)
     setCancelling(true)
-    try {
-      await api.cancelRun(id)
-      queryClient.invalidateQueries({ queryKey: ['run', id] })
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Action failed')
-      setCancelling(false)
-    }
+    try { await api.cancelRun(id); queryClient.invalidateQueries({ queryKey: ['run', id] }) }
+    catch (err) { setActionError(err instanceof Error ? err.message : 'Action failed'); setCancelling(false) }
   }, [id, queryClient])
 
   if (!run) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-24 text-muted-foreground">
-        <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
-        <p className="text-sm">Loading run…</p>
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-4 w-96" />
+        <Skeleton className="h-64 w-full rounded-lg" />
       </div>
     )
   }
 
-  // Parse workflow def from template for DAG visualization
+  // Parse workflow def from template for DAG visualization.
+  // StepRuns alone lack depends_on/mode — we need the original YAML definition.
+  // The run object may carry a workflow_def field (if the backend embeds it),
+  // otherwise we fall back to flat step list (no edges).
   let steps: StepDef[] = []
   try {
-    // The run may have a workflow_def embedded, or we parse from the workflow
-    // For now, extract steps from step_runs
-    if (run.steps) {
+    if ((run as any).workflow_def?.steps) {
+      steps = (run as any).workflow_def.steps as StepDef[]
+    } else if (run.steps) {
       steps = run.steps.map((sr: StepRun) => ({
         id: sr.step_id,
         title: sr.step_title,
       }))
     }
-  } catch {
-    // Ignore parse errors
-  }
+  } catch { /* ignore */ }
 
   const stepRuns = run.steps ?? []
   const selectedStep = stepRuns.find((sr: StepRun) => sr.step_id === selectedStepId)
   const awaitingStep = stepRuns.find((sr: StepRun) => sr.status === 'awaiting_input')
+  const completedCount = stepRuns.filter(s => s.status === 'complete').length
 
   return (
     <div className="space-y-6">
-      <div className="relative z-10 flex items-center justify-between">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">{run.workflow_title}</h1>
-          <p className="text-sm text-muted-foreground font-mono">
-            {run.id}
-          </p>
+          <p className="text-xs text-muted-foreground font-mono mt-0.5">{run.id}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {run.temporal_id && config?.temporal_ui_url && (
             <a
               href={`${config.temporal_ui_url}/namespaces/default/workflows/${run.temporal_id}`}
-              target="_blank"
-              rel="noopener noreferrer"
+              target="_blank" rel="noopener noreferrer"
               className="text-xs text-muted-foreground underline hover:text-foreground"
-            >
-              Temporal ↗
-            </a>
+            >Temporal ↗</a>
           )}
-          <RunStatusBadge run={run} />
+          {duration && <span className="text-sm text-muted-foreground tabular-nums">{duration}</span>}
+          <StatusBadge status={run.status} />
           {(run.status === 'running' || run.status === 'awaiting_input') && (
             <Button variant="destructive" size="sm" onClick={handleCancel} disabled={cancelling}>
               {cancelling ? 'Cancelling…' : 'Cancel'}
@@ -149,6 +141,20 @@ export function RunDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Progress bar */}
+      {stepRuns.length > 0 && (
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-muted-foreground whitespace-nowrap">
+            {completedCount} of {stepRuns.length} steps
+          </span>
+          <div className="flex flex-1 h-1.5 rounded-full bg-muted gap-0.5 overflow-hidden">
+            {stepRuns.map(sr => (
+              <div key={sr.id} className={cn('flex-1 rounded-full', SEG_COLOR[sr.status] ?? 'bg-transparent')} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {actionError && (
         <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400">
@@ -158,7 +164,7 @@ export function RunDetailPage() {
 
       {/* DAG */}
       {steps.length > 0 && (
-        <div className="rounded-lg border p-4">
+        <div className="rounded-lg border bg-card p-4">
           <DAGGraph
             steps={steps}
             stepRuns={stepRuns}
@@ -170,18 +176,30 @@ export function RunDetailPage() {
 
       {/* HITL Panel */}
       {awaitingStep && (
-        <HITLPanel
-          stepRun={awaitingStep}
-          onApprove={handleApprove}
-          onReject={handleReject}
-          onSteer={handleSteer}
-        />
+        <HITLPanel stepRun={awaitingStep} onApprove={handleApprove} onReject={handleReject} onSteer={handleSteer} />
       )}
 
-      {/* Selected step detail */}
-      {selectedStep && (
-        <div className="rounded-lg border p-4">
-          <StepPanel stepRun={selectedStep} runParameters={run.parameters} allStepRuns={stepRuns} />
+      {/* Two-column: Timeline + Panel */}
+      {stepRuns.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_360px] gap-6 items-start">
+          {/* Step detail or placeholder */}
+          <div>
+            {selectedStep ? (
+              <div className="rounded-lg border bg-card p-4">
+                <StepPanel stepRun={selectedStep} runParameters={run.parameters} allStepRuns={stepRuns} />
+              </div>
+            ) : (
+              <div className="flex items-center justify-center rounded-lg border border-dashed py-16 text-sm text-muted-foreground">
+                Select a step from the DAG or timeline to view details
+              </div>
+            )}
+          </div>
+
+          {/* Timeline */}
+          <div>
+            <h3 className="text-sm font-semibold mb-3">Steps</h3>
+            <StepTimeline stepRuns={stepRuns} selectedStepId={selectedStepId} onSelect={setSelectedStepId} />
+          </div>
         </div>
       )}
 
@@ -190,27 +208,6 @@ export function RunDetailPage() {
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-muted-foreground">
           <div className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
           <p className="text-sm">Waiting for workflow to start…</p>
-        </div>
-      )}
-
-      {/* Step list */}
-      {!selectedStep && stepRuns.length > 0 && (
-        <div className="space-y-2">
-          <h2 className="font-semibold">Steps</h2>
-          <div className="rounded-lg border divide-y">
-            {stepRuns.map((sr: StepRun) => (
-              <button
-                key={sr.id}
-                onClick={() => setSelectedStepId(sr.step_id)}
-                className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-muted/50 transition-colors"
-              >
-                <span className="text-sm font-medium">{sr.step_title || sr.step_id}</span>
-                <Badge variant={sr.status === 'complete' ? 'default' : sr.status === 'failed' ? 'destructive' : 'secondary'}>
-                  {sr.status}
-                </Badge>
-              </button>
-            ))}
-          </div>
         </div>
       )}
 
@@ -225,11 +222,4 @@ export function RunDetailPage() {
       )}
     </div>
   )
-}
-
-function RunStatusBadge({ run }: { run: Run }) {
-  const variant = run.status === 'complete' ? 'default' as const
-    : run.status === 'failed' ? 'destructive' as const
-    : 'secondary' as const
-  return <Badge variant={variant}>{run.status}</Badge>
 }
