@@ -106,7 +106,10 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 		sort.Strings(cleanupGroups)
 		for _, group := range cleanupGroups {
 			sandboxID := sandboxes[group]
-			ao := workflow.ActivityOptions{StartToCloseTimeout: 2 * time.Minute}
+			ao := workflow.ActivityOptions{
+				StartToCloseTimeout: 2 * time.Minute,
+				RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 3},
+			}
 			_ = workflow.ExecuteActivity(
 				workflow.WithActivityOptions(cleanupCtx, ao),
 				CleanupSandboxActivity, sandboxID,
@@ -129,7 +132,10 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 		// Provision sandbox groups for ready steps that need new sandboxes
 		for _, step := range ready {
 			if step.SandboxGroup != "" && sandboxes[step.SandboxGroup] == "" {
-				ao := workflow.ActivityOptions{StartToCloseTimeout: 5 * time.Minute}
+				ao := workflow.ActivityOptions{
+					StartToCloseTimeout: 5 * time.Minute,
+					RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 3},
+				}
 				// Build a proper StepInput so ProvisionSandbox gets the right agent/credentials.
 				provisionInput := StepInput{
 					TeamID: input.TeamID,
@@ -224,7 +230,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 									Status: model.StepStatusFailed,
 									Error:  fmt.Sprintf("render action config %s: %v", k, renderErr),
 								}
-								finalizeStep(gCtx, logger, stepRunID, failOutput)
+								_ = finalizeStep(gCtx, logger, stepRunID, failOutput)
 								results[i] = failOutput
 								return
 							}
@@ -235,7 +241,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 					}
 					step.Action.Config = resolvedConfig
 					results[i] = executeAction(gCtx, step, resolved)
-					finalizeStep(gCtx, logger, stepRunID, results[i])
+					_ = finalizeStep(gCtx, logger, stepRunID, results[i])
 					return
 				}
 
@@ -502,6 +508,13 @@ func aggregateFanOut(stepID string, results []*model.StepOutput) *model.StepOutp
 	}
 	var errs []string
 	for i, r := range results {
+		if r == nil {
+			r = &model.StepOutput{
+				StepID: stepID,
+				Status: model.StepStatusFailed,
+				Error:  "fan-out child failed to produce result",
+			}
+		}
 		agg.Outputs[i] = *r
 		if r.Status == model.StepStatusFailed {
 			agg.Status = model.StepStatusFailed
@@ -558,7 +571,10 @@ func evalCondition(ctx workflow.Context, condition string, params map[string]any
 // executeAction runs a non-agent action step (e.g., slack notification, GitHub action).
 func executeAction(ctx workflow.Context, step model.StepDef, _ ResolvedStepOpts) *model.StepOutput {
 	// Action steps are dispatched to specific activities based on action type
-	ao := workflow.ActivityOptions{StartToCloseTimeout: 5 * time.Minute}
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 2},
+	}
 	actCtx := workflow.WithActivityOptions(ctx, ao)
 
 	var result map[string]any

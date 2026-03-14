@@ -24,12 +24,12 @@ type StepInput struct {
 
 // ResolvedStepOpts holds step options after template rendering.
 type ResolvedStepOpts struct {
-	Prompt      string         `json:"prompt"`
+	Prompt      string          `json:"prompt"`
 	Repos       []model.RepoRef `json:"repos"`
-	Verifiers   any            `json:"verifiers,omitempty"`
-	Credentials []string       `json:"credentials,omitempty"`
-	PRConfig    *model.PRDef   `json:"pr_config,omitempty"`
-	Agent       string         `json:"agent"`
+	Verifiers   any             `json:"verifiers,omitempty"`
+	Credentials []string        `json:"credentials,omitempty"`
+	PRConfig    *model.PRDef    `json:"pr_config,omitempty"`
+	Agent       string          `json:"agent"`
 }
 
 // ExecuteStepInput is the input to the ExecuteStep activity.
@@ -58,16 +58,16 @@ type SteerPayload struct {
 // Activity function references — these are registered in the worker and resolved at runtime.
 // They are declared as variables so tests can substitute them.
 var (
-	ProvisionSandboxActivity  = "ProvisionSandbox"
-	ExecuteStepActivity       = "ExecuteStep"
-	VerifyStepActivity        = "VerifyStep"
-	UpdateStepStatusActivity  = "UpdateStepStatus"
-	UpdateRunStatusActivity   = "UpdateRunStatus"
-	CreateStepRunActivity     = "CreateStepRun"
-	CreatePRActivity          = "CreatePullRequest"
-	CleanupSandboxActivity    = "CleanupSandbox"
-	CompleteStepRunActivity    = "CompleteStepRun"
-	CreateInboxItemActivity   = "CreateInboxItem"
+	ProvisionSandboxActivity = "ProvisionSandbox"
+	ExecuteStepActivity      = "ExecuteStep"
+	VerifyStepActivity       = "VerifyStep"
+	UpdateStepStatusActivity = "UpdateStepStatus"
+	UpdateRunStatusActivity  = "UpdateRunStatus"
+	CreateStepRunActivity    = "CreateStepRun"
+	CreatePRActivity         = "CreatePullRequest"
+	CleanupSandboxActivity   = "CleanupSandbox"
+	CompleteStepRunActivity  = "CompleteStepRun"
+	CreateInboxItemActivity  = "CreateInboxItem"
 )
 
 // StepWorkflow orchestrates a single step: provision sandbox, run agent, handle HITL signals, optionally create PR.
@@ -79,7 +79,10 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 	if input.SandboxID != "" {
 		sandboxID = input.SandboxID
 	} else {
-		ao := workflow.ActivityOptions{StartToCloseTimeout: 5 * time.Minute}
+		ao := workflow.ActivityOptions{
+			StartToCloseTimeout: 5 * time.Minute,
+			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 3},
+		}
 		err := workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, ao),
 			ProvisionSandboxActivity, input,
@@ -126,6 +129,7 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 			verifyAO := workflow.ActivityOptions{
 				StartToCloseTimeout: 30 * time.Minute,
 				HeartbeatTimeout:    2 * time.Minute,
+				RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 2},
 			}
 			if verifyErr := workflow.ExecuteActivity(
 				workflow.WithActivityOptions(ctx, verifyAO),
@@ -136,7 +140,9 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 					Status: model.StepStatusFailed,
 					Error:  fmt.Sprintf("verification failed: %v", verifyErr),
 				}
-				finalizeStep(ctx, logger, input.StepRunID, failOutput)
+				if fErr := finalizeStep(ctx, logger, input.StepRunID, failOutput); fErr != nil {
+					return nil, fErr
+				}
 				return failOutput, nil
 			}
 		}
@@ -152,7 +158,7 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 			workflow.WithActivityOptions(ctx, statusAO),
 			UpdateStepStatusActivity, input.StepRunID, string(model.StepStatusAwaitingInput),
 		).Get(ctx, nil); err != nil {
-			logger.Error("failed to set step status to awaiting_input", "error", err)
+			return nil, fmt.Errorf("set step status to awaiting_input: %w", err)
 		}
 
 		logger.Info("step awaiting input", "step_id", input.StepDef.ID)
@@ -188,7 +194,9 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 				Status: model.StepStatusFailed,
 				Error:  "rejected by user",
 			}
-			finalizeStep(ctx, logger, input.StepRunID, rejectOutput)
+			if fErr := finalizeStep(ctx, logger, input.StepRunID, rejectOutput); fErr != nil {
+				return nil, fErr
+			}
 			return rejectOutput, nil
 		}
 		// Steer: rebuild prompt with history and new instruction
@@ -199,7 +207,10 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 
 	// 6. Create PR if transform mode
 	if input.StepDef.Mode == "transform" && input.StepDef.PullRequest != nil {
-		prAO := workflow.ActivityOptions{StartToCloseTimeout: 5 * time.Minute}
+		prAO := workflow.ActivityOptions{
+			StartToCloseTimeout: 5 * time.Minute,
+			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 2},
+		}
 		if prErr := workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, prAO),
 			CreatePRActivity, sandboxID, input,
@@ -211,7 +222,10 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 
 	// 7. Cleanup (unless sandbox_group — DAGWorkflow handles that)
 	if input.StepDef.SandboxGroup == "" && input.SandboxID == "" {
-		cleanupAO := workflow.ActivityOptions{StartToCloseTimeout: 2 * time.Minute}
+		cleanupAO := workflow.ActivityOptions{
+			StartToCloseTimeout: 2 * time.Minute,
+			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 3},
+		}
 		if err := workflow.ExecuteActivity(
 			workflow.WithActivityOptions(ctx, cleanupAO),
 			CleanupSandboxActivity, sandboxID,
@@ -222,15 +236,17 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 	}
 
 	// 9. Finalize step_run record with status, output, diff, and error.
-	finalizeStep(ctx, logger, input.StepRunID, output)
+	if fErr := finalizeStep(ctx, logger, input.StepRunID, output); fErr != nil {
+		return nil, fErr
+	}
 
 	return output, nil
 }
 
 // finalizeStep updates the step_run DB record with the final result.
-func finalizeStep(ctx workflow.Context, logger log.Logger, stepRunID string, output *model.StepOutput) {
+func finalizeStep(ctx workflow.Context, logger log.Logger, stepRunID string, output *model.StepOutput) error {
 	if stepRunID == "" || output == nil {
-		return
+		return nil
 	}
 	ao := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second, RetryPolicy: dbRetry}
 	if err := workflow.ExecuteActivity(
@@ -243,7 +259,9 @@ func finalizeStep(ctx workflow.Context, logger log.Logger, stepRunID string, out
 		output.Error,
 	).Get(ctx, nil); err != nil {
 		logger.Error("failed to finalize step run", "step_run_id", stepRunID, "error", err)
+		return fmt.Errorf("finalize step run %s: %w", stepRunID, err)
 	}
+	return nil
 }
 
 func shouldPause(def model.StepDef, output *model.StepOutput) bool {

@@ -19,14 +19,14 @@ import (
 
 // Deps holds all handler groups and shared configuration for the server.
 type Deps struct {
-	JWTSecret   []byte
-	Auth        *handlers.AuthHandler
-	Workflows   *handlers.WorkflowsHandler
-	Runs        *handlers.RunsHandler
-	Inbox       *handlers.InboxHandler
-	Reports     *handlers.ReportsHandler
-	Credentials *handlers.CredentialsHandler
-	Knowledge   *handlers.KnowledgeHandler
+	JWTSecret     []byte
+	Auth          *handlers.AuthHandler
+	Workflows     *handlers.WorkflowsHandler
+	Runs          *handlers.RunsHandler
+	Inbox         *handlers.InboxHandler
+	Reports       *handlers.ReportsHandler
+	Credentials   *handlers.CredentialsHandler
+	Knowledge     *handlers.KnowledgeHandler
 	TemporalUIURL string
 }
 
@@ -96,8 +96,8 @@ func NewRouter(deps Deps) (http.Handler, error) {
 		r.Get("/api/runs/{id}/logs", deps.Runs.Logs)
 		r.Get("/api/runs/{id}/diff", deps.Runs.Diff)
 		r.Get("/api/runs/{id}/output", deps.Runs.Output)
-		r.Get("/api/runs/{id}/events", deps.Runs.Stream)         // SSE: live run events
-		r.Get("/api/runs/steps/{id}/logs", deps.Runs.StepLogs)   // SSE: step log stream
+		r.Get("/api/runs/{id}/events", deps.Runs.Stream)       // SSE: live run events
+		r.Get("/api/runs/steps/{id}/logs", deps.Runs.StepLogs) // SSE: step log stream
 		r.Post("/api/runs/{id}/approve", deps.Runs.Approve)
 		r.Post("/api/runs/{id}/reject", deps.Runs.Reject)
 		r.Post("/api/runs/{id}/steer", deps.Runs.Steer)

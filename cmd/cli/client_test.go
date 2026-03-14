@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -75,4 +77,26 @@ func TestSplitParam(t *testing.T) {
 		assert.Equal(t, tt.key, k)
 		assert.Equal(t, tt.val, v)
 	}
+}
+
+func TestStreamSSE_LargeDataLine(t *testing.T) {
+	// Generate a data line larger than 64KB (default scanner buffer)
+	largeData := strings.Repeat("x", 100*1024) // 100 KB
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "event: log\ndata: %s\n\n", largeData)
+		fmt.Fprintf(w, "event: done\ndata: end\n\n")
+	}))
+	defer ts.Close()
+
+	client := &apiClient{base: ts.URL, http: &http.Client{}}
+	var received []string
+	err := client.streamSSE("/test", func(eventType, data string) bool {
+		received = append(received, data)
+		return eventType != "done"
+	})
+	require.NoError(t, err)
+	require.Len(t, received, 2)
+	assert.Len(t, received[0], 100*1024)
 }

@@ -111,6 +111,7 @@ func (c *apiClient) streamSSE(path string, onEvent func(eventType, data string) 
 	defer resp.Body.Close()
 
 	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 1024*1024), 4*1024*1024) // 4 MiB max line — matches agent output buffer
 	var eventType string
 	for scanner.Scan() {
 		line := scanner.Text()

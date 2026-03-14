@@ -152,7 +152,7 @@ func parseAssistantMessage(raw map[string]any) Event {
 			} else {
 				parts = append(parts, fmt.Sprintf("[tool] %s", name))
 			}
-		// Skip "thinking" blocks — they're noise in logs.
+			// Skip "thinking" blocks — they're noise in logs.
 		}
 	}
 	if len(parts) == 0 {

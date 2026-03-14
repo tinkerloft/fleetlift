@@ -23,7 +23,7 @@ func NewShellRunner(sb sandbox.Client) *ShellRunner {
 	return &ShellRunner{sandbox: sb}
 }
 
-func (r *ShellRunner) Name() string        { return "shell" }
+func (r *ShellRunner) Name() string                  { return "shell" }
 func (r *ShellRunner) SandboxEnv() map[string]string { return nil }
 
 func (r *ShellRunner) Run(ctx context.Context, sandboxID string, opts RunOpts) (<-chan Event, error) {

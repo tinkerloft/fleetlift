@@ -87,13 +87,17 @@ func RotateRefreshToken(ctx context.Context, db *sqlx.DB, raw string) (newToken,
 	}
 	if rt.UsedAt != nil {
 		// Token reuse detected — invalidate all tokens for this user
-		_, _ = db.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, rt.UserID)
+		if _, delErr := db.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, rt.UserID); delErr != nil {
+			return "", "", fmt.Errorf("invalidate tokens on reuse: %w", delErr)
+		}
 		return "", "", fmt.Errorf("refresh token reuse detected")
 	}
 	if time.Now().After(rt.ExpiresAt) {
 		return "", "", fmt.Errorf("refresh token expired")
 	}
-	_, _ = db.ExecContext(ctx, `UPDATE refresh_tokens SET used_at = NOW() WHERE id = $1`, rt.ID)
+	if _, updErr := db.ExecContext(ctx, `UPDATE refresh_tokens SET used_at = NOW() WHERE id = $1`, rt.ID); updErr != nil {
+		return "", "", fmt.Errorf("mark refresh token used: %w", updErr)
+	}
 	newToken, err = IssueRefreshToken(ctx, db, rt.UserID)
 	return newToken, rt.UserID, err
 }

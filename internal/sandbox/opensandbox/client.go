@@ -128,6 +128,10 @@ func (c *Client) Create(ctx context.Context, opts sandbox.CreateOpts) (string, e
 		return "", fmt.Errorf("opensandbox: decode create response: %w", err)
 	}
 
+	if result.ID == "" {
+		return "", fmt.Errorf("opensandbox: create response missing sandbox ID (status %d)", resp.StatusCode)
+	}
+
 	// Cache the proxy port for subsequent operations.
 	if port := result.Metadata["opensandbox.io/embedding-proxy-port"]; port != "" {
 		c.mu.Lock()
@@ -180,7 +184,7 @@ func (c *Client) fetchAndCacheProxyPort(ctx context.Context, id string) error {
 func (c *Client) ExecStream(ctx context.Context, id, cmd, workDir string, onLine func(string)) error {
 	body := map[string]any{
 		"command": cmd,
-		"cwd": workDir,
+		"cwd":     workDir,
 	}
 	data, err := json.Marshal(body)
 	if err != nil {

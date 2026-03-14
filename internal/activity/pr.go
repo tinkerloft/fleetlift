@@ -88,10 +88,11 @@ func (a *Activities) CreatePullRequest(ctx context.Context, sandboxID string, in
 	}
 
 	// Update step run with PR URL and branch
-	_, _ = a.DB.ExecContext(ctx,
+	if _, err := a.DB.ExecContext(ctx,
 		`UPDATE step_runs SET pr_url = $1, branch_name = $2 WHERE id = $3`,
-		pr.GetHTMLURL(), branchName, input.StepRunID)
+		pr.GetHTMLURL(), branchName, input.StepRunID); err != nil {
+		activity.GetLogger(ctx).Warn("failed to record PR URL in step_run", "pr_url", pr.GetHTMLURL(), "error", err)
+	}
 
 	return pr.GetHTMLURL(), nil
 }
-

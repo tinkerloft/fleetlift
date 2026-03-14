@@ -46,7 +46,7 @@ func NewBuiltinProvider() (*BuiltinProvider, error) {
 	return &BuiltinProvider{templates: templates}, nil
 }
 
-func (b *BuiltinProvider) Name() string  { return "builtin" }
+func (b *BuiltinProvider) Name() string   { return "builtin" }
 func (b *BuiltinProvider) Writable() bool { return false }
 
 func (b *BuiltinProvider) List(_ context.Context, _ string) ([]*model.WorkflowTemplate, error) {

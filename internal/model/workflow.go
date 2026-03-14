@@ -10,17 +10,17 @@ import (
 
 // WorkflowTemplate is a reusable DAG definition stored in the DB or embedded as builtin.
 type WorkflowTemplate struct {
-	ID          string    `db:"id" json:"id"`
-	TeamID      string    `db:"team_id" json:"team_id"`
-	Slug        string    `db:"slug" json:"slug"`
-	Title       string    `db:"title" json:"title"`
-	Description string    `db:"description" json:"description"`
+	ID          string         `db:"id" json:"id"`
+	TeamID      string         `db:"team_id" json:"team_id"`
+	Slug        string         `db:"slug" json:"slug"`
+	Title       string         `db:"title" json:"title"`
+	Description string         `db:"description" json:"description"`
 	Tags        pq.StringArray `db:"tags" json:"tags"`
-	YAMLBody    string    `db:"yaml_body" json:"yaml_body"`
-	Builtin     bool      `db:"-" json:"builtin"`
-	CreatedBy   string    `db:"created_by" json:"created_by,omitempty"`
-	CreatedAt   time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt   time.Time `db:"updated_at" json:"updated_at"`
+	YAMLBody    string         `db:"yaml_body" json:"yaml_body"`
+	Builtin     bool           `db:"-" json:"builtin"`
+	CreatedBy   string         `db:"created_by" json:"created_by,omitempty"`
+	CreatedAt   time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt   time.Time      `db:"updated_at" json:"updated_at"`
 }
 
 // WorkflowDef is the parsed form of a WorkflowTemplate's YAML.
@@ -39,7 +39,7 @@ type WorkflowDef struct {
 
 type ParameterDef struct {
 	Name        string `yaml:"name"`
-	Type        string `yaml:"type"`                  // string | int | bool | json
+	Type        string `yaml:"type"` // string | int | bool | json
 	Required    bool   `yaml:"required"`
 	Default     any    `yaml:"default,omitempty"`
 	Description string `yaml:"description,omitempty"`
