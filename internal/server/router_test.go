@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/tinkerloft/fleetlift/internal/server/handlers"
 	"github.com/tinkerloft/fleetlift/internal/template"
@@ -18,6 +19,23 @@ func newTestCredentialsHandler() *handlers.CredentialsHandler {
 	return h
 }
 
+func TestNewRouter_ReturnsErrorOnBadFS(t *testing.T) {
+	registry := template.NewRegistry()
+	deps := Deps{
+		JWTSecret:   []byte("test-secret"),
+		Auth:        handlers.NewAuthHandler(nil, nil, []byte("test-secret")),
+		Workflows:   handlers.NewWorkflowsHandler(registry),
+		Runs:        handlers.NewRunsHandler(nil, nil, registry, nil),
+		Inbox:       handlers.NewInboxHandler(nil),
+		Reports:     handlers.NewReportsHandler(nil),
+		Credentials: newTestCredentialsHandler(),
+		Knowledge:   handlers.NewKnowledgeHandler(nil),
+	}
+	router, err := NewRouter(deps)
+	require.NoError(t, err)
+	assert.NotNil(t, router)
+}
+
 func TestNewRouter_SPAFallback(t *testing.T) {
 	registry := template.NewRegistry()
 	deps := Deps{
@@ -28,9 +46,11 @@ func TestNewRouter_SPAFallback(t *testing.T) {
 		Inbox:       handlers.NewInboxHandler(nil),
 		Reports:     handlers.NewReportsHandler(nil),
 		Credentials: newTestCredentialsHandler(),
+		Knowledge:   handlers.NewKnowledgeHandler(nil),
 	}
 
-	router := NewRouter(deps)
+	router, err := NewRouter(deps)
+	require.NoError(t, err)
 
 	// SPA fallback should return HTML for unknown paths
 	req := httptest.NewRequest(http.MethodGet, "/some/unknown/path", nil)
@@ -52,9 +72,11 @@ func TestNewRouter_AuthEndpointsExist(t *testing.T) {
 		Inbox:       handlers.NewInboxHandler(nil),
 		Reports:     handlers.NewReportsHandler(nil),
 		Credentials: newTestCredentialsHandler(),
+		Knowledge:   handlers.NewKnowledgeHandler(nil),
 	}
 
-	router := NewRouter(deps)
+	router, err := NewRouter(deps)
+	require.NoError(t, err)
 
 	// Auth endpoints should exist (even if they fail due to nil deps)
 	// We just verify routing works, not the handler logic
@@ -87,9 +109,11 @@ func TestNewRouter_ProtectedEndpointsRequireAuth(t *testing.T) {
 		Inbox:       handlers.NewInboxHandler(nil),
 		Reports:     handlers.NewReportsHandler(nil),
 		Credentials: newTestCredentialsHandler(),
+		Knowledge:   handlers.NewKnowledgeHandler(nil),
 	}
 
-	router := NewRouter(deps)
+	router, err := NewRouter(deps)
+	require.NoError(t, err)
 
 	// Protected endpoints should return 401 without a token
 	protectedPaths := []string{

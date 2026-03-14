@@ -94,10 +94,15 @@ func main() {
 		Knowledge:   handlers.NewKnowledgeHandler(knowledgeStore),
 	}
 
+	handler, err := server.NewRouter(deps)
+	if err != nil {
+		log.Fatalf("build router: %v", err)
+	}
+
 	addr := envOr("LISTEN_ADDR", ":8080")
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           server.NewRouter(deps),
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      5 * time.Minute, // generous for SSE
