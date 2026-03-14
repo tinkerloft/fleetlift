@@ -121,6 +121,55 @@ func (h *ReportsHandler) Export(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"run_id": runID, "run": run, "steps": steps})
 }
 
+// Artifacts returns artifacts associated with a run's steps.
+func (h *ReportsHandler) Artifacts(w http.ResponseWriter, r *http.Request) {
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return
+	}
+	runID := chi.URLParam(r, "runID")
+
+	// Verify run belongs to team
+	var count int
+	if err := h.db.GetContext(r.Context(), &count,
+		`SELECT COUNT(*) FROM runs WHERE id = $1 AND team_id = $2`, runID, teamID); err != nil || count == 0 {
+		writeJSONError(w, http.StatusNotFound, "run not found")
+		return
+	}
+
+	type artifact struct {
+		ID          string `db:"id" json:"id"`
+		StepRunID   string `db:"step_run_id" json:"step_run_id"`
+		Name        string `db:"name" json:"name"`
+		Path        string `db:"path" json:"path"`
+		SizeBytes   int64  `db:"size_bytes" json:"size_bytes"`
+		ContentType string `db:"content_type" json:"content_type"`
+		Storage     string `db:"storage" json:"storage"`
+		CreatedAt   string `db:"created_at" json:"created_at"`
+	}
+	var artifacts []artifact
+	err := h.db.SelectContext(r.Context(), &artifacts,
+		`SELECT a.id, a.step_run_id, a.name, a.path, a.size_bytes, a.content_type, a.storage, a.created_at
+		 FROM artifacts a
+		 JOIN step_runs s ON a.step_run_id = s.id
+		 WHERE s.run_id = $1
+		 ORDER BY a.created_at`, runID)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to list artifacts")
+		return
+	}
+	if artifacts == nil {
+		artifacts = []artifact{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"items": artifacts})
+}
+
 const markdownReportTmpl = `# Report: {{.Run.WorkflowTitle}}
 
 **Run ID:** {{.Run.ID}}
