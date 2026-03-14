@@ -2,6 +2,9 @@ package opensandbox_test
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -183,4 +186,24 @@ func TestKill_RejectsSubsequentOps(t *testing.T) {
 	// Subsequent ops should fail
 	_, _, err = c.Exec(ctx, id, "echo dead", "/")
 	assert.Error(t, err, "expected error when executing on killed sandbox")
+}
+
+func TestCreate_EmptySandboxIDError(t *testing.T) {
+	// Server returns 200 but with empty ID
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":       "",
+			"metadata": map[string]string{},
+		})
+	}))
+	defer ts.Close()
+
+	client := opensandbox.New(ts.URL, "test-key")
+	_, err := client.Create(context.Background(), sandbox.CreateOpts{
+		Image:       "test:latest",
+		TimeoutMins: 5,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing sandbox ID")
 }

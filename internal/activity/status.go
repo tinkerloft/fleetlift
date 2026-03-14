@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.temporal.io/sdk/activity"
 
 	"github.com/tinkerloft/fleetlift/internal/model"
 )
@@ -121,9 +122,11 @@ func (a *Activities) updateStepStatus(ctx context.Context, stepRunID string, sta
 	if a.DB == nil {
 		return
 	}
-	_, _ = a.DB.ExecContext(ctx,
+	if _, err := a.DB.ExecContext(ctx,
 		`UPDATE step_runs SET status = $1 WHERE id = $2`,
-		string(status), stepRunID)
+		string(status), stepRunID); err != nil {
+		activity.RecordHeartbeat(ctx, "status update failed: "+err.Error())
+	}
 }
 
 // logLine holds a single buffered log entry.
@@ -194,7 +197,6 @@ func batchInsertLogs(ctx context.Context, a *Activities, stepRunID string, lines
 	_, err := a.DB.ExecContext(ctx, query, args...)
 	return err
 }
-
 
 func isTerminal(s model.StepStatus) bool {
 	switch s {

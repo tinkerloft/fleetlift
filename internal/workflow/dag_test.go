@@ -304,6 +304,34 @@ func TestResolveStep_ShellAgent(t *testing.T) {
 	assert.Equal(t, "echo hello", opts.Prompt)
 }
 
+func TestAggregateFanOut_SingleResult(t *testing.T) {
+	single := &model.StepOutput{
+		StepID: "child-0",
+		Status: model.StepStatusComplete,
+		Diff:   "single diff",
+		Output: map[string]any{"key": "value"},
+	}
+	agg := aggregateFanOut("parent-step", []*model.StepOutput{single})
+	assert.Equal(t, "parent-step", agg.StepID)
+	assert.Equal(t, model.StepStatusComplete, agg.Status)
+	assert.Equal(t, "single diff", agg.Diff)
+	assert.Equal(t, "value", agg.Output["key"])
+	// Single-result path should NOT populate Outputs slice.
+	assert.Nil(t, agg.Outputs)
+}
+
+func TestAggregateFanOut_NilResultHandled(t *testing.T) {
+	results := []*model.StepOutput{
+		{StepID: "transform", Status: model.StepStatusComplete},
+		nil, // simulates a goroutine that panicked
+	}
+	agg := aggregateFanOut("transform", results)
+	assert.Equal(t, model.StepStatusFailed, agg.Status)
+	assert.Len(t, agg.Outputs, 2)
+	assert.Equal(t, model.StepStatusFailed, agg.Outputs[1].Status)
+	assert.Contains(t, agg.Outputs[1].Error, "fan-out child failed")
+}
+
 func TestFanOutApprovalPolicyOverride(t *testing.T) {
 	// This test documents the expected behavior: fan-out steps must never have
 	// HITL approval_policy other than "never" to prevent signal routing hangs.

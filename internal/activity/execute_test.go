@@ -32,7 +32,7 @@ func (n *noopSandbox) ReadFile(_ context.Context, _, _ string) (string, error) {
 func (n *noopSandbox) ReadBytes(_ context.Context, _, _ string) ([]byte, error) {
 	return nil, nil
 }
-func (n *noopSandbox) Kill(_ context.Context, _ string) error          { return nil }
+func (n *noopSandbox) Kill(_ context.Context, _ string) error            { return nil }
 func (n *noopSandbox) RenewExpiration(_ context.Context, _ string) error { return nil }
 
 func TestExecuteStep_RejectsNonHTTPS(t *testing.T) {

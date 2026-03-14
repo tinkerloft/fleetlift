@@ -19,8 +19,8 @@ func TestCollectArtifacts_RejectsPathOutsideWorkspace(t *testing.T) {
 	badPaths := []string{
 		"/etc/passwd",
 		"/home/user/secret",
-		"/workspace",      // no trailing slash — not a prefix match
-		"workspace/file",  // relative path
+		"/workspace",     // no trailing slash — not a prefix match
+		"workspace/file", // relative path
 		"",
 	}
 

@@ -24,7 +24,7 @@ func newStubProvider(name string, writable bool, templates ...*model.WorkflowTem
 	return &stubProvider{name: name, writable: writable, templates: m}
 }
 
-func (s *stubProvider) Name() string  { return s.name }
+func (s *stubProvider) Name() string   { return s.name }
 func (s *stubProvider) Writable() bool { return s.writable }
 
 func (s *stubProvider) List(_ context.Context, _ string) ([]*model.WorkflowTemplate, error) {

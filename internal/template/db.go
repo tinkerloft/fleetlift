@@ -18,7 +18,7 @@ func NewDBProvider(db *sqlx.DB) *DBProvider {
 	return &DBProvider{db: db}
 }
 
-func (d *DBProvider) Name() string  { return "database" }
+func (d *DBProvider) Name() string   { return "database" }
 func (d *DBProvider) Writable() bool { return true }
 
 func (d *DBProvider) List(ctx context.Context, teamID string) ([]*model.WorkflowTemplate, error) {

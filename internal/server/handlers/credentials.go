@@ -131,7 +131,11 @@ func (h *CredentialsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, _ := result.RowsAffected()
+	rows, err := result.RowsAffected()
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to check deletion result")
+		return
+	}
 	if rows == 0 {
 		writeJSONError(w, http.StatusNotFound, "credential not found")
 		return

@@ -213,7 +213,12 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 	var diffParts []string
 	for _, repo := range stepInput.ResolvedOpts.Repos {
 		repoDir := "/workspace/" + repoName(repo)
-		if d, _, err := sb.Exec(ctx, input.SandboxID, "git -C "+shellquote.Quote(repoDir)+" diff", "/"); err == nil && d != "" {
+		d, _, err := sb.Exec(ctx, input.SandboxID, "git -C "+shellquote.Quote(repoDir)+" diff", "/")
+		if err != nil {
+			activity.GetLogger(ctx).Warn("failed to extract diff", "repo", repoDir, "error", err)
+			continue
+		}
+		if d != "" {
 			diffParts = append(diffParts, d)
 		}
 	}

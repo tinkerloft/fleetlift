@@ -2,6 +2,7 @@ package activity
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/slack-go/slack"
@@ -38,9 +39,7 @@ func (a *SlackActivities) NotifySlack(ctx context.Context, channel, message stri
 
 	_, ts, err := api.PostMessageContext(ctx, channel, opts...)
 	if err != nil {
-		logger.Error("Slack API error", "error", err)
-		// Don't fail the workflow for Slack errors
-		return nil, nil
+		return nil, fmt.Errorf("slack send to %s: %w", channel, err)
 	}
 
 	return &ts, nil

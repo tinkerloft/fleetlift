@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -269,4 +270,114 @@ func TestStepWorkflow_SandboxGroupSkipsCleanup(t *testing.T) {
 	mocks.AssertCalled(t, "ProvisionSandbox", input)
 	mocks.AssertNotCalled(t, "CleanupSandbox", mock.Anything)
 	mocks.AssertCalled(t, "CompleteStepRun", "sr-3", "complete", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestStepWorkflow_ProvisionFailsAfterRetries verifies that when ProvisionSandbox
+// permanently fails, the workflow surfaces an error (not infinite retry).
+func TestStepWorkflow_ProvisionFailsAfterRetries(t *testing.T) {
+	env, mocks := newStepWorkflowEnv(t)
+
+	input := StepInput{
+		RunID:     "run-prov-fail",
+		StepRunID: "sr-prov-fail",
+		StepDef: model.StepDef{
+			ID:             "analyze",
+			Mode:           "report",
+			ApprovalPolicy: "never",
+		},
+		ResolvedOpts: ResolvedStepOpts{
+			Prompt: "Analyze the code",
+			Agent:  "claude-code",
+		},
+		SandboxID: "", // forces provision
+	}
+
+	mocks.On("ProvisionSandbox", input).Return("", assert.AnError)
+
+	env.ExecuteWorkflow(StepWorkflow, input)
+
+	require.True(t, env.IsWorkflowCompleted())
+	err := env.GetWorkflowError()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "provision sandbox")
+}
+
+// TestStepWorkflow_CreatePRFailureSetsError verifies that when CreatePullRequest fails,
+// the step completes successfully but output.Error records the PR failure.
+func TestStepWorkflow_CreatePRFailureSetsError(t *testing.T) {
+	env, mocks := newStepWorkflowEnv(t)
+
+	input := StepInput{
+		RunID:     "run-pr-fail",
+		StepRunID: "sr-pr-fail",
+		StepDef: model.StepDef{
+			ID:             "transform",
+			Mode:           "transform",
+			ApprovalPolicy: "never",
+			PullRequest:    &model.PRDef{Title: "test PR"},
+		},
+		ResolvedOpts: ResolvedStepOpts{
+			Prompt:   "Fix the bug",
+			Agent:    "claude-code",
+			PRConfig: &model.PRDef{Title: "test PR"},
+		},
+		SandboxID: "", // forces provision
+	}
+
+	execOutput := &model.StepOutput{
+		StepID: "transform",
+		Status: model.StepStatusComplete,
+		Diff:   "some diff",
+	}
+
+	mocks.On("ProvisionSandbox", input).Return("sb-pr-fail", nil)
+	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
+		return ei.SandboxID == "sb-pr-fail"
+	})).Return(execOutput, nil)
+	mocks.On("CreatePullRequest", "sb-pr-fail", mock.Anything).Return("", assert.AnError)
+	mocks.On("CleanupSandbox", "sb-pr-fail").Return(nil)
+	mocks.On("CompleteStepRun", "sr-pr-fail", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	env.ExecuteWorkflow(StepWorkflow, input)
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+
+	var result model.StepOutput
+	require.NoError(t, env.GetWorkflowResult(&result))
+	assert.Contains(t, result.Error, "PR creation failed")
+}
+
+// TestStepWorkflow_FinalizeFailurePropagates verifies that when CompleteStepRun
+// fails, the workflow returns an error instead of silently swallowing it.
+func TestStepWorkflow_FinalizeFailurePropagates(t *testing.T) {
+	env, mocks := newStepWorkflowEnv(t)
+
+	input := StepInput{
+		RunID:     "run-fin",
+		StepRunID: "sr-fin",
+		StepDef: model.StepDef{
+			ID:             "analyze",
+			Mode:           "report",
+			ApprovalPolicy: "never",
+		},
+		ResolvedOpts: ResolvedStepOpts{
+			Prompt: "Analyze",
+			Agent:  "claude-code",
+		},
+		SandboxID: "sb-fin",
+	}
+
+	mocks.On("ExecuteStep", mock.Anything).Return(&model.StepOutput{
+		StepID: "analyze",
+		Status: model.StepStatusComplete,
+	}, nil)
+	mocks.On("CompleteStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("db connection lost"))
+
+	env.ExecuteWorkflow(StepWorkflow, input)
+
+	require.True(t, env.IsWorkflowCompleted())
+	err := env.GetWorkflowError()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "finalize step run")
 }

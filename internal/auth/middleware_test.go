@@ -79,4 +79,3 @@ func TestMiddleware_BlocksCookieOnMutatingMethod(t *testing.T) {
 	h.ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 }
-

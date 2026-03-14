@@ -25,15 +25,14 @@ const (
 	ActivityValidateSchema = "ValidateSchema"
 
 	// Core execution activities (platform-v2)
-	ActivityExecuteStep    = "ExecuteStep"
-	ActivityVerifyStep     = "VerifyStep"
+	ActivityExecuteStep      = "ExecuteStep"
+	ActivityVerifyStep       = "VerifyStep"
 	ActivityCollectArtifacts = "CollectArtifacts"
 	ActivityUpdateStepStatus = "UpdateStepStatus"
 	ActivityUpdateRunStatus  = "UpdateRunStatus"
 	ActivityCreateInboxItem  = "CreateInboxItem"
 	ActivityExecuteAction    = "ExecuteAction"
 	ActivityCompleteStepRun  = "CompleteStepRun"
-
 )
 
 // Default configuration values (SIMP-004)

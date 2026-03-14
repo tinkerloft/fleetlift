@@ -9,7 +9,6 @@ import (
 	"github.com/google/go-github/v62/github"
 	"go.temporal.io/sdk/activity"
 	"golang.org/x/oauth2"
-
 )
 
 // ExecuteAction dispatches an action step to the appropriate handler based on action type.
@@ -165,4 +164,3 @@ func toStringSlice(v any) []string {
 	}
 	return nil
 }
-

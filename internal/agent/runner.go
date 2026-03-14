@@ -4,7 +4,7 @@ import "context"
 
 // Event represents a streaming event from an agent runner.
 type Event struct {
-	Type    string         // "stdout" | "stderr" | "complete" | "error" | "needs_input"
+	Type    string // "stdout" | "stderr" | "complete" | "error" | "needs_input"
 	Content string
 	Output  map[string]any // on "complete": structured output parsed from agent
 }
