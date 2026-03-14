@@ -1,7 +1,7 @@
 # FleetLift Roadmap
 
 **Date:** 2026-03-14
-**Status:** Active (Tier 1 complete)
+**Status:** Active (Tier 1 complete, Tier 2 C+D done, H in progress)
 
 FleetLift has strong architecture and a working core engine. This roadmap covers what's needed to go from "internal tool" to "production-ready OSS product."
 
@@ -66,11 +66,23 @@ See: [`2026-03-14-track-c-web-experience.md`](2026-03-14-track-c-web-experience.
 - [x] **P2:** Mark SystemHealth as placeholder (no hardcoded green badges)
 - [x] **P2:** Add component-level tests for StatusBadge, DiffViewer, UserMenu
 
-### Track H: Workflow Engine Reliability
+### Track H: Workflow Engine Reliability — 🔧 In Progress
 
 The PR Review workflow exposed 8 platform-level bugs and 2 template-level bugs during live testing. 80% were platform issues that would affect every workflow. This track hardens the engine so users can compose workflows from activities that work reliably in isolation.
 
 **Motivation:** Currently, every new workflow requires manual end-to-end debugging against a live stack. The goal is: a user writes YAML, validation catches mistakes before execution, activities have clear contracts, and failures are loud and actionable.
+
+#### Infrastructure Hardening (2026-03-14, PR #28)
+
+Bounded retries, buffer sizes, and error propagation across the workflow/activity layer:
+
+- All external-state activities now have explicit `RetryPolicy` with `MaximumAttempts` (ProvisionSandbox: 3, ExecuteAction: 2, CreatePullRequest: 2, CleanupSandbox: 3, VerifyStep: 2)
+- `finalizeStep()` returns errors instead of silently swallowing DB failures
+- `aggregateFanOut()` handles nil goroutine results as failures instead of dropping them
+- CLI SSE scanner uses 4MB buffer (matches agent output buffer)
+- Slack/action activities return errors instead of `return nil` on failure
+- Sandbox creation validates non-empty sandbox ID
+- New tests: `dag_test.go` (fan-out nil handling), `step_test.go` (provision/PR/finalize failure propagation), `client_test.go` (sandbox ID validation)
 
 #### Runtime Bugs Fixed (2026-03-14)
 
@@ -97,7 +109,7 @@ The PR Review workflow exposed 8 platform-level bugs and 2 template-level bugs d
 | H4 | **Workflow integration test harness** — Temporal test environment + mock sandbox/agent; validate DAG orchestration, template rendering, credential flow, action dispatch for each builtin workflow | `workflow/dag_integration_test.go` (new) | P1 | ⬜ |
 | H5 | **Activity/action contract registry** — declared input/output schemas per action type; enables validation at parse time and future UI workflow builder | `activity/registry.go` (new), action YAML schemas | P1 | ⬜ |
 | H6 | **Template rendering safety** — validate all referenced step IDs and output keys exist before rendering; clear error messages ("step 'revew' does not exist, did you mean 'review'?") | `template/render.go` | P2 | ⬜ |
-| H7 | **Error handling audit** — grep for `return nil` after error conditions, `Warn` used for fatal conditions, `writeJSONError` without logging; enforce fail-loud policy | All handlers, activities | P2 | ⬜ |
+| H7 | **Error handling audit** — grep for `return nil` after error conditions, `Warn` used for fatal conditions, `writeJSONError` without logging; enforce fail-loud policy | All handlers, activities | P2 | 🔧 ~40% (PR #28: activity/handler error propagation fixed; remaining: full grep audit across all handlers) |
 
 **H1–H3** are the minimum for "users can compose workflows that work." **H4–H5** prevent regressions and enable self-service. **H6–H7** improve the authoring and debugging experience.
 
@@ -149,19 +161,19 @@ Patterns discovered during debugging that should be audited codebase-wide:
 | `Warn` for fatal conditions | "GITHUB_TOKEN not set, skipping PR comment" | If the step can't do its job, return error, don't warn |
 | Swallowed DB errors | Nullable columns → scan failure → generic "failed to list" | Use correct Go types (`*string`, `pq.StringArray`, `JSONMap`) |
 
-### Track D: OSS Positioning
+### Track D: OSS Positioning — ✅ Docs Complete (D1–D7)
 
-Independent of Track C. Can run in parallel.
+Independent of Track C. Can run in parallel. **D1–D7 completed in PR #22.**
 
 | Phase | Item | File | Impact | Status |
 |-------|------|------|--------|--------|
-| D1 | README rewrite | `README.md` | Very High | ⬜ |
-| D2 | Use cases document | `docs/USE_CASES.md` | High | ⬜ |
-| D3 | Comparison page | `docs/COMPARISON.md` | High | ⬜ |
-| D4 | Getting started tutorial | `docs/GETTING_STARTED.md` | High | ⬜ |
-| D5 | CONTRIBUTING.md | `CONTRIBUTING.md` | Medium | ⬜ |
-| D6 | Production deployment guide | `docs/DEPLOYMENT.md` | Medium | ⬜ |
-| D7 | Example READMEs | `examples/README.md` | Medium | ⬜ |
+| D1 | README rewrite | `README.md` | Very High | ✅ |
+| D2 | Use cases document | `docs/USE_CASES.md` | High | ✅ |
+| D3 | Comparison page | `docs/COMPARISON.md` | High | ✅ |
+| D4 | Getting started tutorial | `docs/GETTING_STARTED.md` | High | ✅ |
+| D5 | CONTRIBUTING.md | `CONTRIBUTING.md` | Medium | ✅ |
+| D6 | Production deployment guide | `docs/DEPLOYMENT.md` | Medium | ✅ |
+| D7 | Example READMEs | `examples/README.md` | Medium | ✅ |
 | D8 | Demo video (after C1+C2) | YouTube + README embed | High | ⬜ |
 | D9 | Web landing route (optional) | `web/` public route | Low | ⬜ |
 
@@ -211,7 +223,7 @@ See: [`archive/2026-03-14-mcp-agent-interface.md`](archive/2026-03-14-mcp-agent-
 Tier 1 (A, B) ─────────────────────────────────┐
                                                 ▼
 Tier 2: C (Web) ✅                       H1-H3 (Engine Reliability)
-        D (OSS Positioning)                     │
+        D (OSS Docs) ✅ (D1-D7)                │
                                                 ▼
                                          H4-H5 (Testing + Contracts)
                                                 │
@@ -250,3 +262,5 @@ The following plans were consolidated into this roadmap and moved to `archive/`.
 | `archive/2026-03-14-oss-positioning.md` | D | README structure, use case scenarios, comparison matrix |
 | `archive/2026-03-14-web-interface-polish.md` | C1, C2, C3, C4 | DAG node design, run detail layout, workflow card CSS |
 | `archive/2026-03-14-mcp-agent-interface.md` | E | Full MCP design: architecture, phases, tool specs, memory assessment |
+| `archive/2026-03-14-tier1-production-readiness.md` | A, B | Full Tier 1 implementation plan (completed) |
+| `archive/2026-03-14-track-c-web-experience.md` | C1–C8 | Web experience implementation plan (completed) |
