@@ -84,3 +84,12 @@
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 }
+
+@layer utilities {
+  @keyframes dash-flow {
+    to { stroke-dashoffset: -12; }
+  }
+  .animate-dash {
+    animation: dash-flow 1s linear infinite;
+  }
+}
