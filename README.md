@@ -9,10 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 <p align="center">
-  <a href="docs/images/fleetlift.webm">
-    <img src="docs/images/temporal-ui.png" alt="Watch FleetLift Demo" width="800">
-    <br><em>▶ Click to watch demo</em>
-  </a>
+  <img src="docs/images/fleetlift_demo.gif" alt="FleetLift in action" width="800">
 </p>
 
 ---
