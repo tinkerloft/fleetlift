@@ -35,12 +35,12 @@ type StepRun struct {
 }
 
 type StepRunLog struct {
-	ID        int64     `db:"id"`
-	StepRunID string    `db:"step_run_id"`
-	Seq       int64     `db:"seq"`
-	Stream    string    `db:"stream"` // stdout | stderr | system
-	Content   string    `db:"content"`
-	Ts        time.Time `db:"ts"`
+	ID        int64     `db:"id" json:"id"`
+	StepRunID string    `db:"step_run_id" json:"step_run_id"`
+	Seq       int64     `db:"seq" json:"seq"`
+	Stream    string    `db:"stream" json:"stream"` // stdout | stderr | system
+	Content   string    `db:"content" json:"content"`
+	Ts        time.Time `db:"ts" json:"ts"`
 }
 
 // StepOutput is the in-memory result passed between DAG steps via template resolution.

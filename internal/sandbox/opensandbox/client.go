@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
@@ -22,6 +23,11 @@ type Client struct {
 	apiKey     string
 	http       *http.Client
 	streamHTTP *http.Client
+
+	// proxyPorts caches the per-sandbox proxy port returned in create metadata.
+	// Exec, file I/O, etc. go through the sandbox's proxy port, not the main API.
+	mu         sync.RWMutex
+	proxyPorts map[string]string // sandbox ID → "host:port" or "localhost:port"
 }
 
 // New creates a new OpenSandbox client.
@@ -31,6 +37,7 @@ func New(domain, apiKey string) *Client {
 		apiKey:     apiKey,
 		http:       &http.Client{Timeout: 30 * time.Second},
 		streamHTTP: &http.Client{}, // context-controlled for streaming
+		proxyPorts: make(map[string]string),
 	}
 }
 
@@ -42,7 +49,40 @@ func (c *Client) baseURL() string {
 }
 
 func (c *Client) setAuth(req *http.Request) {
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+}
+
+// sandboxProxyURL returns the base URL for per-sandbox operations (exec, file I/O).
+// In local mode: http://localhost:{proxy_port}
+// In production: https://{id}.{domain}
+func (c *Client) sandboxProxyURL(id string) string {
+	if strings.HasPrefix(c.domain, "http://") || strings.HasPrefix(c.domain, "https://") {
+		c.mu.RLock()
+		port, ok := c.proxyPorts[id]
+		c.mu.RUnlock()
+		if !ok {
+			// Cache miss (e.g. worker restarted) — fetch and cache the proxy port.
+			if err := c.fetchAndCacheProxyPort(context.Background(), id); err == nil {
+				c.mu.RLock()
+				port, ok = c.proxyPorts[id]
+				c.mu.RUnlock()
+			}
+		}
+		if ok {
+			// Extract host from domain URL for proxy.
+			// e.g. http://localhost:8090 → http://localhost:{port}
+			u, err := url.Parse(c.domain)
+			if err == nil {
+				host := u.Hostname()
+				return fmt.Sprintf("%s://%s:%s", u.Scheme, host, port)
+			}
+		}
+		// Fallback: try path routing (won't work for exec, but will give a clear error)
+		return c.baseURL() + "/v1/sandboxes/" + id
+	}
+	return fmt.Sprintf("https://%s.%s", id, c.domain)
 }
 
 func (c *Client) Create(ctx context.Context, opts sandbox.CreateOpts) (string, error) {
@@ -81,35 +121,73 @@ func (c *Client) Create(ctx context.Context, opts sandbox.CreateOpts) (string, e
 	}
 
 	var result struct {
-		ID string `json:"id"`
+		ID       string            `json:"id"`
+		Metadata map[string]string `json:"metadata"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", fmt.Errorf("opensandbox: decode create response: %w", err)
 	}
+
+	// Cache the proxy port for subsequent operations.
+	if port := result.Metadata["opensandbox.io/embedding-proxy-port"]; port != "" {
+		c.mu.Lock()
+		c.proxyPorts[result.ID] = port
+		c.mu.Unlock()
+	} else {
+		// If not in create response, fetch sandbox details to get the port.
+		if err := c.fetchAndCacheProxyPort(ctx, result.ID); err != nil {
+			// Non-fatal: sandboxProxyURL will fall back to path routing.
+			_ = err
+		}
+	}
+
 	return result.ID, nil
 }
 
-func (c *Client) sandboxURL(id string) string {
-	// Production: subdomain routing — https://{id}.{domain}
-	// Local (domain has a scheme): path routing — http://localhost:8090/v1/sandboxes/{id}
-	if strings.HasPrefix(c.domain, "http://") || strings.HasPrefix(c.domain, "https://") {
-		return c.baseURL() + "/v1/sandboxes/" + id
+// fetchAndCacheProxyPort retrieves sandbox details and caches the proxy port.
+func (c *Client) fetchAndCacheProxyPort(ctx context.Context, id string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL()+"/v1/sandboxes/"+id, nil)
+	if err != nil {
+		return err
 	}
-	return fmt.Sprintf("https://%s.%s", id, c.domain)
+	c.setAuth(req)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("get sandbox returned %d", resp.StatusCode)
+	}
+
+	var details struct {
+		Metadata map[string]string `json:"metadata"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&details); err != nil {
+		return err
+	}
+
+	if port := details.Metadata["opensandbox.io/embedding-proxy-port"]; port != "" {
+		c.mu.Lock()
+		c.proxyPorts[id] = port
+		c.mu.Unlock()
+	}
+	return nil
 }
 
 func (c *Client) ExecStream(ctx context.Context, id, cmd, workDir string, onLine func(string)) error {
 	body := map[string]any{
-		"cmd":        cmd,
-		"workdir":    workDir,
-		"background": false,
+		"command": cmd,
+		"workdir": workDir,
 	}
 	data, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("opensandbox: marshal exec body: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.sandboxURL(id)+"/command", bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.sandboxProxyURL(id)+"/command", bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("opensandbox: exec request: %w", err)
 	}
@@ -130,11 +208,28 @@ func (c *Client) ExecStream(ctx context.Context, id, cmd, workDir string, onLine
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
-		// SSE format: lines prefixed with "data: "
-		if strings.HasPrefix(line, "data: ") {
-			onLine(strings.TrimPrefix(line, "data: "))
-		} else if line != "" && !strings.HasPrefix(line, ":") {
-			onLine(line)
+		if line == "" {
+			continue
+		}
+		// OpenSandbox streams JSON lines: {"type":"stdout","text":"..."}
+		// Convert to the normalized format our callers expect: {"stream":"stdout","content":"..."}
+		var msg struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if json.Unmarshal([]byte(line), &msg) == nil {
+			// Skip control messages (init, ping, execution_complete)
+			switch msg.Type {
+			case "stdout", "stderr":
+				normalized, _ := json.Marshal(map[string]string{
+					"stream":  msg.Type,
+					"content": msg.Text,
+				})
+				onLine(string(normalized))
+			default:
+				// init, ping, execution_complete — skip
+				continue
+			}
 		}
 	}
 	return scanner.Err()
@@ -166,8 +261,17 @@ func (c *Client) WriteFile(ctx context.Context, id, path, content string) error 
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 
-	if err := w.WriteField("path", path); err != nil {
-		return fmt.Errorf("opensandbox: write path field: %w", err)
+	// OpenSandbox expects 'metadata' as a file upload containing JSON with the path.
+	metadataJSON, err := json.Marshal(map[string]string{"path": path})
+	if err != nil {
+		return fmt.Errorf("opensandbox: marshal metadata: %w", err)
+	}
+	mw, err := w.CreateFormFile("metadata", "metadata.json")
+	if err != nil {
+		return fmt.Errorf("opensandbox: create metadata part: %w", err)
+	}
+	if _, err := mw.Write(metadataJSON); err != nil {
+		return fmt.Errorf("opensandbox: write metadata: %w", err)
 	}
 
 	fw, err := w.CreateFormFile("file", "upload")
@@ -179,7 +283,7 @@ func (c *Client) WriteFile(ctx context.Context, id, path, content string) error 
 	}
 	w.Close()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.sandboxURL(id)+"/files/upload", &buf)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.sandboxProxyURL(id)+"/files/upload", &buf)
 	if err != nil {
 		return fmt.Errorf("opensandbox: write file request: %w", err)
 	}
@@ -208,7 +312,7 @@ func (c *Client) ReadFile(ctx context.Context, id, path string) (string, error) 
 }
 
 func (c *Client) ReadBytes(ctx context.Context, id, path string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.sandboxURL(id)+"/files/download?path="+url.QueryEscape(path), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.sandboxProxyURL(id)+"/files/download?path="+url.QueryEscape(path), nil)
 	if err != nil {
 		return nil, fmt.Errorf("opensandbox: read file request: %w", err)
 	}
@@ -244,14 +348,25 @@ func (c *Client) Kill(ctx context.Context, id string) error {
 		b, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("opensandbox: kill returned %d: %s", resp.StatusCode, string(b))
 	}
+
+	// Clean up cached proxy port.
+	c.mu.Lock()
+	delete(c.proxyPorts, id)
+	c.mu.Unlock()
+
 	return nil
 }
 
 func (c *Client) RenewExpiration(ctx context.Context, id string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL()+"/v1/sandboxes/"+id+"/renew-expiration", nil)
+	// OpenSandbox requires an expiresAt timestamp in the body.
+	expiresAt := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
+	body, _ := json.Marshal(map[string]string{"expiresAt": expiresAt})
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL()+"/v1/sandboxes/"+id+"/renew-expiration", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("opensandbox: renew request: %w", err)
 	}
+	req.Header.Set("Content-Type", "application/json")
 	c.setAuth(req)
 
 	resp, err := c.http.Do(req)

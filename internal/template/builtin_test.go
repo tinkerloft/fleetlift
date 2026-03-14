@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/tinkerloft/fleetlift/internal/model"
 )
 
 func TestBuiltinProviderLoadsAll(t *testing.T) {
@@ -13,7 +15,7 @@ func TestBuiltinProviderLoadsAll(t *testing.T) {
 	require.NoError(t, err)
 	templates, err := p.List(context.Background(), "")
 	require.NoError(t, err)
-	assert.Len(t, templates, 9)
+	assert.Len(t, templates, 10)
 	slugs := map[string]bool{}
 	for _, tmpl := range templates {
 		slugs[tmpl.Slug] = true
@@ -21,6 +23,7 @@ func TestBuiltinProviderLoadsAll(t *testing.T) {
 	for _, expected := range []string{
 		"fleet-research", "fleet-transform", "bug-fix", "dependency-update",
 		"pr-review", "migration", "triage", "audit", "incident-response",
+		"sandbox-test",
 	} {
 		assert.True(t, slugs[expected], "missing builtin: %s", expected)
 	}
@@ -37,6 +40,24 @@ func TestBuiltinProviderGet(t *testing.T) {
 
 	_, err = p.Get(context.Background(), "", "nonexistent")
 	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestSandboxTestWorkflowTemplate_Parses(t *testing.T) {
+	p, err := NewBuiltinProvider()
+	require.NoError(t, err)
+
+	tmpl, err := p.Get(context.Background(), "", "sandbox-test")
+	require.NoError(t, err)
+	assert.Equal(t, "Sandbox Test", tmpl.Title)
+
+	var def model.WorkflowDef
+	require.NoError(t, model.ParseWorkflowYAML([]byte(tmpl.YAMLBody), &def))
+	assert.Len(t, def.Steps, 2)
+	assert.Equal(t, "shell", def.Steps[0].Execution.Agent)
+	assert.Equal(t, "run_command", def.Steps[0].ID)
+	assert.Equal(t, []string{"run_command"}, def.Steps[1].DependsOn)
+	assert.Equal(t, "test", def.Steps[0].SandboxGroup)
+	assert.Equal(t, "test", def.Steps[1].SandboxGroup)
 }
 
 func TestBuiltinProviderReadOnly(t *testing.T) {

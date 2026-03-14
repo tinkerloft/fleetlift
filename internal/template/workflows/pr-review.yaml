@@ -22,12 +22,17 @@ steps:
     mode: report
     repositories:
       - url: "{{ .Params.repo_url }}"
+        ref: "pull/{{ .Params.pr_number }}/head"
     execution:
       agent: claude-code
       prompt: |
-        Fetch the diff and description for PR #{{ .Params.pr_number }} in this repository.
+        You are in a repository with PR #{{ .Params.pr_number }} already checked out.
+        The PR branch is at HEAD and the base branch (main/master) is at origin/main or origin/master.
 
-        Use git to check out the PR branch and generate the diff against the base branch.
+        Generate the diff between the base branch and HEAD:
+          git diff origin/main...HEAD
+
+        Also extract the PR title and base branch name.
         Output the diff content and PR metadata.
       output:
         schema:
@@ -72,5 +77,4 @@ steps:
       config:
         repo_url: "{{ .Params.repo_url }}"
         pr_number: "{{ .Params.pr_number }}"
-        comments: "{{ .Steps.review.Output.comments | toJSON }}"
-        summary: "{{ .Steps.review.Output.summary }}"
+        summary: "{{ .Steps.review.Output.result }}"

@@ -3,7 +3,9 @@ package opensandbox_test
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -50,4 +52,135 @@ func TestClientRoundTrip(t *testing.T) {
 	// RenewExpiration
 	err = c.RenewExpiration(ctx, id)
 	require.NoError(t, err)
+}
+
+// newTestClient creates a sandbox client from env vars, skipping if not set.
+func newTestClient(t *testing.T) *opensandbox.Client {
+	t.Helper()
+	domain := os.Getenv("OPENSANDBOX_DOMAIN")
+	if domain == "" {
+		t.Skip("OPENSANDBOX_DOMAIN not set")
+	}
+	return opensandbox.New(domain, os.Getenv("OPENSANDBOX_API_KEY"))
+}
+
+// createTestSandbox creates a sandbox for testing and registers cleanup.
+func createTestSandbox(t *testing.T, c *opensandbox.Client) string {
+	t.Helper()
+	ctx := context.Background()
+	id, err := c.Create(ctx, sandbox.CreateOpts{
+		Image: "ubuntu:22.04",
+		Env:   map[string]string{"TEST": "1"},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Kill(ctx, id) })
+	return id
+}
+
+func TestExecStream_IncrementalDelivery(t *testing.T) {
+	c := newTestClient(t)
+	id := createTestSandbox(t, c)
+	ctx := context.Background()
+
+	var timestamps []time.Time
+	var lines []string
+
+	err := c.ExecStream(ctx, id,
+		`for i in 1 2 3; do echo "line-$i"; sleep 1; done`, "/",
+		func(line string) {
+			timestamps = append(timestamps, time.Now())
+			lines = append(lines, line)
+		},
+	)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(lines), 3, "expected at least 3 lines, got %d: %v", len(lines), lines)
+
+	// Verify incremental delivery: at least two consecutive callbacks should
+	// have a gap > 500ms (the command sleeps 1s between each echo).
+	foundGap := false
+	for i := 1; i < len(timestamps); i++ {
+		if timestamps[i].Sub(timestamps[i-1]) > 500*time.Millisecond {
+			foundGap = true
+			break
+		}
+	}
+	assert.True(t, foundGap, "no gap > 500ms between consecutive callbacks — ExecStream may be buffering. Timestamps: %v", timestamps)
+}
+
+func TestExec_StdoutStderrSeparation(t *testing.T) {
+	c := newTestClient(t)
+	id := createTestSandbox(t, c)
+	ctx := context.Background()
+
+	stdout, stderr, err := c.Exec(ctx, id, `echo out && echo err >&2`, "/")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "out")
+	assert.Contains(t, stderr, "err")
+}
+
+func TestExec_NonZeroExit(t *testing.T) {
+	c := newTestClient(t)
+	id := createTestSandbox(t, c)
+	ctx := context.Background()
+
+	// Document current behavior: ExecStream may not surface non-zero exit codes.
+	// The ShellRunner works around this with an exit code sentinel.
+	stdout, stderr, err := c.Exec(ctx, id, "exit 1", "/")
+	t.Logf("exit 1 result: stdout=%q stderr=%q err=%v", stdout, stderr, err)
+	// We don't assert on specific behavior — this test documents what happens.
+}
+
+func TestWriteReadFile_EdgeCases(t *testing.T) {
+	c := newTestClient(t)
+	id := createTestSandbox(t, c)
+	ctx := context.Background()
+
+	t.Run("empty file", func(t *testing.T) {
+		err := c.WriteFile(ctx, id, "/tmp/empty.txt", "")
+		require.NoError(t, err)
+		content, err := c.ReadFile(ctx, id, "/tmp/empty.txt")
+		require.NoError(t, err)
+		assert.Equal(t, "", content)
+	})
+
+	t.Run("special characters", func(t *testing.T) {
+		special := "line1\nline2\ttab\n日本語テスト\n"
+		err := c.WriteFile(ctx, id, "/tmp/special.txt", special)
+		require.NoError(t, err)
+		content, err := c.ReadFile(ctx, id, "/tmp/special.txt")
+		require.NoError(t, err)
+		assert.Equal(t, special, content)
+	})
+
+	t.Run("large file", func(t *testing.T) {
+		large := strings.Repeat("abcdefghij", 100_000)
+		err := c.WriteFile(ctx, id, "/tmp/large.txt", large)
+		require.NoError(t, err)
+		content, err := c.ReadFile(ctx, id, "/tmp/large.txt")
+		require.NoError(t, err)
+		assert.Equal(t, len(large), len(content))
+	})
+}
+
+func TestKill_RejectsSubsequentOps(t *testing.T) {
+	c := newTestClient(t)
+	ctx := context.Background()
+
+	id, err := c.Create(ctx, sandbox.CreateOpts{
+		Image: "ubuntu:22.04",
+	})
+	require.NoError(t, err)
+
+	// Verify sandbox works
+	stdout, _, err := c.Exec(ctx, id, "echo alive", "/")
+	require.NoError(t, err)
+	assert.Contains(t, stdout, "alive")
+
+	// Kill it
+	err = c.Kill(ctx, id)
+	require.NoError(t, err)
+
+	// Subsequent ops should fail
+	_, _, err = c.Exec(ctx, id, "echo dead", "/")
+	assert.Error(t, err, "expected error when executing on killed sandbox")
 }

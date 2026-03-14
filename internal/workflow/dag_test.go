@@ -290,6 +290,20 @@ func TestAggregateFanOut_MultipleFailures(t *testing.T) {
 	assert.Contains(t, agg.Error, "timeout")
 }
 
+func TestResolveStep_ShellAgent(t *testing.T) {
+	step := model.StepDef{
+		ID: "shell-step",
+		Execution: &model.ExecutionDef{
+			Agent:  "shell",
+			Prompt: "echo hello",
+		},
+	}
+	opts, err := resolveStep(step, map[string]any{}, map[string]*model.StepOutput{})
+	assert.NoError(t, err)
+	assert.Equal(t, "shell", opts.Agent)
+	assert.Equal(t, "echo hello", opts.Prompt)
+}
+
 func TestFanOutApprovalPolicyOverride(t *testing.T) {
 	// This test documents the expected behavior: fan-out steps must never have
 	// HITL approval_policy other than "never" to prevent signal routing hangs.

@@ -9,6 +9,7 @@ import (
 	"text/template"
 	"time"
 
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/tinkerloft/fleetlift/internal/model"
@@ -41,17 +42,44 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 	}
 
 	defer func() {
+		// Use a disconnected context so cleanup activities run even after cancellation.
+		dCtx, _ := workflow.NewDisconnectedContext(ctx)
 		finalStatus := string(model.RunStatusComplete)
 		finalError := ""
 		if retErr != nil {
-			finalStatus = string(model.RunStatusFailed)
-			finalError = retErr.Error()
+			if temporal.IsCanceledError(retErr) {
+				finalStatus = string(model.RunStatusCancelled)
+			} else {
+				finalStatus = string(model.RunStatusFailed)
+				finalError = retErr.Error()
+			}
 		}
 		ao := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
 		_ = workflow.ExecuteActivity(
-			workflow.WithActivityOptions(ctx, ao),
+			workflow.WithActivityOptions(dCtx, ao),
 			UpdateRunStatusActivity, input.RunID, finalStatus, finalError,
-		).Get(ctx, nil)
+		).Get(dCtx, nil)
+
+		// Create inbox notification for completed/failed runs.
+		if finalStatus != string(model.RunStatusCancelled) {
+			kind := "output_ready"
+			title := input.WorkflowDef.Title
+			if title == "" {
+				title = input.WorkflowTemplateID
+			}
+			summary := "Run completed successfully"
+			if finalStatus == string(model.RunStatusFailed) {
+				kind = "output_ready"
+				summary = "Run failed"
+				if finalError != "" {
+					summary = "Run failed: " + finalError
+				}
+			}
+			_ = workflow.ExecuteActivity(
+				workflow.WithActivityOptions(dCtx, ao),
+				CreateInboxItemActivity, input.TeamID, input.RunID, "", kind, title, summary,
+			).Get(dCtx, nil)
+		}
 	}()
 
 	steps := input.WorkflowDef.Steps
@@ -82,6 +110,11 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 	}()
 
 	for len(pending) > 0 {
+		// Check for cancellation before starting new steps.
+		if ctx.Err() != nil {
+			return temporal.NewCanceledError()
+		}
+
 		ready := findReady(pending, outputs)
 		if len(ready) == 0 {
 			return fmt.Errorf("DAG deadlock: circular dependency or all steps blocked")
@@ -91,10 +124,20 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 		for _, step := range ready {
 			if step.SandboxGroup != "" && sandboxes[step.SandboxGroup] == "" {
 				ao := workflow.ActivityOptions{StartToCloseTimeout: 5 * time.Minute}
+				// Build a proper StepInput so ProvisionSandbox gets the right agent/credentials.
+				provisionInput := StepInput{
+					TeamID: input.TeamID,
+				}
+				if step.Execution != nil {
+					provisionInput.ResolvedOpts = ResolvedStepOpts{
+						Agent:       step.Execution.Agent,
+						Credentials: step.Execution.Credentials,
+					}
+				}
 				var sandboxID string
 				err := workflow.ExecuteActivity(
 					workflow.WithActivityOptions(ctx, ao),
-					ProvisionSandboxActivity, step,
+					ProvisionSandboxActivity, provisionInput,
 				).Get(ctx, &sandboxID)
 				if err != nil {
 					return fmt.Errorf("provision sandbox group %s: %w", step.SandboxGroup, err)
@@ -133,14 +176,54 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 
 				// Action step — no sandbox needed
 				if step.Action != nil {
+					// Create step_run record so the step is visible in the UI.
+					createAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
+					var stepRunID string
+					if err = workflow.ExecuteActivity(
+						workflow.WithActivityOptions(gCtx, createAO),
+						CreateStepRunActivity, input.RunID, step.ID, step.Title, "",
+					).Get(gCtx, &stepRunID); err != nil {
+						results[i] = &model.StepOutput{
+							StepID: step.ID,
+							Status: model.StepStatusFailed,
+							Error:  fmt.Sprintf("create step run: %v", err),
+						}
+						return
+					}
+
+					// Resolve template strings in action config.
+					resolvedConfig := make(map[string]any, len(step.Action.Config))
+					for k, v := range step.Action.Config {
+						if s, ok := v.(string); ok {
+							rendered, renderErr := fltemplate.RenderPrompt(s, fltemplate.RenderContext{
+								Params: input.Parameters,
+								Steps:  outputs,
+							})
+							if renderErr != nil {
+								failOutput := &model.StepOutput{
+									StepID: step.ID,
+									Status: model.StepStatusFailed,
+									Error:  fmt.Sprintf("render action config %s: %v", k, renderErr),
+								}
+								finalizeStep(gCtx, logger, stepRunID, failOutput)
+								results[i] = failOutput
+								return
+							}
+							resolvedConfig[k] = rendered
+						} else {
+							resolvedConfig[k] = v
+						}
+					}
+					step.Action.Config = resolvedConfig
 					results[i] = executeAction(gCtx, step, resolved)
+					finalizeStep(gCtx, logger, stepRunID, results[i])
 					return
 				}
 
 				// Agent step — run as child StepWorkflow(s)
-				// Fan-out: one child per repo if repos are specified.
+				// Fan-out: one child per repo if multiple repos are specified.
 				repos := resolved.Repos
-				if len(repos) == 0 {
+				if len(repos) <= 1 {
 					// Single execution (no fan-out) — create a step_run record first.
 					childWFID := fmt.Sprintf("%s-%s", input.RunID, step.ID)
 					createAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second}
@@ -251,6 +334,11 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 			})
 		}
 		wg.Wait(ctx)
+
+		// Check for cancellation after parallel step execution.
+		if ctx.Err() != nil {
+			return temporal.NewCanceledError()
+		}
 
 		// Collect results
 		for _, r := range results {
@@ -367,6 +455,13 @@ func resolveRepos(raw any, params map[string]any, outputs map[string]*model.Step
 // aggregateFanOut merges per-repo StepOutput results into one aggregate StepOutput.
 // Status is complete only if all sub-outputs are complete.
 func aggregateFanOut(stepID string, results []*model.StepOutput) *model.StepOutput {
+	// Single result — return it directly to preserve Output for downstream templates.
+	if len(results) == 1 && results[0] != nil {
+		out := *results[0]
+		out.StepID = stepID
+		return &out
+	}
+
 	agg := &model.StepOutput{
 		StepID:  stepID,
 		Status:  model.StepStatusComplete,

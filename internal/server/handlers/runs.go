@@ -248,31 +248,6 @@ func (h *RunsHandler) Output(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, outputs)
 }
 
-// IssueSSETicket issues a short-lived single-use ticket for SSE connections.
-// EventSource does not support custom headers, so Bearer auth cannot be used directly.
-// The ticket is bound to the resource ID in the URL ({id} path param).
-func (h *RunsHandler) IssueSSETicket(w http.ResponseWriter, r *http.Request) {
-	claims := auth.ClaimsFromContext(r.Context())
-	if claims == nil {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
-	resourceID := chi.URLParam(r, "id")
-	ticket := auth.IssueSSETicket(claims, resourceID)
-	writeJSON(w, http.StatusOK, map[string]string{"ticket": ticket})
-}
-
-// claimsFromSSERequest resolves claims from a ticket query param (for SSE) or from the request context.
-// resourceID is the run or step run ID the ticket must be bound to.
-func claimsFromSSERequest(r *http.Request, resourceID string) (*auth.Claims, bool) {
-	if ticket := r.URL.Query().Get("ticket"); ticket != "" {
-		c, ok := auth.ConsumeSSETicket(ticket, resourceID)
-		return c, ok
-	}
-	c := auth.ClaimsFromContext(r.Context())
-	return c, c != nil
-}
-
 // streamFlush queries and emits new log lines and a status event for the run.
 // Returns true if the run has reached a terminal state.
 func (h *RunsHandler) streamFlush(w http.ResponseWriter, r *http.Request, flusher http.Flusher, runID string, cursor *int64) bool {
@@ -307,10 +282,11 @@ func (h *RunsHandler) streamFlush(w http.ResponseWriter, r *http.Request, flushe
 }
 
 // Stream sends SSE events for a run's logs and status updates.
+// Auth is handled by the router's auth middleware (cookie-based for EventSource).
 func (h *RunsHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	runID := chi.URLParam(r, "id")
-	claims, ok := claimsFromSSERequest(r, runID)
-	if !ok {
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -394,10 +370,11 @@ func (h *RunsHandler) stepLogsFlush(w http.ResponseWriter, r *http.Request, flus
 }
 
 // StepLogs sends SSE log lines for a specific step run.
+// Auth is handled by the router's auth middleware (cookie-based for EventSource).
 func (h *RunsHandler) StepLogs(w http.ResponseWriter, r *http.Request) {
 	stepRunID := chi.URLParam(r, "id")
-	claims, ok := claimsFromSSERequest(r, stepRunID)
-	if !ok {
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -478,7 +455,28 @@ func (h *RunsHandler) Steer(w http.ResponseWriter, r *http.Request) {
 
 // Cancel signals cancellation for a run.
 func (h *RunsHandler) Cancel(w http.ResponseWriter, r *http.Request) {
-	h.signalRun(w, r, string(workflow.SignalCancel), nil)
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return
+	}
+	runID := chi.URLParam(r, "id")
+	run := getRunForTeam(r.Context(), h.db, w, runID, teamID)
+	if run == nil {
+		return
+	}
+
+	// Cancel the parent DAGWorkflow via Temporal's CancelWorkflow API.
+	// This propagates cancellation to all child workflows and activities.
+	if err := h.temporal.CancelWorkflow(r.Context(), run.TemporalID, ""); err != nil {
+		http.Error(w, "failed to cancel workflow", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cancelled"})
 }
 
 func stepWorkflowID(runID, stepID string) string {

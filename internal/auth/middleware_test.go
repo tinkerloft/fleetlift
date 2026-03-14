@@ -80,26 +80,3 @@ func TestMiddleware_BlocksCookieOnMutatingMethod(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 }
 
-func TestSSETicket_RoundTrip(t *testing.T) {
-	claims := &Claims{UserID: "u1", TeamRoles: map[string]string{"t1": "member"}}
-	ticket := IssueSSETicket(claims, "run-1")
-	got, ok := ConsumeSSETicket(ticket, "run-1")
-	require.True(t, ok)
-	assert.Equal(t, "u1", got.UserID)
-}
-
-func TestSSETicket_WrongResource(t *testing.T) {
-	claims := &Claims{UserID: "u1", TeamRoles: map[string]string{"t1": "member"}}
-	ticket := IssueSSETicket(claims, "run-1")
-	_, ok := ConsumeSSETicket(ticket, "run-2")
-	assert.False(t, ok)
-}
-
-func TestSSETicket_SingleUse(t *testing.T) {
-	claims := &Claims{UserID: "u1", TeamRoles: map[string]string{"t1": "member"}}
-	ticket := IssueSSETicket(claims, "run-1")
-	_, first := ConsumeSSETicket(ticket, "run-1")
-	require.True(t, first)
-	_, second := ConsumeSSETicket(ticket, "run-1")
-	assert.False(t, second)
-}

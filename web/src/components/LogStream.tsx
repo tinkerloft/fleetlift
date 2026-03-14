@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { post } from '@/api/client'
 import type { StepRunLog } from '@/api/types'
 
 interface LogStreamProps {
@@ -8,36 +7,33 @@ interface LogStreamProps {
 
 export function LogStream({ stepRunId }: LogStreamProps) {
   const [logs, setLogs] = useState<StepRunLog[]>([])
-  const [ticketError, setTicketError] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const autoScrollRef = useRef(true)
 
   useEffect(() => {
     setLogs([])
-    setTicketError(null)
-    let es: EventSource | undefined
+    const seen = new Set<number>()
+    const es = new EventSource(`/api/runs/steps/${stepRunId}/logs`)
 
-    post<{ ticket: string }>(`/runs/steps/${stepRunId}/logs/ticket`, {}).then(({ ticket }) => {
-      es = new EventSource(`/api/runs/steps/${stepRunId}/logs?ticket=${ticket}`)
+    es.onmessage = (e) => {
+      try {
+        const log = JSON.parse(e.data) as StepRunLog
+        if (seen.has(log.id)) return
+        seen.add(log.id)
+        setLogs((prev) => {
+          const next = [...prev, log]
+          return next.length > 2000 ? next.slice(-2000) : next
+        })
+      } catch { /* ignore malformed events */ }
+    }
 
-      es.onmessage = (e) => {
-        try {
-          const log = JSON.parse(e.data) as StepRunLog
-          setLogs((prev) => {
-            const next = [...prev, log]
-            return next.length > 2000 ? next.slice(-2000) : next
-          })
-        } catch { /* ignore malformed events */ }
-      }
+    // Server closes connection when step is terminal; prevent EventSource auto-reconnect.
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) return
+      es.close()
+    }
 
-      es.onerror = () => {
-        // SSE will reconnect automatically; ignore transient errors
-      }
-    }).catch((err: Error) => {
-      setTicketError(err.message)
-    })
-
-    return () => es?.close()
+    return () => es.close()
   }, [stepRunId])
 
   useEffect(() => {
@@ -58,10 +54,7 @@ export function LogStream({ stepRunId }: LogStreamProps) {
       onScroll={handleScroll}
       className="h-64 overflow-auto rounded-md bg-black/80 p-3 font-mono text-xs text-green-400"
     >
-      {ticketError && (
-        <span className="text-red-400">Failed to connect to log stream: {ticketError}</span>
-      )}
-      {!ticketError && logs.length === 0 && (
+      {logs.length === 0 && (
         <span className="text-muted-foreground">Waiting for logs...</span>
       )}
       {logs.map((log) => (

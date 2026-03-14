@@ -32,12 +32,24 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 		if repo.Branch != "" {
 			cloneCmd += fmt.Sprintf(" --branch %s", shellQuote(repo.Branch))
 		}
-		cloneCmd += fmt.Sprintf(" %s /workspace/%s", shellQuote(repo.URL), shellQuote(repoName(repo)))
+		repoDir := "/workspace/" + repoName(repo)
+		cloneCmd += fmt.Sprintf(" %s %s", shellQuote(repo.URL), shellQuote(repoDir))
 		activity.RecordHeartbeat(ctx, "cloning "+repoName(repo))
 		a.updateStepStatus(ctx, stepInput.StepRunID, model.StepStatusCloning)
 
 		if _, _, err := sb.Exec(ctx, input.SandboxID, cloneCmd, "/"); err != nil {
 			return nil, fmt.Errorf("clone %s: %w", repo.URL, err)
+		}
+
+		// Fetch and checkout a specific ref (e.g. "pull/19/head" for PRs).
+		if repo.Ref != "" {
+			fetchCmd := fmt.Sprintf("git fetch origin %s", shellQuote(repo.Ref))
+			if _, _, err := sb.Exec(ctx, input.SandboxID, fetchCmd, repoDir); err != nil {
+				return nil, fmt.Errorf("fetch ref %s: %w", repo.Ref, err)
+			}
+			if _, _, err := sb.Exec(ctx, input.SandboxID, "git checkout FETCH_HEAD", repoDir); err != nil {
+				return nil, fmt.Errorf("checkout ref %s: %w", repo.Ref, err)
+			}
 		}
 	}
 
@@ -77,9 +89,15 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 		prompt += "\n\n## Knowledge Capture\n\nBefore exiting, write `fleetlift-knowledge.json` to the current directory with any insights you gained. Format:\n```json\n[\n  {\"type\": \"pattern|correction|gotcha|context\", \"summary\": \"brief insight\", \"details\": \"optional detail\", \"confidence\": 0.9}\n]\n```\nOnly include non-obvious insights worth sharing with future runs."
 	}
 
+	// Set working directory to the repo if there's exactly one.
+	workDir := WorkspacePath
+	if len(stepInput.ResolvedOpts.Repos) == 1 {
+		workDir = "/workspace/" + repoName(stepInput.ResolvedOpts.Repos[0])
+	}
+
 	events, err := runner.Run(ctx, input.SandboxID, agent.RunOpts{
 		Prompt:  prompt,
-		WorkDir: WorkspacePath,
+		WorkDir: workDir,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("start agent: %w", err)
@@ -88,12 +106,17 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 	buf := newLogBuffer(a, stepInput.StepRunID, "stdout", LogFlushThreshold)
 	var seq int64
 	var lastOutput map[string]any
+	var gotComplete bool
 	for event := range events {
+		if event.Type == "" && event.Content == "" {
+			continue // skip empty events (filtered noise)
+		}
 		activity.RecordHeartbeat(ctx, "agent running: "+event.Type)
 		buf.add(ctx, seq, event.Content)
 		seq++
 		if event.Type == "complete" {
 			lastOutput = event.Output
+			gotComplete = true
 		}
 		if event.Type == "error" {
 			buf.flush(ctx)
@@ -101,6 +124,43 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 		}
 	}
 	buf.flush(ctx)
+
+	// If the agent never emitted a completion event, the command failed.
+	if !gotComplete {
+		return &model.StepOutput{
+			StepID: stepInput.StepDef.ID,
+			Status: model.StepStatusFailed,
+			Error:  "agent exited without producing a result",
+		}, nil
+	}
+
+	// Check for agent-reported error (Claude CLI sets is_error: true on failure).
+	if isErr, ok := lastOutput["is_error"]; ok {
+		if b, isBool := isErr.(bool); isBool && b {
+			errMsg := "agent reported an error"
+			if result, ok := lastOutput["result"].(string); ok && result != "" {
+				errMsg = result
+			}
+			return &model.StepOutput{
+				StepID: stepInput.StepDef.ID,
+				Status: model.StepStatusFailed,
+				Output: lastOutput,
+				Error:  errMsg,
+			}, nil
+		}
+	}
+
+	// Check for non-zero exit code (shell runner includes exit_code in output).
+	if exitCode, ok := lastOutput["exit_code"]; ok {
+		if code, isNum := exitCode.(float64); isNum && code != 0 {
+			return &model.StepOutput{
+				StepID: stepInput.StepDef.ID,
+				Status: model.StepStatusFailed,
+				Output: lastOutput,
+				Error:  fmt.Sprintf("command exited with code %d", int(code)),
+			}, nil
+		}
+	}
 
 	// 3. Extract git diff — run in each repo dir and concatenate
 	var diffParts []string

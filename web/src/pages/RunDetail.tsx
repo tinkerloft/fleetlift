@@ -14,6 +14,7 @@ export function RunDetailPage() {
   const queryClient = useQueryClient()
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [cancelling, setCancelling] = useState(false)
   const [sseConnected, setSseConnected] = useState(false)
 
   const { data: config } = useQuery({ queryKey: ['config'], queryFn: getConfig, staleTime: Infinity })
@@ -31,7 +32,7 @@ export function RunDetailPage() {
     let cleanup: (() => void) | undefined
     setSseConnected(false)
 
-    subscribeToRun(
+    cleanup = subscribeToRun(
       id,
       (_update: RunStatusUpdate) => {
         queryClient.invalidateQueries({ queryKey: ['run', id] })
@@ -40,10 +41,8 @@ export function RunDetailPage() {
         // Logs are handled by LogStream component per step
       },
       () => setSseConnected(false),
-    ).then((unsub) => {
-      setSseConnected(true)
-      cleanup = unsub
-    })
+    )
+    setSseConnected(true)
 
     return () => cleanup?.()
   }, [id, queryClient])
@@ -84,11 +83,13 @@ export function RunDetailPage() {
   const handleCancel = useCallback(async () => {
     if (!id) return
     setActionError(null)
+    setCancelling(true)
     try {
       await api.cancelRun(id)
       queryClient.invalidateQueries({ queryKey: ['run', id] })
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Action failed')
+      setCancelling(false)
     }
   }, [id, queryClient])
 
@@ -122,7 +123,7 @@ export function RunDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="relative z-10 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">{run.workflow_title}</h1>
           <p className="text-sm text-muted-foreground font-mono">
@@ -142,8 +143,8 @@ export function RunDetailPage() {
           )}
           <RunStatusBadge run={run} />
           {(run.status === 'running' || run.status === 'awaiting_input') && (
-            <Button variant="destructive" size="sm" onClick={handleCancel}>
-              Cancel
+            <Button variant="destructive" size="sm" onClick={handleCancel} disabled={cancelling}>
+              {cancelling ? 'Cancelling…' : 'Cancel'}
             </Button>
           )}
         </div>
@@ -180,7 +181,7 @@ export function RunDetailPage() {
       {/* Selected step detail */}
       {selectedStep && (
         <div className="rounded-lg border p-4">
-          <StepPanel stepRun={selectedStep} />
+          <StepPanel stepRun={selectedStep} runParameters={run.parameters} allStepRuns={stepRuns} />
         </div>
       )}
 

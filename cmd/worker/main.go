@@ -65,6 +65,7 @@ func main() {
 		CredStore: credStore,
 		AgentRunners: map[string]agent.Runner{
 			"claude-code": agent.NewClaudeCodeRunner(sbClient),
+			"shell":       agent.NewShellRunner(sbClient),
 		},
 	}
 

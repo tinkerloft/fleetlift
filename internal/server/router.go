@@ -52,10 +52,6 @@ func NewRouter(deps Deps) http.Handler {
 	r.Get("/auth/github", deps.Auth.HandleGitHubRedirect)
 	r.Get("/auth/github/callback", deps.Auth.HandleGitHubCallback)
 
-	// SSE endpoints — ticket-authenticated, no JWT middleware
-	r.Get("/api/runs/{id}/events", deps.Runs.Stream)
-	r.Get("/api/runs/steps/{id}/logs", deps.Runs.StepLogs)
-
 	// Public config (no auth required)
 	temporalUIURL := deps.TemporalUIURL
 	r.Get("/api/config", func(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +63,11 @@ func NewRouter(deps Deps) http.Handler {
 
 	// Authenticated API
 	r.Group(func(r chi.Router) {
-		r.Use(auth.Middleware(deps.JWTSecret))
+		if os.Getenv("DEV_NO_AUTH") == "1" {
+			r.Use(devAuthBypass(deps.JWTSecret))
+		} else {
+			r.Use(auth.Middleware(deps.JWTSecret))
+		}
 
 		// Identity
 		r.Post("/auth/refresh", deps.Auth.HandleRefresh)
@@ -88,8 +88,8 @@ func NewRouter(deps Deps) http.Handler {
 		r.Get("/api/runs/{id}/logs", deps.Runs.Logs)
 		r.Get("/api/runs/{id}/diff", deps.Runs.Diff)
 		r.Get("/api/runs/{id}/output", deps.Runs.Output)
-		r.Post("/api/runs/{id}/events/ticket", deps.Runs.IssueSSETicket)      // issue SSE ticket
-		r.Post("/api/runs/steps/{id}/logs/ticket", deps.Runs.IssueSSETicket) // issue SSE ticket
+		r.Get("/api/runs/{id}/events", deps.Runs.Stream)         // SSE: live run events
+		r.Get("/api/runs/steps/{id}/logs", deps.Runs.StepLogs)   // SSE: step log stream
 		r.Post("/api/runs/{id}/approve", deps.Runs.Approve)
 		r.Post("/api/runs/{id}/reject", deps.Runs.Reject)
 		r.Post("/api/runs/{id}/steer", deps.Runs.Steer)
@@ -119,6 +119,31 @@ func NewRouter(deps Deps) http.Handler {
 	r.Handle("/*", spaHandler())
 
 	return r
+}
+
+// devAuthBypass is a middleware that skips JWT validation and injects claims
+// for the first team found in the database. Only enabled when DEV_NO_AUTH=1.
+func devAuthBypass(jwtSecret []byte) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Try real auth first (if token is present, use it)
+			token := r.Header.Get("Authorization")
+			if strings.HasPrefix(token, "Bearer ") {
+				if claims, err := auth.ValidateToken(jwtSecret, strings.TrimPrefix(token, "Bearer ")); err == nil {
+					ctx := auth.SetClaimsInContext(r.Context(), claims)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
+			// Fall back to a dev claims object
+			claims := &auth.Claims{
+				UserID:    os.Getenv("DEV_USER_ID"),
+				TeamRoles: map[string]string{os.Getenv("DEV_TEAM_ID"): "admin"},
+			}
+			ctx := auth.SetClaimsInContext(r.Context(), claims)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
 }
 
 func corsOptions() cors.Options {

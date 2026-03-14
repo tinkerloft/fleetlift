@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
 )
@@ -20,9 +22,20 @@ func NewClaudeCodeRunner(sb sandbox.Client) *ClaudeCodeRunner {
 
 func (r *ClaudeCodeRunner) Name() string { return "claude-code" }
 
+func (r *ClaudeCodeRunner) SandboxEnv() map[string]string {
+	env := make(map[string]string)
+	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
+		env["ANTHROPIC_API_KEY"] = key
+	}
+	if token := os.Getenv("CLAUDE_CODE_OAUTH_TOKEN"); token != "" {
+		env["CLAUDE_CODE_OAUTH_TOKEN"] = token
+	}
+	return env
+}
+
 func (r *ClaudeCodeRunner) Run(ctx context.Context, sandboxID string, opts RunOpts) (<-chan Event, error) {
-	cmd := fmt.Sprintf("claude -p %s --output-format stream-json --max-turns %d",
-		shellQuote(opts.Prompt), max(opts.MaxTurns, 20))
+	cmd := fmt.Sprintf("cd %s && claude -p %s --output-format stream-json --verbose --dangerously-skip-permissions --max-turns %d",
+		shellQuote(opts.WorkDir), shellQuote(opts.Prompt), max(opts.MaxTurns, 20))
 
 	ch := make(chan Event, 64)
 	go func() {
@@ -49,20 +62,127 @@ func (r *ClaudeCodeRunner) Interrupt(ctx context.Context, sandboxID string) erro
 	return err
 }
 
-// parseClaudeEvent parses a single line of claude --output-format stream-json output.
+// parseClaudeEvent parses a single line of claude --output-format stream-json output
+// and extracts human-readable content, filtering out noise like system init, rate limits,
+// thinking blocks, and raw tool results.
+//
+// Lines arrive from ExecStream in the normalized format {"stream":"stdout","content":"..."}
+// where content is the actual Claude JSON. We unwrap that first.
 func parseClaudeEvent(line string) Event {
 	var raw map[string]any
 	if err := json.Unmarshal([]byte(line), &raw); err != nil {
 		return Event{Type: "stdout", Content: line}
 	}
+
+	// Unwrap the normalized ExecStream format: {"stream":"...","content":"..."}
+	if _, hasStream := raw["stream"]; hasStream {
+		content, _ := raw["content"].(string)
+		if content == "" {
+			return Event{}
+		}
+		// Re-parse the inner content as Claude JSON.
+		var inner map[string]any
+		if err := json.Unmarshal([]byte(content), &inner); err != nil {
+			// Not JSON — plain text output from the command.
+			stream, _ := raw["stream"].(string)
+			evType := "stdout"
+			if stream == "stderr" {
+				evType = "stderr"
+			}
+			return Event{Type: evType, Content: content}
+		}
+		raw = inner
+	}
+
 	typ, _ := raw["type"].(string)
 	switch typ {
 	case "result":
 		return Event{Type: "complete", Output: raw}
 	case "needs_input":
 		return Event{Type: "needs_input", Content: fmt.Sprintf("%v", raw["message"])}
+	case "system", "rate_limit_event":
+		// Noise — skip entirely.
+		return Event{}
+	case "user":
+		// Tool results — extract a brief summary if present.
+		return parseToolResult(raw)
+	case "assistant":
+		return parseAssistantMessage(raw)
 	default:
 		content, _ := raw["content"].(string)
+		if content == "" {
+			return Event{}
+		}
 		return Event{Type: "stdout", Content: content}
 	}
+}
+
+// parseAssistantMessage extracts readable content from assistant message events.
+func parseAssistantMessage(raw map[string]any) Event {
+	msg, ok := raw["message"].(map[string]any)
+	if !ok {
+		return Event{}
+	}
+	content, _ := msg["content"].([]any)
+	var parts []string
+	for _, block := range content {
+		b, ok := block.(map[string]any)
+		if !ok {
+			continue
+		}
+		blockType, _ := b["type"].(string)
+		switch blockType {
+		case "text":
+			if text, ok := b["text"].(string); ok && text != "" {
+				parts = append(parts, text)
+			}
+		case "tool_use":
+			name, _ := b["name"].(string)
+			input, _ := b["input"].(map[string]any)
+			desc, _ := input["description"].(string)
+			if desc != "" {
+				parts = append(parts, fmt.Sprintf("[tool] %s: %s", name, desc))
+			} else if cmd, ok := input["command"].(string); ok {
+				// Bash commands — show the command itself.
+				if len(cmd) > 120 {
+					cmd = cmd[:120] + "…"
+				}
+				parts = append(parts, fmt.Sprintf("[tool] %s: %s", name, cmd))
+			} else {
+				parts = append(parts, fmt.Sprintf("[tool] %s", name))
+			}
+		// Skip "thinking" blocks — they're noise in logs.
+		}
+	}
+	if len(parts) == 0 {
+		return Event{}
+	}
+	return Event{Type: "stdout", Content: strings.Join(parts, "\n")}
+}
+
+// parseToolResult extracts a brief summary from tool result events.
+func parseToolResult(raw map[string]any) Event {
+	msg, ok := raw["message"].(map[string]any)
+	if !ok {
+		return Event{}
+	}
+	content, _ := msg["content"].([]any)
+	for _, block := range content {
+		b, ok := block.(map[string]any)
+		if !ok {
+			continue
+		}
+		if b["type"] == "tool_result" {
+			result, _ := b["content"].(string)
+			isError, _ := b["is_error"].(bool)
+			if isError && result != "" {
+				if len(result) > 200 {
+					result = result[:200] + "…"
+				}
+				return Event{Type: "stderr", Content: result}
+			}
+		}
+	}
+	// Most tool results are verbose — skip them.
+	return Event{}
 }
