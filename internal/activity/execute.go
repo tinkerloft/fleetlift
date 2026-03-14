@@ -63,7 +63,7 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 
 		cloneCmd := fmt.Sprintf("git clone --depth %s", DefaultCloneDepth)
 		if repo.Branch != "" {
-			cloneCmd += fmt.Sprintf(" --branch %s", shellquote.Quote(repo.Branch))
+			cloneCmd += fmt.Sprintf(" --branch %s", repo.Branch)
 		}
 		cloneCmd += fmt.Sprintf(" %s %s", shellquote.Quote(repo.URL), shellquote.Quote(repoDir))
 		activity.RecordHeartbeat(ctx, "cloning "+repoName(repo))
