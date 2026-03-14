@@ -25,6 +25,7 @@ FleetLift gives you:
 - **Human-in-the-loop** - approve, reject, or *steer* any step mid-execution. Four approval policies (`always`, `never`, `agent`, `on_changes`) so you control exactly where humans gate the pipeline.
 - **Knowledge loop** - agents capture insights during execution. You curate them. Future runs get enriched with approved knowledge, so agents get better over time.
 - **Self-hosted** - your infrastructure, your data, your API keys. No vendor lock-in.
+- **Scales from laptop to production** - run locally with Docker Compose for development; deploy to Kubernetes for enterprise-scale throughput. Same code, same API, no changes required.
 - **Multiple agents supported** - designed to support multiple coding agents (Claude Code, Gemini, Codex, bring your own)
 
 ## Who is this for?
@@ -43,7 +44,7 @@ FleetLift gives you:
 | Human-in-the-loop | Approve / reject / steer mid-execution | Send follow-ups to agents | Manual approval gates (no steering) | Build from scratch |
 | Knowledge loop | Capture → curate → inject into future runs | Agent memory tool | None | Build from scratch |
 | Event triggers | API-driven (external scheduler/webhook) | Native: cron, Slack, Linear, PagerDuty | Native: push, PR, schedule, webhook | Build from scratch |
-| Setup | Self-hosted (Docker Compose) | Zero (SaaS) | Zero (GitHub-hosted) | Self-hosted cluster |
+| Setup | Docker Compose (local) or Kubernetes (prod) | Zero (SaaS) | Zero (GitHub-hosted) | Self-hosted cluster |
 | Open source | Yes (MIT) | No | Runners are OSS, platform is not | Yes (MIT) |
 
 FleetLift is strongest when you need **complex, multi-step workflows across many repos with human oversight**. See [docs/COMPARISON.md](docs/COMPARISON.md) for a detailed breakdown.
@@ -128,7 +129,7 @@ Agents capture insights during execution. You curate them via the Inbox. Approve
 
 ## Quick Start
 
-**Prerequisites:** Docker, Go 1.24+, Node 20+, an [Anthropic API key](https://console.anthropic.com/) (or Claude Code OAUTH token).
+**Prerequisites:** Docker, Go 1.24+, Node 20+, an [Anthropic API key](https://console.anthropic.com/) (or Claude Code OAUTH token). For Kubernetes deployment see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ```bash
 # Clone the repo
@@ -186,6 +187,29 @@ flowchart LR
 ```
 
 For the full architecture deep-dive, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+---
+
+## Deployment
+
+FleetLift runs the same way whether you're developing locally or running a production platform — the only difference is the sandbox runtime underneath.
+
+| Environment | Sandbox runtime | When to use |
+|---|---|---|
+| **Local / Docker** | Docker containers via Docker Compose | Development, testing, small teams |
+| **Kubernetes** | Kubernetes-native scheduling | Production, high throughput, enterprise scale |
+
+Agent sandboxes are powered by [OpenSandbox](https://github.com/alibaba/OpenSandbox), which provides a **unified API across both runtimes** — no code changes required when moving from local to production.
+
+### What OpenSandbox brings
+
+- **Strong isolation** — each agent step runs in its own ephemeral sandbox with gVisor, Kata Containers, or Firecracker microVM isolation (depending on your runtime config)
+- **Per-sandbox resource controls** — CPU, memory quotas, and timeouts per execution step
+- **Network policies** — per-sandbox egress controls and unified ingress gateways
+- **Kubernetes scheduling** — automatic resource management and distributed scheduling at scale
+- **Protocol-based extensibility** — custom runtimes can implement the sandbox protocol, keeping FleetLift vendor-agnostic
+
+For deployment instructions, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ---
 
