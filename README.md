@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="docs/images/fleetlift.webm">
-    <img src="docs/images/header.jpg" alt="Watch FleetLift Demo" width="800">
+    <img src="docs/images/temporal-ui.png" alt="Watch FleetLift Demo" width="800">
     <br><em>▶ Click to watch demo</em>
   </a>
 </p>
