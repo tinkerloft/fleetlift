@@ -11,6 +11,7 @@ export function LogStream({ stepRunId }: LogStreamProps) {
   const autoScrollRef = useRef(true)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reset logs when stepRunId changes before subscribing
     setLogs([])
     const seen = new Set<number>()
     const es = new EventSource(`/api/runs/steps/${stepRunId}/logs`)

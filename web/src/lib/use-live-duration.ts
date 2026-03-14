@@ -7,7 +7,7 @@ import { formatDuration } from './format'
  * If only startTime, ticks every second.
  */
 export function useLiveDuration(startTime?: string, endTime?: string): string | null {
-  const [now, setNow] = useState(Date.now())
+  const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
     if (!startTime || endTime) return

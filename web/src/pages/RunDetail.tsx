@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/Skeleton'
 import { Button } from '@/components/ui/button'
 import { useLiveDuration } from '@/lib/use-live-duration'
 import { cn } from '@/lib/utils'
-import type { StepDef, StepRun, Run, RunStatusUpdate, StepRunLog } from '@/api/types'
+import type { StepDef, StepRun } from '@/api/types'
 
 const SEG_COLOR: Record<string, string> = {
   complete: 'bg-green-500',
@@ -48,8 +48,8 @@ export function RunDetailPage() {
     setSseConnected(false)
     const cleanup = subscribeToRun(
       id,
-      (_update: RunStatusUpdate) => queryClient.invalidateQueries({ queryKey: ['run', id] }),
-      (_log: StepRunLog) => {},
+      () => queryClient.invalidateQueries({ queryKey: ['run', id] }),
+      () => {},
       () => setSseConnected(false),
     )
     setSseConnected(true)
@@ -101,8 +101,9 @@ export function RunDetailPage() {
   // otherwise we fall back to flat step list (no edges).
   let steps: StepDef[] = []
   try {
-    if ((run as any).workflow_def?.steps) {
-      steps = (run as any).workflow_def.steps as StepDef[]
+    const runWithDef = run as Record<string, unknown>
+    if ((runWithDef.workflow_def as Record<string, unknown>)?.steps) {
+      steps = (runWithDef.workflow_def as Record<string, unknown>).steps as StepDef[]
     } else if (run.steps) {
       steps = run.steps.map((sr: StepRun) => ({
         id: sr.step_id,

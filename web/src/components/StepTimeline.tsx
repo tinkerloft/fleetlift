@@ -1,6 +1,6 @@
 import type { StepRun, StepStatus } from '@/api/types'
 import { cn } from '@/lib/utils'
-import { formatDuration } from '@/lib/format'
+import { useLiveDuration } from '@/lib/use-live-duration'
 
 interface StepTimelineProps {
   stepRuns: StepRun[]
@@ -27,50 +27,48 @@ export function StepTimeline({ stepRuns, selectedStepId, onSelect }: StepTimelin
       {/* Vertical line */}
       <div className="absolute left-[7px] top-1 bottom-1 w-0.5 bg-border rounded-full" />
 
-      {stepRuns.map((sr) => {
-        const elapsed = sr.started_at
-          ? formatDuration(
-              (sr.completed_at ? new Date(sr.completed_at).getTime() : Date.now()) -
-              new Date(sr.started_at).getTime()
-            )
-          : null
-
-        return (
-          <button
-            key={sr.id}
-            onClick={() => onSelect(sr.step_id)}
-            className={cn(
-              'relative flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors',
-              selectedStepId === sr.step_id && 'bg-blue-500/5',
-              selectedStepId !== sr.step_id && 'hover:bg-muted',
-            )}
-          >
-            {/* Status dot */}
-            <span className={cn(
-              'absolute -left-5 top-3.5 h-2.5 w-2.5 rounded-full border-2 border-card z-10',
-              DOT_COLOR[sr.status] ?? 'bg-gray-300',
-              PULSING.has(sr.status as StepStatus) && 'animate-pulse',
-            )} />
-
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between">
-                <span className="text-[13px] font-medium truncate">
-                  {sr.step_title || sr.step_id}
-                </span>
-                <span className={cn(
-                  'text-xs tabular-nums text-muted-foreground ml-2 shrink-0',
-                  PULSING.has(sr.status as StepStatus) && 'text-blue-500',
-                )}>
-                  {elapsed ?? '—'}
-                </span>
-              </div>
-              <span className="text-[11px] text-muted-foreground">
-                {sr.status.replace('_', ' ')}
-              </span>
-            </div>
-          </button>
-        )
-      })}
+      {stepRuns.map((sr) => (
+        <StepTimelineItem key={sr.id} sr={sr} selectedStepId={selectedStepId} onSelect={onSelect} />
+      ))}
     </div>
+  )
+}
+
+function StepTimelineItem({ sr, selectedStepId, onSelect }: { sr: StepRun; selectedStepId?: string | null; onSelect: (stepId: string) => void }) {
+  const elapsed = useLiveDuration(sr.started_at, sr.completed_at)
+
+  return (
+    <button
+      onClick={() => onSelect(sr.step_id)}
+      className={cn(
+        'relative flex w-full items-start gap-3 rounded-lg px-3 py-2.5 text-left transition-colors',
+        selectedStepId === sr.step_id && 'bg-blue-500/5',
+        selectedStepId !== sr.step_id && 'hover:bg-muted',
+      )}
+    >
+      {/* Status dot */}
+      <span className={cn(
+        'absolute -left-5 top-3.5 h-2.5 w-2.5 rounded-full border-2 border-card z-10',
+        DOT_COLOR[sr.status] ?? 'bg-gray-300',
+        PULSING.has(sr.status as StepStatus) && 'animate-pulse',
+      )} />
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center justify-between">
+          <span className="text-[13px] font-medium truncate">
+            {sr.step_title || sr.step_id}
+          </span>
+          <span className={cn(
+            'text-xs tabular-nums text-muted-foreground ml-2 shrink-0',
+            PULSING.has(sr.status as StepStatus) && 'text-blue-500',
+          )}>
+            {elapsed ?? '—'}
+          </span>
+        </div>
+        <span className="text-[11px] text-muted-foreground">
+          {sr.status.replace('_', ' ')}
+        </span>
+      </div>
+    </button>
   )
 }

@@ -2,7 +2,7 @@ import { memo } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { cn } from '@/lib/utils'
 import type { StepStatus } from '@/api/types'
-import { formatDuration } from '@/lib/format'
+import { useLiveDuration } from '@/lib/use-live-duration'
 
 export interface DAGNodeData {
   label: string
@@ -40,12 +40,7 @@ const PULSING = new Set(['running', 'cloning', 'verifying'])
 
 function DAGNodeInner({ data }: NodeProps) {
   const d = data as DAGNodeData
-  const elapsed = d.startedAt
-    ? formatDuration(
-        (d.completedAt ? new Date(d.completedAt).getTime() : Date.now()) -
-        new Date(d.startedAt).getTime()
-      )
-    : null
+  const elapsed = useLiveDuration(d.startedAt, d.completedAt)
 
   return (
     <>

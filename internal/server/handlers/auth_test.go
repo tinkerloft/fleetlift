@@ -131,9 +131,9 @@ func TestHandleMeEnriched(t *testing.T) {
 	userID := "test-user-me-" + fmt.Sprintf("%d", os.Getpid())
 	teamID := "test-team-me-" + fmt.Sprintf("%d", os.Getpid())
 	t.Cleanup(func() {
-		db.Exec(`DELETE FROM team_members WHERE user_id = $1`, userID)
-		db.Exec(`DELETE FROM teams WHERE id = $1`, teamID)
-		db.Exec(`DELETE FROM users WHERE id = $1`, userID)
+		_, _ = db.Exec(`DELETE FROM team_members WHERE user_id = $1`, userID)
+		_, _ = db.Exec(`DELETE FROM teams WHERE id = $1`, teamID)
+		_, _ = db.Exec(`DELETE FROM users WHERE id = $1`, userID)
 	})
 
 	db.MustExec(`INSERT INTO users (id, name, email, provider, provider_id) VALUES ($1, 'Alice', 'alice@example.com', 'github', $1) ON CONFLICT DO NOTHING`, userID)
