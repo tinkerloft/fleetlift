@@ -66,7 +66,7 @@ See: [`2026-03-14-track-c-web-experience.md`](2026-03-14-track-c-web-experience.
 - [x] **P2:** Mark SystemHealth as placeholder (no hardcoded green badges)
 - [x] **P2:** Add component-level tests for StatusBadge, DiffViewer, UserMenu
 
-### Track H: Workflow Engine Reliability — 🔧 In Progress
+### Track H: Workflow Engine Reliability — ✅ Complete
 
 The PR Review workflow exposed 8 platform-level bugs and 2 template-level bugs during live testing. 80% were platform issues that would affect every workflow. This track hardens the engine so users can compose workflows from activities that work reliably in isolation.
 
@@ -103,9 +103,9 @@ Bounded retries, buffer sizes, and error propagation across the workflow/activit
 
 | # | Item | Key Files | Priority | Status |
 |---|------|-----------|----------|--------|
-| H1 | **Workflow validation before execution** — check dep references, circular deps, template step/param refs, unknown action types, unreachable steps | `workflow/validate.go` (new) | P0 | ⬜ |
-| H2 | **Action step credential access + logging** — action steps get credential store access (not just worker env), log what they do, store results as step output | `activity/actions.go`, `workflow/dag.go` | P0 | ⬜ |
-| H3 | **Output schema enforcement** — extract agent output into declared schema fields, fail if required fields missing; downstream steps get predictable data | `activity/execute.go`, `workflow/dag.go` | P0 | ⬜ |
+| H1 | **Workflow validation before execution** — check dep references, circular deps, template step/param refs, unknown action types, unreachable steps | `workflow/validate.go` (new) | P0 | ✅ |
+| H2 | **Action step credential access + logging** — action steps get credential store access (not just worker env), log what they do, store results as step output | `activity/actions.go`, `workflow/dag.go` | P0 | ✅ |
+| H3 | **Output schema enforcement** — extract agent output into declared schema fields, fail if required fields missing; downstream steps get predictable data | `activity/execute.go`, `workflow/dag.go` | P0 | ✅ |
 | H4 | **Workflow integration test harness** — Temporal test environment + mock sandbox/agent; validate DAG orchestration, template rendering, credential flow, action dispatch for each builtin workflow | `workflow/dag_integration_test.go` (new) | P1 | ⬜ |
 | H5 | **Activity/action contract registry** — declared input/output schemas per action type; enables validation at parse time and future UI workflow builder | `activity/registry.go` (new), action YAML schemas | P1 | ⬜ |
 | H6 | **Template rendering safety** — validate all referenced step IDs and output keys exist before rendering; clear error messages ("step 'revew' does not exist, did you mean 'review'?") | `template/render.go` | P2 | ⬜ |

@@ -1,6 +1,6 @@
 # H1–H3 Workflow Reliability Implementation Plan
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Status: COMPLETE** — All 7 tasks implemented and merged. See commits `934a924`–`c2fb23b` on `workflow_reliability` branch.
 
 **Goal:** Catch invalid YAML workflow configs before execution (H1), give action steps access to the credential store with logging (H2), and enforce declared output schemas on agent steps (H3).
 
@@ -18,7 +18,7 @@
 - Create: `internal/workflow/validate.go`
 - Create: `internal/workflow/validate_test.go`
 
-- [ ] **Step 1: Write failing tests for structural validation**
+- [x] **Step 1: Write failing tests for structural validation**
 
 ```go
 // internal/workflow/validate_test.go
@@ -126,14 +126,14 @@ func TestValidateWorkflow_Valid(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests — expect FAIL (ValidateWorkflow undefined)**
+- [x] **Step 2: Run tests — expect FAIL (ValidateWorkflow undefined)**
 
 ```
 go test ./internal/workflow/... -run TestValidateWorkflow -v
 ```
 Expected: compile error — `ValidateWorkflow` not defined.
 
-- [ ] **Step 3: Create validate.go with ValidationError and structural checks**
+- [x] **Step 3: Create validate.go with ValidationError and structural checks**
 
 ```go
 // internal/workflow/validate.go
@@ -408,13 +408,13 @@ func validateCredentialNames(def model.WorkflowDef) []ValidationError {
 }
 ```
 
-- [ ] **Step 4: Run tests — expect PASS**
+- [x] **Step 4: Run tests — expect PASS**
 
 ```
 go test ./internal/workflow/... -run TestValidateWorkflow -v
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/workflow/validate.go internal/workflow/validate_test.go
@@ -429,7 +429,7 @@ git commit -m "feat(H1): add workflow structural validation"
 - Modify: `internal/workflow/validate.go`
 - Modify: `internal/workflow/validate_test.go`
 
-- [ ] **Step 1: Write failing tests for template ref extraction and validation**
+- [x] **Step 1: Write failing tests for template ref extraction and validation**
 
 Add to `validate_test.go`:
 ```go
@@ -561,13 +561,13 @@ func TestExtractTemplateRefs_ConditionContext(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests — expect FAIL**
+- [x] **Step 2: Run tests — expect FAIL**
 
 ```
 go test ./internal/workflow/... -run "TestValidateWorkflow_Unknown|TestValidateWorkflow_Valid|TestValidateWorkflow_Step|TestValidateWorkflow_Schema|TestValidateWorkflow_Condition|TestExtractTemplateRefs" -v
 ```
 
-- [ ] **Step 3: Add StepRef type and extractTemplateRefs + validateTemplateRefs to validate.go**
+- [x] **Step 3: Add StepRef type and extractTemplateRefs + validateTemplateRefs to validate.go**
 
 Add to `validate.go`:
 ```go
@@ -802,13 +802,13 @@ func ValidateWorkflow(def model.WorkflowDef, params map[string]any) []Validation
 
 Add missing imports to validate.go: `"sort"`, `"strings"`, `"text/template/parse"`.
 
-- [ ] **Step 4: Run tests — expect PASS**
+- [x] **Step 4: Run tests — expect PASS**
 
 ```
 go test ./internal/workflow/... -run "TestValidateWorkflow|TestExtractTemplateRefs" -v
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/workflow/validate.go internal/workflow/validate_test.go
@@ -823,7 +823,7 @@ git commit -m "feat(H1): add template AST ref validation"
 - Modify: `internal/server/handlers/runs.go`
 - Modify: `internal/server/handlers/runs_test.go`
 
-- [ ] **Step 1: Write failing test for 400 response**
+- [x] **Step 1: Write failing test for 400 response**
 
 Add to `runs_test.go`:
 ```go
@@ -838,11 +838,11 @@ func TestRunsCreate_ValidationError(t *testing.T) {
 
 Read `runs_test.go` first to understand the existing test server setup before writing this test.
 
-- [ ] **Step 2: Read existing runs_test.go to understand test harness**
+- [x] **Step 2: Read existing runs_test.go to understand test harness**
 
 Read: `internal/server/handlers/runs_test.go` — identify how the test server is constructed and how to inject a mock/real registry that returns a template with invalid YAML.
 
-- [ ] **Step 3: Add validation call to runs.go**
+- [x] **Step 3: Add validation call to runs.go**
 
 In `RunsHandler.Create`, after parsing YAML and before DB insert:
 
@@ -859,13 +859,13 @@ if errs := workflow.ValidateWorkflow(def, req.Parameters); len(errs) > 0 {
 
 Add import: `"github.com/tinkerloft/fleetlift/internal/workflow"` (if not already present — check existing imports).
 
-- [ ] **Step 4: Run tests — all pass**
+- [x] **Step 4: Run tests — all pass**
 
 ```
 go test ./internal/server/handlers/... ./internal/workflow/... -v
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/server/handlers/runs.go internal/server/handlers/runs_test.go
@@ -881,7 +881,7 @@ git commit -m "feat(H1): wire ValidateWorkflow into RunsHandler.Create"
 **Files:**
 - Modify: `internal/model/workflow.go`
 
-- [ ] **Step 1: Add Credentials field to ActionDef**
+- [x] **Step 1: Add Credentials field to ActionDef**
 
 In `internal/model/workflow.go`, change:
 ```go
@@ -899,19 +899,19 @@ type ActionDef struct {
 }
 ```
 
-- [ ] **Step 2: Build verification**
+- [x] **Step 2: Build verification**
 
 ```
 go build ./...
 ```
 
-- [ ] **Step 3: Run full test suite — no regressions**
+- [x] **Step 3: Run full test suite — no regressions**
 
 ```
 go test ./...
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add internal/model/workflow.go
@@ -925,7 +925,7 @@ git commit -m "feat(H2): add Credentials field to ActionDef"
 **Files:**
 - Modify: `internal/activity/actions.go`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `internal/activity/actions_test.go`:
 ```go
@@ -978,13 +978,13 @@ func TestExecuteAction_SignatureAcceptsNewArgs(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test — expect FAIL (wrong ExecuteAction signature)**
+- [x] **Step 2: Run test — expect FAIL (wrong ExecuteAction signature)**
 
 ```
 go test ./internal/activity/... -run TestExecuteAction -v
 ```
 
-- [ ] **Step 3: Update ExecuteAction signature and all handlers in actions.go**
+- [x] **Step 3: Update ExecuteAction signature and all handlers in actions.go**
 
 Replace the entire `actions.go` content with the updated version:
 
@@ -1231,11 +1231,11 @@ func toStringSlice(v any) []string {
 
 Note: The `actionGitHubPostIssueComment` previously delegated to `ghActs.PostIssueComment`. Check `github.go` to see if that creates the comment with a `*github.IssueComment` or `*github.IssueRequest` — use the correct struct. Read `github.go` first.
 
-- [ ] **Step 4: Read github.go to verify IssueComment struct used**
+- [x] **Step 4: Read github.go to verify IssueComment struct used**
 
 Read `internal/activity/github.go` — check the `PostIssueComment` implementation for correct API usage.
 
-- [ ] **Step 5: Fix any struct mismatch from step 3**
+- [x] **Step 5: Fix any struct mismatch from step 3**
 
 If `github.go` uses `github.IssueComment{Body: ...}` for `CreateComment`, update `actionGitHubPostIssueComment` accordingly. The GitHub API's `CreateComment` takes `*github.IssueComment`, not `*github.IssueRequest`.
 
@@ -1245,19 +1245,19 @@ comment, _, err := ghClient.Issues.CreateComment(ctx, owner, repoName, issueNumb
     &github.IssueComment{Body: github.String(body)})
 ```
 
-- [ ] **Step 6: Run tests — expect PASS**
+- [x] **Step 6: Run tests — expect PASS**
 
 ```
 go test ./internal/activity/... -run TestExecuteAction -v
 ```
 
-- [ ] **Step 7: Build verification**
+- [x] **Step 7: Build verification**
 
 ```
 go build ./...
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add internal/activity/actions.go internal/activity/actions_test.go
@@ -1271,7 +1271,7 @@ git commit -m "feat(H2): update ExecuteAction with credential access, logging, m
 **Files:**
 - Modify: `internal/workflow/dag.go`
 
-- [ ] **Step 1: Update executeAction signature and workflow.ExecuteActivity call**
+- [x] **Step 1: Update executeAction signature and workflow.ExecuteActivity call**
 
 In `dag.go`, change `executeAction`:
 ```go
@@ -1300,7 +1300,7 @@ func executeAction(ctx workflow.Context, step model.StepDef, teamID, stepRunID s
 }
 ```
 
-- [ ] **Step 2: Update the call site in the action step path (~line 243)**
+- [x] **Step 2: Update the call site in the action step path (~line 243)**
 
 Find:
 ```go
@@ -1314,19 +1314,19 @@ results[i] = executeAction(gCtx, step, input.TeamID, stepRunID, step.Action.Cred
 
 Note: `stepRunID` is available in the same scope from the `CreateStepRunActivity` call. Confirm this is true by reading the surrounding code before making the change.
 
-- [ ] **Step 3: Build verification**
+- [x] **Step 3: Build verification**
 
 ```
 go build ./...
 ```
 
-- [ ] **Step 4: Run full test suite**
+- [x] **Step 4: Run full test suite**
 
 ```
 go test ./...
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/workflow/dag.go
@@ -1342,7 +1342,7 @@ git commit -m "feat(H2): pass teamID, stepRunID, credNames through executeAction
 **Files:**
 - Modify: `internal/activity/execute.go`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Add to `internal/activity/execute_test.go`:
 ```go
@@ -1419,13 +1419,13 @@ func TestValidateOutputSchema_WrongType(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests — expect FAIL**
+- [x] **Step 2: Run tests — expect FAIL**
 
 ```
 go test ./internal/activity/... -run "TestAppendOutputSchema|TestExtractSchemaFields|TestValidateOutputSchema" -v
 ```
 
-- [ ] **Step 3: Add three functions to execute.go**
+- [x] **Step 3: Add three functions to execute.go**
 
 Add after `extractStructuredOutput` in `execute.go`:
 
@@ -1573,13 +1573,13 @@ func checkOutputFieldType(field, typ string, val any) string {
 }
 ```
 
-- [ ] **Step 4: Run tests — expect PASS**
+- [x] **Step 4: Run tests — expect PASS**
 
 ```
 go test ./internal/activity/... -run "TestAppendOutputSchema|TestExtractSchemaFields|TestValidateOutputSchema" -v
 ```
 
-- [ ] **Step 5: Wire into ExecuteStep — prompt injection + schema enforcement**
+- [x] **Step 5: Wire into ExecuteStep — prompt injection + schema enforcement**
 
 In `ExecuteStep` in `execute.go`:
 
@@ -1614,25 +1614,25 @@ if stepInput.StepDef.Execution != nil && stepInput.StepDef.Execution.Output != n
 }
 ```
 
-- [ ] **Step 6: Run full test suite**
+- [x] **Step 6: Run full test suite**
 
 ```
 go test ./...
 ```
 
-- [ ] **Step 7: Lint**
+- [x] **Step 7: Lint**
 
 ```
 make lint
 ```
 
-- [ ] **Step 8: Build**
+- [x] **Step 8: Build**
 
 ```
 go build ./...
 ```
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add internal/activity/execute.go internal/activity/execute_test.go
@@ -1643,16 +1643,16 @@ git commit -m "feat(H3): enforce output schema — prompt injection, extraction,
 
 ## Final Verification
 
-- [ ] Run `go test ./...` — all tests pass
-- [ ] Run `make lint` — no errors
-- [ ] Run `go build ./...` — clean build
-- [ ] Update implementation plan: mark H1, H2, H3 as complete in `docs/plans/2026-03-14-reliability-audit.md`
+- [x] Run `go test ./...` — all tests pass
+- [x] Run `make lint` — no errors
+- [x] Run `go build ./...` — clean build
+- [x] Update implementation plan: mark H1, H2, H3 as complete in `docs/plans/2026-03-14-reliability-audit.md`
 
 ---
 
 ## Notes
 
 - `actionGitHubPostIssueComment` previously delegated to `ghActs.PostIssueComment(ctx, repoURL, issueNumber, body)` — check `github.go` to see if there's a simpler internal helper to reuse vs calling the API directly.
-- The `logAction` helper uses `seq: 0` for all action log lines. If action steps have multiple log lines, you may want to maintain a counter. For now seq=0 is fine since each `batchInsertLogs` call is a separate INSERT.
+- The `logAction` helper accepts a `seq int64` parameter. `ExecuteAction` maintains a local counter (start=0, end=1), avoiding collisions in `step_run_logs`.
 - H1's condition template validation checks that referenced step IDs exist, but doesn't check that the step is an upstream dependency (conditions can reference any completed step). This is intentional.
 - The `extractSchemaFields` bare JSON regex is simple and may match partial JSON. The fenced block path is preferred and more reliable.
