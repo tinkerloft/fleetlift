@@ -73,6 +73,9 @@ func main() {
 	// Knowledge store
 	knowledgeStore := knowledge.NewDBStore(database)
 
+	// MCP handler
+	mcpHandler := handlers.NewMCPHandler(database, knowledgeStore)
+
 	// Notify listener — fan-outs PostgreSQL LISTEN/NOTIFY to SSE subscribers.
 	nl := notify.New(envOr("DATABASE_URL", "postgres://fleetlift:fleetlift@localhost:5432/fleetlift"))
 	go func() {
@@ -92,6 +95,8 @@ func main() {
 		Reports:       handlers.NewReportsHandler(database),
 		Credentials:   credHandler,
 		Knowledge:     handlers.NewKnowledgeHandler(knowledgeStore),
+		MCP:           mcpHandler,
+		DB:            database,
 	}
 
 	handler, err := server.NewRouter(deps)
