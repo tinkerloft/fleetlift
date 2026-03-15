@@ -220,6 +220,19 @@ func TestShim_MemorySearchToolHandler(t *testing.T) {
 	assert.False(t, result.IsError)
 }
 
+func TestShim_CallNonJSONErrorResponse(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("Bad Gateway"))
+	}))
+	defer backend.Close()
+
+	shim := &Shim{apiURL: backend.URL, token: "test-token", httpClient: http.DefaultClient}
+	_, err := shim.call("GET", "/api/mcp/run", nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "api error (502)")
+}
+
 func TestShim_ToolReturnsErrorOnBackendFailure(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -2,6 +2,9 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -117,5 +120,80 @@ func TestMCPClaimsFromContext_Empty(t *testing.T) {
 	got := MCPClaimsFromContext(context.Background())
 	if got != nil {
 		t.Errorf("expected nil from empty context, got %+v", got)
+	}
+}
+
+// --- MCPAuth middleware HTTP tests ---
+
+func dummyHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims := MCPClaimsFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"team_id": claims.TeamID,
+			"run_id":  claims.RunID,
+		})
+	})
+}
+
+func TestMCPAuth_MissingAuthHeader(t *testing.T) {
+	// nil DB is fine — middleware returns before DB query when header is missing.
+	handler := MCPAuth(testMCPSecret, nil)(dummyHandler())
+	req := httptest.NewRequest(http.MethodGet, "/api/mcp/run", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+	var resp map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["error"] == "" {
+		t.Fatal("expected error message in response")
+	}
+}
+
+func TestMCPAuth_InvalidToken(t *testing.T) {
+	// nil DB is fine — middleware returns before DB query when token is invalid.
+	handler := MCPAuth(testMCPSecret, nil)(dummyHandler())
+	req := httptest.NewRequest(http.MethodGet, "/api/mcp/run", nil)
+	req.Header.Set("Authorization", "Bearer invalid-token-string")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestMCPAuth_WrongSecret(t *testing.T) {
+	// Issue token with one secret, validate with another.
+	token, err := IssueMCPToken([]byte("other-secret"), "team-1", "run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := MCPAuth(testMCPSecret, nil)(dummyHandler())
+	req := httptest.NewRequest(http.MethodGet, "/api/mcp/run", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestMCPAuth_NonBearerScheme(t *testing.T) {
+	handler := MCPAuth(testMCPSecret, nil)(dummyHandler())
+	req := httptest.NewRequest(http.MethodGet, "/api/mcp/run", nil)
+	req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
 	}
 }

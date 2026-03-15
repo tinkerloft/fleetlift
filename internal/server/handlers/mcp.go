@@ -99,7 +99,7 @@ func (h *MCPHandler) HandleGetRun(w http.ResponseWriter, r *http.Request) {
 
 	writeMCPJSON(w, http.StatusOK, map[string]any{
 		"run_id":       run.ID,
-		"workflow":     run.WorkflowID,
+		"workflow":     run.WorkflowTitle,
 		"parameters":   run.Parameters,
 		"status":       run.Status,
 		"current_step": currentStep,
@@ -204,8 +204,12 @@ func (h *MCPHandler) HandleCreateArtifact(w http.ResponseWriter, r *http.Request
 		writeMCPErr(w, http.StatusBadRequest, "name is required")
 		return
 	}
+	if strings.Contains(body.Name, "..") {
+		writeMCPErr(w, http.StatusBadRequest, "name must not contain '..'")
+		return
+	}
 	if len(body.Content) > 1024*1024 {
-		writeMCPErr(w, http.StatusBadRequest, "content exceeds 1MB limit")
+		writeMCPErr(w, http.StatusRequestEntityTooLarge, "content exceeds 1MB limit")
 		return
 	}
 	if body.ContentType == "" {
@@ -351,6 +355,10 @@ func (h *MCPHandler) HandleUpdateProgress(w http.ResponseWriter, r *http.Request
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeMCPErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if body.Percentage < 0 || body.Percentage > 100 {
+		writeMCPErr(w, http.StatusBadRequest, "percentage must be between 0 and 100")
 		return
 	}
 

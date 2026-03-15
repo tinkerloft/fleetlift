@@ -81,8 +81,8 @@ func TestHandleCreateArtifact_ContentSizeLimit(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.HandleCreateArtifact(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413, got %d", w.Code)
 	}
 	var resp map[string]string
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
@@ -90,6 +90,67 @@ func TestHandleCreateArtifact_ContentSizeLimit(t *testing.T) {
 	}
 	if !strings.Contains(resp["error"], "1MB") {
 		t.Fatalf("expected 1MB error, got %q", resp["error"])
+	}
+}
+
+func TestHandleCreateArtifact_PathTraversal(t *testing.T) {
+	h := NewMCPHandler(nil, nil)
+	body := `{"name": "../../etc/passwd", "content": "hello"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/mcp/artifacts", strings.NewReader(body))
+	ctx := auth.SetMCPClaimsInContext(req.Context(), &auth.MCPClaims{
+		TeamID: "team1",
+		RunID:  "run1",
+	})
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.HandleCreateArtifact(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+	var resp map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(resp["error"], "..") {
+		t.Fatalf("expected path traversal error, got %q", resp["error"])
+	}
+}
+
+func TestHandleUpdateProgress_PercentageRange(t *testing.T) {
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{"negative", `{"percentage": -1}`, http.StatusBadRequest},
+		{"over 100", `{"percentage": 101}`, http.StatusBadRequest},
+		{"zero", `{"percentage": 0}`, 0},   // will pass validation, fail on DB (nil)
+		{"100", `{"percentage": 100}`, 0},   // will pass validation, fail on DB (nil)
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewMCPHandler(nil, nil)
+			req := httptest.NewRequest(http.MethodPost, "/api/mcp/progress", strings.NewReader(tt.body))
+			ctx := auth.SetMCPClaimsInContext(req.Context(), &auth.MCPClaims{
+				TeamID: "team1",
+				RunID:  "run1",
+			})
+			req = req.WithContext(ctx)
+			w := httptest.NewRecorder()
+
+			func() {
+				defer func() { _ = recover() }()
+				h.HandleUpdateProgress(w, req)
+			}()
+
+			if tt.wantStatus != 0 && w.Code != tt.wantStatus {
+				t.Fatalf("expected %d, got %d: %s", tt.wantStatus, w.Code, w.Body.String())
+			}
+			if tt.wantStatus == 0 && w.Code == http.StatusBadRequest {
+				t.Fatalf("valid percentage %s rejected with 400: %s", tt.body, w.Body.String())
+			}
+		})
 	}
 }
 

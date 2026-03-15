@@ -35,11 +35,11 @@ func (r *ClaudeCodeRunner) SandboxEnv() map[string]string {
 }
 
 func (r *ClaudeCodeRunner) Run(ctx context.Context, sandboxID string, opts RunOpts) (<-chan Event, error) {
-	// If MCP sidecar is available, write config so Claude discovers it.
-	// The ProvisionSandbox activity sets FLEETLIFT_MCP_PORT env var.
-	mcpSetup := `if [ -n "$FLEETLIFT_MCP_PORT" ]; then ` +
-		`mkdir -p /home/user/.claude && ` +
-		`printf '{"mcpServers":{"fleetlift":{"type":"sse","url":"http://localhost:%s/sse"}}}' "$FLEETLIFT_MCP_PORT" > /home/user/.claude/mcp_servers.json; ` +
+	// If MCP sidecar is available, source profile to pick up FLEETLIFT_MCP_PORT
+	// and write config so Claude discovers it via .mcp.json in the workspace.
+	mcpSetup := `. /etc/profile.d/fleetlift-mcp.sh 2>/dev/null; ` +
+		`if [ -n "$FLEETLIFT_MCP_PORT" ]; then ` +
+		`printf '{"mcpServers":{"fleetlift":{"type":"sse","url":"http://localhost:%s/sse"}}}' "$FLEETLIFT_MCP_PORT" > /workspace/.mcp.json; ` +
 		`fi`
 
 	cmd := fmt.Sprintf("%s && cd %s && claude -p %s --output-format stream-json --verbose --dangerously-skip-permissions --max-turns %d",

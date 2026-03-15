@@ -83,53 +83,83 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 		return "", fmt.Errorf("create workspace: %w", err)
 	}
 
-	// MCP sidecar setup (optional — skip if binary not available)
+	// MCP sidecar setup (optional — skip if binary path not configured)
 	if mcpBinaryPath := os.Getenv("FLEETLIFT_MCP_BINARY_PATH"); mcpBinaryPath != "" {
-		if mcpData, err := os.ReadFile(mcpBinaryPath); err == nil {
-			jwtSecret := []byte(os.Getenv("JWT_SECRET"))
-			mcpToken, err := auth.IssueMCPToken(jwtSecret, input.TeamID, input.RunID)
-			if err != nil {
-				_ = a.Sandbox.Kill(ctx, sandboxID)
-				return "", fmt.Errorf("issue MCP token: %w", err)
-			}
+		mcpData, err := os.ReadFile(mcpBinaryPath)
+		if err != nil {
+			_ = a.Sandbox.Kill(ctx, sandboxID)
+			return "", fmt.Errorf("read MCP binary %q: %w", mcpBinaryPath, err)
+		}
 
-			if err := a.Sandbox.WriteBytes(ctx, sandboxID, "/usr/local/bin/fleetlift-mcp", mcpData); err != nil {
-				_ = a.Sandbox.Kill(ctx, sandboxID)
-				return "", fmt.Errorf("upload MCP binary: %w", err)
-			}
-			if _, _, err := a.Sandbox.Exec(ctx, sandboxID, "chmod +x /usr/local/bin/fleetlift-mcp", "/"); err != nil {
-				_ = a.Sandbox.Kill(ctx, sandboxID)
-				return "", fmt.Errorf("chmod MCP binary: %w", err)
-			}
+		jwtSecret := []byte(os.Getenv("JWT_SECRET"))
+		if len(jwtSecret) == 0 {
+			_ = a.Sandbox.Kill(ctx, sandboxID)
+			return "", fmt.Errorf("JWT_SECRET is required when FLEETLIFT_MCP_BINARY_PATH is set")
+		}
+		mcpToken, err := auth.IssueMCPToken(jwtSecret, input.TeamID, input.RunID)
+		if err != nil {
+			_ = a.Sandbox.Kill(ctx, sandboxID)
+			return "", fmt.Errorf("issue MCP token: %w", err)
+		}
 
-			apiURL := os.Getenv("FLEETLIFT_API_URL")
-			if apiURL == "" {
-				apiURL = "http://host.docker.internal:8080"
+		if err := a.Sandbox.WriteBytes(ctx, sandboxID, "/usr/local/bin/fleetlift-mcp", mcpData); err != nil {
+			_ = a.Sandbox.Kill(ctx, sandboxID)
+			return "", fmt.Errorf("upload MCP binary: %w", err)
+		}
+		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, "chmod +x /usr/local/bin/fleetlift-mcp", "/"); err != nil {
+			_ = a.Sandbox.Kill(ctx, sandboxID)
+			return "", fmt.Errorf("chmod MCP binary: %w", err)
+		}
+		// Verify chmod took effect.
+		stdout, _, err := a.Sandbox.Exec(ctx, sandboxID, "stat -c %a /usr/local/bin/fleetlift-mcp", "/")
+		if err != nil || !strings.Contains(stdout, "7") {
+			_ = a.Sandbox.Kill(ctx, sandboxID)
+			return "", fmt.Errorf("MCP binary is not executable after chmod (perms=%q)", strings.TrimSpace(stdout))
+		}
+
+		apiURL := os.Getenv("FLEETLIFT_API_URL")
+		if apiURL == "" {
+			apiURL = "http://host.docker.internal:8080"
+		}
+		mcpPort := "8081"
+
+		// Pass token exclusively via env var — avoid exposing it in /proc/cmdline.
+		startCmd := fmt.Sprintf(
+			"FLEETLIFT_MCP_TOKEN=%s nohup /usr/local/bin/fleetlift-mcp --api-url %s --port %s > /tmp/fleetlift-mcp.log 2>&1 &",
+			shellquote.Quote(mcpToken),
+			shellquote.Quote(apiURL), shellquote.Quote(mcpPort),
+		)
+		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, startCmd, "/"); err != nil {
+			_ = a.Sandbox.Kill(ctx, sandboxID)
+			return "", fmt.Errorf("start MCP sidecar: %w", err)
+		}
+
+		// Health check — retry for up to 5 seconds, respecting context cancellation.
+		healthy := false
+		for i := 0; i < 10; i++ {
+			select {
+			case <-ctx.Done():
+				_ = a.Sandbox.Kill(ctx, sandboxID)
+				return "", fmt.Errorf("context cancelled during MCP health check: %w", ctx.Err())
+			default:
 			}
-			mcpPort := "8081"
-			startCmd := fmt.Sprintf(
-				"FLEETLIFT_MCP_TOKEN=%s FLEETLIFT_MCP_PORT=%s nohup /usr/local/bin/fleetlift-mcp --api-url %s --token %s --port %s > /tmp/fleetlift-mcp.log 2>&1 &",
-				shellquote.Quote(mcpToken), mcpPort,
-				shellquote.Quote(apiURL), shellquote.Quote(mcpToken), mcpPort,
-			)
-			if _, _, err := a.Sandbox.Exec(ctx, sandboxID, startCmd, "/"); err != nil {
-				slog.Warn("failed to start MCP sidecar", "error", err, "sandbox_id", sandboxID)
-			} else {
-				// Health check — retry for up to 5 seconds
-				healthy := false
-				for i := 0; i < 10; i++ {
-					stdout, _, err := a.Sandbox.Exec(ctx, sandboxID,
-						"curl -sf http://localhost:"+mcpPort+"/health", "/")
-					if err == nil && strings.Contains(stdout, "ok") {
-						healthy = true
-						break
-					}
-					time.Sleep(500 * time.Millisecond)
-				}
-				if !healthy {
-					slog.Warn("MCP sidecar health check failed after 5s", "sandbox_id", sandboxID)
-				}
+			out, _, err := a.Sandbox.Exec(ctx, sandboxID,
+				"curl -sf http://localhost:"+shellquote.Quote(mcpPort)+"/health", "/")
+			if err == nil && strings.Contains(out, "ok") {
+				healthy = true
+				break
 			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		if !healthy {
+			_ = a.Sandbox.Kill(ctx, sandboxID)
+			return "", fmt.Errorf("MCP sidecar health check failed after 5s")
+		}
+
+		// Inject MCP port into sandbox env so the agent runner can discover it.
+		if _, _, err := a.Sandbox.Exec(ctx, sandboxID,
+			fmt.Sprintf("echo 'export FLEETLIFT_MCP_PORT=%s' >> /etc/profile.d/fleetlift-mcp.sh", shellquote.Quote(mcpPort)), "/"); err != nil {
+			slog.Warn("failed to persist FLEETLIFT_MCP_PORT in sandbox profile", "error", err)
 		}
 	}
 

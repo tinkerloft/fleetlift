@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -53,16 +54,21 @@ func (s *Shim) call(method, path string, body any) (map[string]any, error) {
 	}
 	defer resp.Body.Close()
 
+	// Check status before decoding — non-JSON error bodies (e.g. 502 from proxy)
+	// would produce confusing "decode response" errors if decoded first.
+	if resp.StatusCode >= 400 {
+		var errResult map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&errResult); err == nil {
+			if errMsg, ok := errResult["error"]; ok {
+				return nil, fmt.Errorf("api error (%d): %v", resp.StatusCode, errMsg)
+			}
+		}
+		return nil, fmt.Errorf("api error (%d)", resp.StatusCode)
+	}
+
 	var result map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode response: %w", err)
-	}
-
-	if resp.StatusCode >= 400 {
-		if errMsg, ok := result["error"]; ok {
-			return nil, fmt.Errorf("api error (%d): %v", resp.StatusCode, errMsg)
-		}
-		return nil, fmt.Errorf("api error (%d)", resp.StatusCode)
 	}
 
 	return result, nil
@@ -250,17 +256,22 @@ func (s *Shim) registerTools(srv *server.MCPServer) {
 
 func main() {
 	apiURL := flag.String("api-url", "http://localhost:8080", "FleetLift backend API URL")
-	token := flag.String("token", "", "Authentication token")
 	port := flag.Int("port", 8081, "SSE server port")
 	transport := flag.String("transport", "sse", "Transport type: sse or stdio")
 	flag.Parse()
+
+	// Read token from environment variable to avoid exposing it in /proc/cmdline.
+	token := os.Getenv("FLEETLIFT_MCP_TOKEN")
+	if token == "" {
+		log.Fatal("FLEETLIFT_MCP_TOKEN environment variable is required")
+	}
 
 	// Trim trailing slash from API URL
 	*apiURL = strings.TrimRight(*apiURL, "/")
 
 	shim := &Shim{
 		apiURL:     *apiURL,
-		token:      *token,
+		token:      token,
 		httpClient: http.DefaultClient,
 	}
 
