@@ -181,20 +181,29 @@ func (b *logBuffer) flush(ctx context.Context) {
 	b.lastFlush = time.Now()
 }
 
+// buildInsertLogsQuery returns the INSERT SQL for a batch of log lines.
+// Uses ON CONFLICT DO NOTHING so Temporal activity retries are idempotent.
+func buildInsertLogsQuery(lines []logLine) string {
+	placeholders := make([]string, 0, len(lines))
+	for i := range lines {
+		base := i * 4
+		placeholders = append(placeholders, fmt.Sprintf("($%d, $%d, $%d, $%d)", base+1, base+2, base+3, base+4))
+	}
+	return "INSERT INTO step_run_logs (step_run_id, seq, stream, content) VALUES " +
+		strings.Join(placeholders, ", ") +
+		" ON CONFLICT (step_run_id, seq) DO NOTHING"
+}
+
 // batchInsertLogs writes a slice of log lines to step_run_logs in one INSERT.
 func batchInsertLogs(ctx context.Context, a *Activities, stepRunID string, lines []logLine) error {
 	if len(lines) == 0 {
 		return nil
 	}
-	placeholders := make([]string, 0, len(lines))
 	args := make([]any, 0, len(lines)*4)
-	for i, ln := range lines {
-		base := i * 4
-		placeholders = append(placeholders, fmt.Sprintf("($%d, $%d, $%d, $%d)", base+1, base+2, base+3, base+4))
+	for _, ln := range lines {
 		args = append(args, stepRunID, ln.Seq, ln.Stream, ln.Content)
 	}
-	query := "INSERT INTO step_run_logs (step_run_id, seq, stream, content) VALUES " + strings.Join(placeholders, ", ")
-	_, err := a.DB.ExecContext(ctx, query, args...)
+	_, err := a.DB.ExecContext(ctx, buildInsertLogsQuery(lines), args...)
 	return err
 }
 

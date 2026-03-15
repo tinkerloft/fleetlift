@@ -77,6 +77,8 @@ steps:
       - review
     action:
       type: github_pr_review
+      credentials:
+        - GITHUB_TOKEN
       config:
         repo_url: "{{ .Params.repo_url }}"
         pr_number: "{{ .Params.pr_number }}"

@@ -76,3 +76,33 @@ func TestExecuteAction_CredentialFetchError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "fetch credentials")
 }
+
+// Fix 1: missing GITHUB_TOKEN in credential store must return error, not fall back to env.
+func TestGitHubPRReview_MissingToken_ReturnsError_NoEnvFallback(t *testing.T) {
+	t.Setenv("GITHUB_TOKEN", "operator-token-must-not-be-used")
+	// Empty credentials map — no GITHUB_TOKEN in store.
+	_, err := actionGitHubPostReviewComment(context.Background(),
+		map[string]any{
+			"repo_url":  "https://github.com/org/repo",
+			"pr_number": 1,
+			"summary":   "looks good",
+		},
+		map[string]string{}, // no creds in store
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "GITHUB_TOKEN")
+}
+
+// Fix 5: empty summary with missing token must return error, not a success skip.
+func TestGitHubPRReview_EmptySummaryWithMissingToken_ReturnsError(t *testing.T) {
+	_, err := actionGitHubPostReviewComment(context.Background(),
+		map[string]any{
+			"repo_url":  "https://github.com/org/repo",
+			"pr_number": 1,
+			"summary":   "", // empty summary
+		},
+		map[string]string{}, // no GITHUB_TOKEN
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "GITHUB_TOKEN")
+}

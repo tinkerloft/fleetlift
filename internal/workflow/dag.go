@@ -89,6 +89,44 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 	}()
 
 	steps := input.WorkflowDef.Steps
+
+	// Preflight: verify all required credentials exist before starting any work.
+	// This fails fast instead of discovering missing credentials deep in execution.
+	{
+		seen := map[string]struct{}{}
+		var allCreds []string
+		for _, s := range steps {
+			var names []string
+			if s.Execution != nil {
+				names = append(names, s.Execution.Credentials...)
+			}
+			if s.Action != nil {
+				names = append(names, s.Action.Credentials...)
+			}
+			for _, n := range names {
+				if _, ok := seen[n]; !ok {
+					seen[n] = struct{}{}
+					allCreds = append(allCreds, n)
+				}
+			}
+		}
+		sort.Strings(allCreds)
+		if len(allCreds) > 0 {
+			// MaximumAttempts: 3 — allows recovery from transient DB failures;
+			// missing-credential errors are marked non-retryable by the activity itself.
+			ao := workflow.ActivityOptions{
+				StartToCloseTimeout: 30 * time.Second,
+				RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 3},
+			}
+			if err := workflow.ExecuteActivity(
+				workflow.WithActivityOptions(ctx, ao),
+				ValidateCredentialsActivity, input.TeamID, allCreds,
+			).Get(ctx, nil); err != nil {
+				return fmt.Errorf("credential preflight: %w", err)
+			}
+		}
+	}
+
 	outputs := map[string]*model.StepOutput{}
 	sandboxes := map[string]string{} // sandbox_group -> sandbox_id
 	pending := make(map[string]model.StepDef, len(steps))

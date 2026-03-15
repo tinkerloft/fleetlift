@@ -70,6 +70,14 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 	if err != nil {
 		return "", fmt.Errorf("create sandbox: %w", err)
 	}
+
+	// Ensure /workspace exists — the execd fails with a misleading bash error when
+	// the cwd doesn't exist. Ubuntu (used for the shell agent) doesn't pre-create it.
+	if _, _, err := a.Sandbox.Exec(ctx, sandboxID, "mkdir -p /workspace", "/"); err != nil {
+		_ = a.Sandbox.Kill(ctx, sandboxID) // best-effort cleanup to avoid leaking the sandbox
+		return "", fmt.Errorf("create workspace: %w", err)
+	}
+
 	return sandboxID, nil
 }
 

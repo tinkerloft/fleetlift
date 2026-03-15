@@ -237,23 +237,16 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 
 	// If the step declares an output schema, enforce it.
 	if stepInput.StepDef.Execution != nil && stepInput.StepDef.Execution.Output != nil {
-		schema := stepInput.StepDef.Execution.Output.Schema
-		resultText, _ := lastOutput["result"].(string)
-
-		extracted, err := extractSchemaFields(resultText, schema)
-		if err == nil {
-			structured = extracted
-		}
-
-		violations := validateOutputSchema(structured, schema)
-		if len(violations) > 0 {
+		enforced, err := enforceOutputSchema(lastOutput, stepInput.StepDef.Execution.Output.Schema)
+		if err != nil {
 			return &model.StepOutput{
 				StepID: stepInput.StepDef.ID,
 				Status: model.StepStatusFailed,
 				Output: structured,
-				Error:  fmt.Sprintf("output schema validation failed: %s", strings.Join(violations, "; ")),
+				Error:  err.Error(),
 			}, nil
 		}
+		structured = enforced
 	}
 
 	return &model.StepOutput{
@@ -296,6 +289,24 @@ func splitLast(s, sep string) string {
 		}
 	}
 	return s
+}
+
+// enforceOutputSchema extracts schema fields from lastOutput and validates them.
+// Returns the filtered structured output, or an error if extraction or validation fails.
+func enforceOutputSchema(lastOutput map[string]any, schema map[string]any) (map[string]any, error) {
+	resultText, _ := lastOutput["result"].(string)
+
+	extracted, err := extractSchemaFields(resultText, schema)
+	if err != nil {
+		return nil, fmt.Errorf("agent output did not contain valid JSON matching schema: %w", err)
+	}
+
+	violations := validateOutputSchema(extracted, schema)
+	if len(violations) > 0 {
+		return nil, fmt.Errorf("output schema validation failed: %s", strings.Join(violations, "; "))
+	}
+
+	return extracted, nil
 }
 
 func extractStructuredOutput(raw map[string]any) map[string]any {

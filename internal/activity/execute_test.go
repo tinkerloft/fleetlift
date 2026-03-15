@@ -199,3 +199,34 @@ func TestExtractSchemaFields_LastFencedBlockWins(t *testing.T) {
 	assert.Equal(t, "nil pointer", out["root_cause"])
 	assert.Equal(t, "high", out["severity"])
 }
+
+// Fix 3: when agent produces no JSON and a schema is declared, step must fail with a
+// clear extraction error — not fall through to validation on raw output.
+func TestEnforceOutputSchema_ExtractionFailure_ReturnsError(t *testing.T) {
+	lastOutput := map[string]any{"result": "I reviewed the code. Looks good. No issues found."}
+	schema := map[string]any{"summary": "string", "severity": "string"}
+
+	_, err := enforceOutputSchema(lastOutput, schema)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agent output did not contain valid JSON")
+}
+
+func TestEnforceOutputSchema_ValidationFailure_ReturnsError(t *testing.T) {
+	lastOutput := map[string]any{"result": "```json\n{\"summary\": \"ok\"}\n```"}
+	schema := map[string]any{"summary": "string", "severity": "string"} // severity missing
+
+	_, err := enforceOutputSchema(lastOutput, schema)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "output schema validation failed")
+	assert.Contains(t, err.Error(), "severity")
+}
+
+func TestEnforceOutputSchema_Success(t *testing.T) {
+	lastOutput := map[string]any{"result": "```json\n{\"summary\": \"ok\", \"severity\": \"low\"}\n```"}
+	schema := map[string]any{"summary": "string", "severity": "string"}
+
+	out, err := enforceOutputSchema(lastOutput, schema)
+	require.NoError(t, err)
+	assert.Equal(t, "ok", out["summary"])
+	assert.Equal(t, "low", out["severity"])
+}

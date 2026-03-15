@@ -64,7 +64,7 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// Parse workflow definition
 	var def model.WorkflowDef
 	if err := model.ParseWorkflowYAML([]byte(t.YAMLBody), &def); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "invalid workflow definition")
+		writeJSONError(w, http.StatusBadRequest, "invalid workflow definition")
 		return
 	}
 

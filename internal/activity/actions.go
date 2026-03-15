@@ -3,8 +3,6 @@ package activity
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"os"
 	"strings"
 
 	"github.com/google/go-github/v62/github"
@@ -65,22 +63,7 @@ func logAction(ctx context.Context, a *Activities, stepRunID string, seq int64, 
 	_ = batchInsertLogs(ctx, a, stepRunID, []logLine{{Seq: seq, Stream: "stdout", Content: msg}})
 }
 
-// credOrEnv returns the credential value from the map, falling back to os.Getenv.
-// TODO(multi-tenant): Remove env fallback once all teams use the credential store.
-// The fallback risks leaking the platform operator's token to teams without their own.
-func credOrEnv(credentials map[string]string, name string) string {
-	if v, ok := credentials[name]; ok && v != "" {
-		return v
-	}
-	if v := os.Getenv(name); v != "" {
-		slog.Warn("credential not found in store, falling back to environment variable",
-			"credential", name)
-		return v
-	}
-	return ""
-}
-
-func actionNotifySlack(ctx context.Context, config map[string]any, credentials map[string]string) (map[string]any, error) {
+func actionNotifySlack(ctx context.Context, config map[string]any, _ map[string]string) (map[string]any, error) {
 	channel, _ := config["channel"].(string)
 	message, _ := config["message"].(string)
 	if channel == "" || message == "" {
@@ -104,14 +87,14 @@ func actionGitHubPostReviewComment(ctx context.Context, config map[string]any, c
 		return nil, fmt.Errorf("github_pr_review: missing repo_url or pr_number")
 	}
 
-	if summary == "" {
-		return map[string]any{"status": "skipped", "reason": "empty summary"}, nil
-	}
-
-	token := credOrEnv(credentials, "GITHUB_TOKEN")
+	token := credentials["GITHUB_TOKEN"]
 	ghClient := newGitHubClientWithToken(ctx, token)
 	if ghClient == nil {
 		return nil, fmt.Errorf("github_pr_review: GITHUB_TOKEN is not set")
+	}
+
+	if summary == "" {
+		return map[string]any{"status": "skipped", "reason": "empty summary"}, nil
 	}
 
 	owner, repo := extractOwnerRepo(repoURL)
@@ -152,7 +135,7 @@ func actionGitHubAddLabel(ctx context.Context, config map[string]any, credential
 		return nil, fmt.Errorf("github_label: missing repo_url, issue_number, or labels")
 	}
 
-	token := credOrEnv(credentials, "GITHUB_TOKEN")
+	token := credentials["GITHUB_TOKEN"]
 	ghClient := newGitHubClientWithToken(ctx, token)
 	if ghClient == nil {
 		return nil, fmt.Errorf("GITHUB_TOKEN not set")
@@ -181,7 +164,7 @@ func actionGitHubPostIssueComment(ctx context.Context, config map[string]any, cr
 		return nil, fmt.Errorf("github_comment: missing repo_url, issue_number, or body")
 	}
 
-	token := credOrEnv(credentials, "GITHUB_TOKEN")
+	token := credentials["GITHUB_TOKEN"]
 	ghClient := newGitHubClientWithToken(ctx, token)
 	if ghClient == nil {
 		return nil, fmt.Errorf("GITHUB_TOKEN not set")

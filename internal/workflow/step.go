@@ -58,16 +58,17 @@ type SteerPayload struct {
 // Activity function references — these are registered in the worker and resolved at runtime.
 // They are declared as variables so tests can substitute them.
 var (
-	ProvisionSandboxActivity = "ProvisionSandbox"
-	ExecuteStepActivity      = "ExecuteStep"
-	VerifyStepActivity       = "VerifyStep"
-	UpdateStepStatusActivity = "UpdateStepStatus"
-	UpdateRunStatusActivity  = "UpdateRunStatus"
-	CreateStepRunActivity    = "CreateStepRun"
-	CreatePRActivity         = "CreatePullRequest"
-	CleanupSandboxActivity   = "CleanupSandbox"
-	CompleteStepRunActivity  = "CompleteStepRun"
-	CreateInboxItemActivity  = "CreateInboxItem"
+	ProvisionSandboxActivity    = "ProvisionSandbox"
+	ExecuteStepActivity         = "ExecuteStep"
+	VerifyStepActivity          = "VerifyStep"
+	UpdateStepStatusActivity    = "UpdateStepStatus"
+	UpdateRunStatusActivity     = "UpdateRunStatus"
+	CreateStepRunActivity       = "CreateStepRun"
+	CreatePRActivity            = "CreatePullRequest"
+	CleanupSandboxActivity      = "CleanupSandbox"
+	CompleteStepRunActivity     = "CompleteStepRun"
+	CreateInboxItemActivity     = "CreateInboxItem"
+	ValidateCredentialsActivity = "ValidateCredentials"
 )
 
 // StepWorkflow orchestrates a single step: provision sandbox, run agent, handle HITL signals, optionally create PR.

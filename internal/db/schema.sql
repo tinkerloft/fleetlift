@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS step_run_logs (
     content         TEXT NOT NULL,
     ts              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS step_run_logs_step_seq ON step_run_logs(step_run_id, seq);
+CREATE UNIQUE INDEX IF NOT EXISTS step_run_logs_step_seq ON step_run_logs(step_run_id, seq);
 
 -- Artifacts
 CREATE TABLE IF NOT EXISTS artifacts (

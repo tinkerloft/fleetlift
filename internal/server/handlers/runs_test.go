@@ -57,7 +57,7 @@ type stubProvider struct {
 	tmpl *model.WorkflowTemplate
 }
 
-func (s *stubProvider) Name() string    { return "stub" }
+func (s *stubProvider) Name() string   { return "stub" }
 func (s *stubProvider) Writable() bool { return false }
 func (s *stubProvider) List(_ context.Context, _ string) ([]*model.WorkflowTemplate, error) {
 	return []*model.WorkflowTemplate{s.tmpl}, nil
@@ -174,4 +174,37 @@ func TestCreate_ValidationError_Returns400(t *testing.T) {
 	valErrs, ok := resp["validation_errors"].([]any)
 	assert.True(t, ok, "validation_errors should be an array")
 	assert.NotEmpty(t, valErrs, "validation_errors should contain at least one error")
+}
+
+// Fix 2: malformed YAML stored in a template must return 400, not 500.
+func TestCreate_InvalidYAML_Returns400(t *testing.T) {
+	tmpl := &model.WorkflowTemplate{
+		ID:       "wf-bad-yaml",
+		Slug:     "bad-yaml-workflow",
+		Title:    "Bad YAML Workflow",
+		YAMLBody: "this: is: not: valid: yaml: [unclosed",
+	}
+	reg := template.NewRegistry(&stubProvider{tmpl: tmpl})
+	h := NewRunsHandler(nil, nil, reg, nil)
+
+	r := chi.NewRouter()
+	r.Use(middleware.Recoverer)
+	r.Post("/api/runs", h.Create)
+
+	body := `{"workflow_id":"bad-yaml-workflow","parameters":{}}`
+	req := httptest.NewRequest("POST", "/api/runs", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Team-ID", "team-1")
+
+	claims := &auth.Claims{
+		UserID:    "user-1",
+		TeamRoles: map[string]string{"team-1": "member"},
+	}
+	req = req.WithContext(auth.SetClaimsInContext(req.Context(), claims))
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code,
+		"malformed YAML in template should return 400, not 500")
 }
