@@ -20,17 +20,18 @@ import (
 
 // Deps holds all handler groups and shared configuration for the server.
 type Deps struct {
-	JWTSecret     []byte
-	Auth          *handlers.AuthHandler
-	Workflows     *handlers.WorkflowsHandler
-	Runs          *handlers.RunsHandler
-	Inbox         *handlers.InboxHandler
-	Reports       *handlers.ReportsHandler
-	Credentials   *handlers.CredentialsHandler
-	Knowledge     *handlers.KnowledgeHandler
-	MCP           *handlers.MCPHandler
-	DB            *sqlx.DB
-	TemporalUIURL string
+	JWTSecret         []byte
+	Auth              *handlers.AuthHandler
+	Workflows         *handlers.WorkflowsHandler
+	Runs              *handlers.RunsHandler
+	Inbox             *handlers.InboxHandler
+	Reports           *handlers.ReportsHandler
+	Credentials       *handlers.CredentialsHandler
+	SystemCredentials *handlers.SystemCredentialsHandler
+	Knowledge         *handlers.KnowledgeHandler
+	MCP               *handlers.MCPHandler
+	DB                *sqlx.DB
+	TemporalUIURL     string
 }
 
 // securityHeaders adds common security-related HTTP response headers.
@@ -132,6 +133,11 @@ func NewRouter(deps Deps) (http.Handler, error) {
 		r.Get("/api/credentials", deps.Credentials.List)
 		r.Post("/api/credentials", deps.Credentials.Set)
 		r.Delete("/api/credentials/{name}", deps.Credentials.Delete)
+
+		// System Credentials (admin only)
+		r.Get("/api/system-credentials", deps.SystemCredentials.List)
+		r.Post("/api/system-credentials", deps.SystemCredentials.Set)
+		r.Delete("/api/system-credentials/{name}", deps.SystemCredentials.Delete)
 
 		// Knowledge
 		r.Get("/api/knowledge", deps.Knowledge.List)

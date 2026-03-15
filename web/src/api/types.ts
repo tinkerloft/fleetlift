@@ -120,6 +120,12 @@ export interface UserProfile {
   platform_admin: boolean
 }
 
+export interface Credential {
+  name: string
+  created_at: string
+  updated_at: string
+}
+
 // Reports / Artifacts
 export interface Artifact {
   id: string

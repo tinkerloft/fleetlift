@@ -1,10 +1,14 @@
 package main
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	_ "github.com/lib/pq"
+	flcrypto "github.com/tinkerloft/fleetlift/internal/crypto"
 )
 
 func TestGenerateHexSecret(t *testing.T) {
@@ -38,7 +42,6 @@ func TestWriteLocalEnv(t *testing.T) {
 		DevTeamID:               devTeamID,
 		AnthropicAPIKey:         "sk-ant-test",
 		ClaudeOAuthToken:        "",
-		GitHubToken:             "ghp_test",
 	}
 
 	if err := writeLocalEnv(path, cfg); err != nil {
@@ -57,12 +60,14 @@ func TestWriteLocalEnv(t *testing.T) {
 		`export DEV_NO_AUTH=1`,
 		`export DEV_USER_ID="` + devUserID + `"`,
 		`export ANTHROPIC_API_KEY="sk-ant-test"`,
-		`export GITHUB_TOKEN="ghp_test"`,
 	}
 	for _, want := range checks {
 		if !strings.Contains(content, want) {
 			t.Errorf("missing line: %s", want)
 		}
+	}
+	if strings.Contains(content, "GITHUB_TOKEN") {
+		t.Error("GITHUB_TOKEN must not appear in local.env output")
 	}
 	if strings.Contains(content, "CLAUDE_CODE_OAUTH_TOKEN") {
 		t.Error("unexpected CLAUDE_CODE_OAUTH_TOKEN in output")
@@ -224,5 +229,162 @@ func TestSeedDevIdentity(t *testing.T) {
 
 	if err := seedDevIdentity(dbURL); err != nil {
 		t.Fatalf("seedDevIdentity idempotency: %v", err)
+	}
+}
+
+func TestSeedGitHubToken_InsertsEncryptedCredential(t *testing.T) {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("DATABASE_URL not set — skipping integration test")
+	}
+	encKey := "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
+
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() }) // registered first → runs last (LIFO)
+	t.Cleanup(func() {
+		db.Exec(`DELETE FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN'`, devTeamID) //nolint:errcheck
+	})
+	db.Exec(`DELETE FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN'`, devTeamID) //nolint:errcheck
+
+	if err := seedGitHubToken(dbURL, encKey, "ghp_testtoken123"); err != nil {
+		t.Fatalf("seedGitHubToken: %v", err)
+	}
+
+	var valueEnc []byte
+	if err := db.QueryRow(
+		`SELECT value_enc FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN'`,
+		devTeamID,
+	).Scan(&valueEnc); err != nil {
+		t.Fatalf("credential not found after seed: %v", err)
+	}
+
+	got, err := flcrypto.DecryptAESGCM(encKey, valueEnc)
+	if err != nil {
+		t.Fatalf("decrypt: %v", err)
+	}
+	if got != "ghp_testtoken123" {
+		t.Errorf("decrypted value = %q, want %q", got, "ghp_testtoken123")
+	}
+}
+
+func TestSeedGitHubToken_Idempotent(t *testing.T) {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("DATABASE_URL not set — skipping integration test")
+	}
+	encKey := "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
+
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() }) // registered first → runs last (LIFO)
+	t.Cleanup(func() {
+		db.Exec(`DELETE FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN'`, devTeamID) //nolint:errcheck
+	})
+	db.Exec(`DELETE FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN'`, devTeamID) //nolint:errcheck
+
+	if err := seedGitHubToken(dbURL, encKey, "ghp_first"); err != nil {
+		t.Fatalf("first seed: %v", err)
+	}
+	if err := seedGitHubToken(dbURL, encKey, "ghp_second"); err != nil {
+		t.Fatalf("second seed: %v", err)
+	}
+
+	// Verify exactly one row
+	var count int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN'`,
+		devTeamID,
+	).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 row, got %d", count)
+	}
+
+	var valueEnc []byte
+	if err := db.QueryRow(
+		`SELECT value_enc FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN'`,
+		devTeamID,
+	).Scan(&valueEnc); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	got, err := flcrypto.DecryptAESGCM(encKey, valueEnc)
+	if err != nil {
+		t.Fatalf("decrypt: %v", err)
+	}
+	if got != "ghp_second" {
+		t.Errorf("got %q, want %q", got, "ghp_second")
+	}
+}
+
+func TestCheckExistingGitHubToken_NotFound(t *testing.T) {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("DATABASE_URL not set — skipping integration test")
+	}
+
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() }) // registered first → runs last (LIFO)
+	t.Cleanup(func() {
+		db.Exec(`DELETE FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN'`, devTeamID) //nolint:errcheck
+	})
+	db.Exec(`DELETE FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN'`, devTeamID) //nolint:errcheck
+
+	found, err := checkExistingGitHubToken(dbURL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if found {
+		t.Error("expected found=false, got true")
+	}
+}
+
+func TestCheckExistingGitHubToken_Found(t *testing.T) {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		t.Skip("DATABASE_URL not set — skipping integration test")
+	}
+	encKey := "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
+
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() }) // registered first → runs last (LIFO)
+	t.Cleanup(func() {
+		db.Exec(`DELETE FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN'`, devTeamID) //nolint:errcheck
+	})
+	db.Exec(`DELETE FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN'`, devTeamID) //nolint:errcheck
+
+	if err := seedGitHubToken(dbURL, encKey, "ghp_existing"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	found, err := checkExistingGitHubToken(dbURL)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !found {
+		t.Error("expected found=true, got false")
+	}
+}
+
+func TestCheckExistingGitHubToken_DBError_TreatedAsNotFound(t *testing.T) {
+	// sql.Open is lazy — the dial happens on QueryRow. connect_timeout=1 is
+	// required to keep this test fast (caps the TCP dial wait to 1 second).
+	found, err := checkExistingGitHubToken("postgres://invalid:invalid@localhost:9999/nodb?sslmode=disable&connect_timeout=1")
+	if err != nil {
+		t.Fatalf("expected nil error (DB error treated as not-found), got: %v", err)
+	}
+	if found {
+		t.Error("expected found=false on DB error")
 	}
 }
