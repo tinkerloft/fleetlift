@@ -2,6 +2,8 @@ package activity
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -144,4 +146,158 @@ func TestProvisionSandbox_CreatesWorkspace(t *testing.T) {
 
 	assert.Contains(t, rec.execCmds, "mkdir -p /workspace",
 		"ProvisionSandbox must create /workspace so agent commands can use it as cwd")
+}
+
+// mcpSandbox records exec calls and returns "ok" for health check requests.
+type mcpSandbox struct {
+	noopSandbox
+	execCmds     []string
+	writtenFiles map[string][]byte
+	failExec     string // if set, Exec returns error when cmd contains this string
+}
+
+func newMCPSandbox() *mcpSandbox {
+	return &mcpSandbox{writtenFiles: make(map[string][]byte)}
+}
+
+func (m *mcpSandbox) Create(_ context.Context, _ sandbox.CreateOpts) (string, error) {
+	return "sb-mcp", nil
+}
+
+func (m *mcpSandbox) Exec(_ context.Context, _, cmd, _ string) (string, string, error) {
+	m.execCmds = append(m.execCmds, cmd)
+	if m.failExec != "" && contains(cmd, m.failExec) {
+		return "", "", fmt.Errorf("exec failed: %s", m.failExec)
+	}
+	// Health check returns "ok"
+	if contains(cmd, "/health") {
+		return `{"status":"ok"}`, "", nil
+	}
+	return "", "", nil
+}
+
+func (m *mcpSandbox) WriteBytes(_ context.Context, _, path string, data []byte) error {
+	m.writtenFiles[path] = data
+	return nil
+}
+
+func (m *mcpSandbox) Kill(_ context.Context, _ string) error { return nil }
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && findSubstring(s, substr))
+}
+
+func findSubstring(s, sub string) bool {
+	for i := 0; i <= len(s)-len(sub); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
+
+func TestProvisionSandbox_MCPSetup(t *testing.T) {
+	// Create a temp file to act as the MCP binary.
+	tmpFile := t.TempDir() + "/fleetlift-mcp"
+	require.NoError(t, os.WriteFile(tmpFile, []byte("fake-binary"), 0o755))
+
+	t.Setenv("FLEETLIFT_MCP_BINARY_PATH", tmpFile)
+	t.Setenv("JWT_SECRET", "test-secret-key-32bytes-minimum!")
+
+	sb := newMCPSandbox()
+	a := &Activities{Sandbox: sb}
+
+	input := workflow.StepInput{
+		TeamID: "team-1",
+		RunID:  "run-1",
+		ResolvedOpts: workflow.ResolvedStepOpts{Agent: "claude-code"},
+	}
+	sandboxID, err := a.ProvisionSandbox(context.Background(), input)
+	require.NoError(t, err)
+	assert.Equal(t, "sb-mcp", sandboxID)
+
+	// Verify binary was uploaded
+	assert.Contains(t, sb.writtenFiles, "/usr/local/bin/fleetlift-mcp")
+
+	// Verify chmod, test -x, start cmd, health check, and profile.d write were called
+	assert.True(t, len(sb.execCmds) >= 5, "expected at least 5 exec calls, got %d", len(sb.execCmds))
+
+	// Verify the nohup command does NOT contain --token flag
+	for _, cmd := range sb.execCmds {
+		if findSubstring(cmd, "nohup") {
+			assert.NotContains(t, cmd, "--token", "token should not be in CLI args")
+			assert.Contains(t, cmd, "FLEETLIFT_MCP_TOKEN=", "token should be in env var")
+		}
+	}
+}
+
+func TestProvisionSandbox_MCPSkippedWhenBinaryMissing(t *testing.T) {
+	// Don't set FLEETLIFT_MCP_BINARY_PATH — MCP should be skipped entirely.
+	t.Setenv("FLEETLIFT_MCP_BINARY_PATH", "")
+
+	rec := &execRecordingSandbox{}
+	a := &Activities{Sandbox: rec}
+
+	input := workflow.StepInput{
+		TeamID:       "team-1",
+		ResolvedOpts: workflow.ResolvedStepOpts{Agent: "claude-code"},
+	}
+	sandboxID, err := a.ProvisionSandbox(context.Background(), input)
+	require.NoError(t, err)
+	assert.Equal(t, "sb-test", sandboxID)
+
+	// Only the workspace creation command should have been executed.
+	assert.Equal(t, []string{"mkdir -p /workspace"}, rec.execCmds)
+}
+
+func TestProvisionSandbox_MCPFailsWhenBinaryUnreadable(t *testing.T) {
+	t.Setenv("FLEETLIFT_MCP_BINARY_PATH", "/nonexistent/path/fleetlift-mcp")
+
+	a := &Activities{Sandbox: &noopSandbox{}}
+	input := workflow.StepInput{
+		TeamID:       "team-1",
+		ResolvedOpts: workflow.ResolvedStepOpts{Agent: "claude-code"},
+	}
+	_, err := a.ProvisionSandbox(context.Background(), input)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "read MCP binary")
+}
+
+func TestProvisionSandbox_MCPFailsWhenJWTSecretEmpty(t *testing.T) {
+	tmpFile := t.TempDir() + "/fleetlift-mcp"
+	require.NoError(t, os.WriteFile(tmpFile, []byte("fake"), 0o755))
+
+	t.Setenv("FLEETLIFT_MCP_BINARY_PATH", tmpFile)
+	t.Setenv("JWT_SECRET", "")
+
+	a := &Activities{Sandbox: &noopSandbox{}}
+	input := workflow.StepInput{
+		TeamID:       "team-1",
+		ResolvedOpts: workflow.ResolvedStepOpts{Agent: "claude-code"},
+	}
+	_, err := a.ProvisionSandbox(context.Background(), input)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "JWT_SECRET is required")
+}
+
+func TestProvisionSandbox_MCPFailsOnHealthCheckTimeout(t *testing.T) {
+	tmpFile := t.TempDir() + "/fleetlift-mcp"
+	require.NoError(t, os.WriteFile(tmpFile, []byte("fake"), 0o755))
+
+	t.Setenv("FLEETLIFT_MCP_BINARY_PATH", tmpFile)
+	t.Setenv("JWT_SECRET", "test-secret-key-32bytes-minimum!")
+
+	// Sandbox that never returns "ok" for health checks.
+	sb := newMCPSandbox()
+	sb.failExec = "/health"
+	a := &Activities{Sandbox: sb}
+
+	input := workflow.StepInput{
+		TeamID: "team-1",
+		RunID:  "run-1",
+		ResolvedOpts: workflow.ResolvedStepOpts{Agent: "claude-code"},
+	}
+	_, err := a.ProvisionSandbox(context.Background(), input)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "health check failed")
 }

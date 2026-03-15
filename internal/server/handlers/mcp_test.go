@@ -125,8 +125,11 @@ func TestHandleUpdateProgress_PercentageRange(t *testing.T) {
 	}{
 		{"negative", `{"percentage": -1}`, http.StatusBadRequest},
 		{"over 100", `{"percentage": 101}`, http.StatusBadRequest},
-		{"zero", `{"percentage": 0}`, 0},   // will pass validation, fail on DB (nil)
-		{"100", `{"percentage": 100}`, 0},   // will pass validation, fail on DB (nil)
+		{"negative float", `{"percentage": -0.5}`, http.StatusBadRequest},
+		{"over 100 float", `{"percentage": 100.5}`, http.StatusBadRequest},
+		{"zero", `{"percentage": 0}`, 0},       // will pass validation, fail on DB (nil)
+		{"100", `{"percentage": 100}`, 0},       // will pass validation, fail on DB (nil)
+		{"float 50.7", `{"percentage": 50.7}`, 0}, // float should be accepted
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

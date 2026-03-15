@@ -160,14 +160,21 @@ func (h *MCPHandler) HandleGetKnowledge(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	items, err := h.knowledgeStore.ListApprovedByWorkflow(r.Context(), claims.TeamID, workflowID, maxItems)
+	// When a text query is provided, fetch a larger batch so client-side filtering
+	// doesn't silently under-deliver results. Without a query, use the exact limit.
+	fetchLimit := maxItems
+	if query != "" {
+		fetchLimit = maxItems * 10 // fetch more to filter from
+	}
+
+	items, err := h.knowledgeStore.ListApprovedByWorkflow(r.Context(), claims.TeamID, workflowID, fetchLimit)
 	if err != nil {
 		slog.Error("mcp: failed to list knowledge", "error", err)
 		writeMCPErr(w, http.StatusInternalServerError, "failed to list knowledge")
 		return
 	}
 
-	// Filter by query text client-side if provided.
+	// Filter by query text client-side if provided, then cap at maxItems.
 	if query != "" {
 		queryLower := strings.ToLower(query)
 		filtered := make([]model.KnowledgeItem, 0, len(items))
@@ -175,6 +182,9 @@ func (h *MCPHandler) HandleGetKnowledge(w http.ResponseWriter, r *http.Request) 
 			if strings.Contains(strings.ToLower(item.Summary), queryLower) ||
 				strings.Contains(strings.ToLower(item.Details), queryLower) {
 				filtered = append(filtered, item)
+				if len(filtered) >= maxItems {
+					break
+				}
 			}
 		}
 		items = filtered
@@ -270,17 +280,13 @@ func (h *MCPHandler) HandleAddLearning(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stepRunID, err := h.activeStepRunID(r.Context(), claims.RunID)
-	if err != nil {
-		writeMCPErr(w, http.StatusNotFound, "no active step run")
-		return
-	}
+	// Step run ID is optional — agent may add learnings between step transitions.
+	stepRunID, _ := h.activeStepRunID(r.Context(), claims.RunID)
 
 	// Resolve workflow_id from the run.
 	var workflowID string
-	err = h.db.GetContext(r.Context(), &workflowID,
-		`SELECT workflow_id FROM runs WHERE id = $1 AND team_id = $2`, claims.RunID, claims.TeamID)
-	if err != nil {
+	if err := h.db.GetContext(r.Context(), &workflowID,
+		`SELECT workflow_id FROM runs WHERE id = $1 AND team_id = $2`, claims.RunID, claims.TeamID); err != nil {
 		writeMCPErr(w, http.StatusNotFound, "run not found")
 		return
 	}
@@ -350,8 +356,8 @@ func (h *MCPHandler) HandleUpdateProgress(w http.ResponseWriter, r *http.Request
 	}
 
 	var body struct {
-		Percentage int    `json:"percentage"`
-		Message    string `json:"message"`
+		Percentage float64 `json:"percentage"`
+		Message    string  `json:"message"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeMCPErr(w, http.StatusBadRequest, "invalid request body")
@@ -361,6 +367,7 @@ func (h *MCPHandler) HandleUpdateProgress(w http.ResponseWriter, r *http.Request
 		writeMCPErr(w, http.StatusBadRequest, "percentage must be between 0 and 100")
 		return
 	}
+	pctInt := int(body.Percentage)
 
 	stepRunID, err := h.activeStepRunID(r.Context(), claims.RunID)
 	if err != nil {
@@ -369,7 +376,7 @@ func (h *MCPHandler) HandleUpdateProgress(w http.ResponseWriter, r *http.Request
 	}
 
 	progress := map[string]any{
-		"percentage": body.Percentage,
+		"percentage": pctInt,
 		"message":    body.Message,
 	}
 	progressJSON, err := json.Marshal(progress)

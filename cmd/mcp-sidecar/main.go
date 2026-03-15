@@ -193,7 +193,7 @@ func (s *Shim) registerTools(srv *server.MCPServer) {
 			body["confidence"] = c
 		}
 		if t := req.GetString("tags", ""); t != "" {
-			body["tags"] = t
+			body["tags"] = strings.Split(t, ",")
 		}
 		result, err := s.call("POST", "/api/mcp/knowledge", body)
 		if err != nil {

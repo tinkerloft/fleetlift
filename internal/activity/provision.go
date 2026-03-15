@@ -3,7 +3,6 @@ package activity
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"regexp"
 	"strings"
@@ -110,11 +109,10 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 			_ = a.Sandbox.Kill(ctx, sandboxID)
 			return "", fmt.Errorf("chmod MCP binary: %w", err)
 		}
-		// Verify chmod took effect.
-		stdout, _, err := a.Sandbox.Exec(ctx, sandboxID, "stat -c %a /usr/local/bin/fleetlift-mcp", "/")
-		if err != nil || !strings.Contains(stdout, "7") {
+		// Verify chmod took effect using POSIX-portable test.
+		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, "test -x /usr/local/bin/fleetlift-mcp", "/"); err != nil {
 			_ = a.Sandbox.Kill(ctx, sandboxID)
-			return "", fmt.Errorf("MCP binary is not executable after chmod (perms=%q)", strings.TrimSpace(stdout))
+			return "", fmt.Errorf("MCP binary is not executable after chmod")
 		}
 
 		apiURL := os.Getenv("FLEETLIFT_API_URL")
@@ -159,7 +157,8 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 		// Inject MCP port into sandbox env so the agent runner can discover it.
 		if _, _, err := a.Sandbox.Exec(ctx, sandboxID,
 			fmt.Sprintf("echo 'export FLEETLIFT_MCP_PORT=%s' >> /etc/profile.d/fleetlift-mcp.sh", shellquote.Quote(mcpPort)), "/"); err != nil {
-			slog.Warn("failed to persist FLEETLIFT_MCP_PORT in sandbox profile", "error", err)
+			_ = a.Sandbox.Kill(ctx, sandboxID)
+			return "", fmt.Errorf("persist FLEETLIFT_MCP_PORT in sandbox: %w", err)
 		}
 	}
 
