@@ -1,7 +1,7 @@
 import type {
   WorkflowTemplate, Run, StepRunLog,
   InboxItem, Artifact, ListResponse, RunStatusUpdate,
-  UserProfile,
+  UserProfile, Credential,
 } from './types'
 
 const BASE = '/api'
@@ -30,7 +30,7 @@ async function get<T>(path: string): Promise<T> {
   return res.json()
 }
 
-export async function post<T>(path: string, body?: unknown): Promise<T> {
+export async function post<T = void>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -39,6 +39,9 @@ export async function post<T>(path: string, body?: unknown): Promise<T> {
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
     throw new Error(err.error ?? res.statusText)
+  }
+  if (res.status === 204 || res.headers.get('content-length') === '0') {
+    return undefined as T
   }
   return res.json()
 }
@@ -81,6 +84,16 @@ export const api = {
 
   // User
   getMe: () => get<UserProfile>('/me'),
+
+  // Credentials
+  listCredentials: () => get<Credential[]>('/credentials'),
+  setCredential: (name: string, value: string) => post('/credentials', { name, value }),
+  deleteCredential: (name: string) => del(`/credentials/${name}`),
+
+  // System credentials (admin only)
+  listSystemCredentials: () => get<Credential[]>('/system-credentials'),
+  setSystemCredential: (name: string, value: string) => post('/system-credentials', { name, value }),
+  deleteSystemCredential: (name: string) => del(`/system-credentials/${name}`),
 
   // Reports
   listReports: () => get<ListResponse<Run>>('/reports'),

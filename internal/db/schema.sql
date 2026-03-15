@@ -214,3 +214,19 @@ CREATE OR REPLACE TRIGGER step_runs_notify
   AFTER UPDATE OF status ON step_runs FOR EACH ROW EXECUTE FUNCTION notify_run_event();
 CREATE OR REPLACE TRIGGER runs_notify
   AFTER UPDATE OF status ON runs FOR EACH ROW EXECUTE FUNCTION notify_run_event();
+
+-- Added 2026-03-15: allow system-wide credentials (team_id = NULL)
+-- Wrapped in a DO block so re-running schema.sql is idempotent.
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'credentials' AND column_name = 'team_id' AND is_nullable = 'NO'
+  ) THEN
+    ALTER TABLE credentials ALTER COLUMN team_id DROP NOT NULL;
+  END IF;
+END $$;
+ALTER TABLE credentials DROP CONSTRAINT IF EXISTS credentials_team_id_name_key;
+CREATE UNIQUE INDEX IF NOT EXISTS credentials_team_name_unique
+  ON credentials (team_id, name) WHERE team_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS credentials_system_name_unique
+  ON credentials (name) WHERE team_id IS NULL;

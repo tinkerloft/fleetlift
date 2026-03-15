@@ -10,6 +10,7 @@ import { ReportListPage } from './pages/ReportList'
 import { ReportDetailPage } from './pages/ReportDetail'
 import { KnowledgePage } from './pages/KnowledgePage'
 import { SystemHealthPage } from './pages/SystemHealth'
+import { CredentialsPage } from './pages/CredentialsPage'
 import { LoginPage } from './pages/Login'
 import { AuthCallbackPage } from './pages/AuthCallback'
 
@@ -38,6 +39,7 @@ export default function App() {
               <Route path="/reports/:runId" element={<ReportDetailPage />} />
               <Route path="/knowledge" element={<KnowledgePage />} />
               <Route path="system" element={<SystemHealthPage />} />
+              <Route path="/settings" element={<CredentialsPage />} />
             </Routes>
           </Layout>
         </RequireAuth>
