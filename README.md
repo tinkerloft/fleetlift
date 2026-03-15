@@ -131,36 +131,22 @@ FleetLift is strongest when you need **complex, multi-step workflows across many
 
 ## Quick Start
 
-**Prerequisites:** Docker, Go 1.24+, Node 20+, an [Anthropic API key](https://console.anthropic.com/) (or Claude Code OAUTH token). For Kubernetes deployment see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+**Prerequisites:** Docker, Go 1.24+, Node 20+, an [Anthropic API key](https://console.anthropic.com/) (or Claude Code OAuth token). For Kubernetes deployment see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ```bash
 # Clone the repo
 git clone https://github.com/your-org/fleetlift.git && cd fleetlift
 
-# Start Temporal + PostgreSQL
-docker compose up -d
+# Run the setup wizard — configures your local env, starts Docker stacks, seeds the database
+make init-local
 
-# Set required env vars 
-# One of ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN is required
-export ANTHROPIC_API_KEY="sk-ant-..."
-export CLAUDE_CODE_OAUTH_TOKEN="sk-..."  
-export JWT_SECRET="$(openssl rand -hex 32)"
-export CREDENTIAL_ENCRYPTION_KEY="$(openssl rand -hex 32)"
-
-# Start the API server (builds + serves the web UI)
-go run ./cmd/server &
-
-# Start the Temporal worker
-go run ./cmd/worker &
-
-# Build the web UI
-cd web && npm install && npm run build && cd ..
+# Start the server and worker
+scripts/integration/start.sh
 
 # Open the web UI
 open http://localhost:8080
 
-# Or use the CLI
-fleetlift auth login
+# Or use the CLI (no login required in local dev mode)
 fleetlift workflow list
 fleetlift run start --workflow audit --param repo=https://github.com/org/repo.git
 fleetlift run logs <run-id> -f
