@@ -8,7 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/jmoiron/sqlx"
 )
 
 var testMCPSecret = []byte("test-mcp-secret-key")
@@ -195,5 +197,115 @@ func TestMCPAuth_NonBearerScheme(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+// --- DB-backed MCPAuth tests ---
+
+func TestMCPAuth_ValidToken_ActiveRun(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	sqlxDB := sqlx.NewDb(db, "sqlmock")
+
+	token, err := IssueMCPToken(testMCPSecret, "team-1", "run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mock.ExpectQuery(`SELECT status FROM runs`).
+		WithArgs("run-1", "team-1").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("running"))
+
+	handler := MCPAuth(testMCPSecret, sqlxDB)(dummyHandler())
+	req := httptest.NewRequest(http.MethodGet, "/api/mcp/run", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["team_id"] != "team-1" {
+		t.Errorf("team_id = %q, want %q", resp["team_id"], "team-1")
+	}
+	if resp["run_id"] != "run-1" {
+		t.Errorf("run_id = %q, want %q", resp["run_id"], "run-1")
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
+	}
+}
+
+func TestMCPAuth_TerminatedRun(t *testing.T) {
+	terminalStates := []string{"complete", "failed", "cancelled"}
+	for _, status := range terminalStates {
+		t.Run(status, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			sqlxDB := sqlx.NewDb(db, "sqlmock")
+
+			token, err := IssueMCPToken(testMCPSecret, "team-1", "run-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			mock.ExpectQuery(`SELECT status FROM runs`).
+				WithArgs("run-1", "team-1").
+				WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow(status))
+
+			handler := MCPAuth(testMCPSecret, sqlxDB)(dummyHandler())
+			req := httptest.NewRequest(http.MethodGet, "/api/mcp/run", nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
+
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("expected 403 for terminal state %q, got %d", status, w.Code)
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unmet sqlmock expectations: %v", err)
+			}
+		})
+	}
+}
+
+func TestMCPAuth_RunNotFound(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	sqlxDB := sqlx.NewDb(db, "sqlmock")
+
+	token, err := IssueMCPToken(testMCPSecret, "team-1", "run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mock.ExpectQuery(`SELECT status FROM runs`).
+		WithArgs("run-1", "team-1").
+		WillReturnRows(sqlmock.NewRows([]string{"status"})) // empty result set
+
+	handler := MCPAuth(testMCPSecret, sqlxDB)(dummyHandler())
+	req := httptest.NewRequest(http.MethodGet, "/api/mcp/run", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for run not found, got %d", w.Code)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("unmet sqlmock expectations: %v", err)
 	}
 }
