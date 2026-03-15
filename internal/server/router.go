@@ -28,6 +28,7 @@ type Deps struct {
 	Credentials       *handlers.CredentialsHandler
 	SystemCredentials *handlers.SystemCredentialsHandler
 	Knowledge         *handlers.KnowledgeHandler
+	Actions           *handlers.ActionsHandler
 	TemporalUIURL     string
 }
 
@@ -128,6 +129,9 @@ func NewRouter(deps Deps) (http.Handler, error) {
 		r.Get("/api/knowledge", deps.Knowledge.List)
 		r.Patch("/api/knowledge/{id}", deps.Knowledge.UpdateStatus)
 		r.Delete("/api/knowledge/{id}", deps.Knowledge.Delete)
+
+		// Action types (registry)
+		r.Get("/api/action-types", deps.Actions.List)
 	})
 
 	// Serve embedded React SPA

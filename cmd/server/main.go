@@ -14,6 +14,7 @@ import (
 	"github.com/tinkerloft/fleetlift/internal/auth"
 	"github.com/tinkerloft/fleetlift/internal/db"
 	"github.com/tinkerloft/fleetlift/internal/knowledge"
+	"github.com/tinkerloft/fleetlift/internal/model"
 	"github.com/tinkerloft/fleetlift/internal/server"
 	"github.com/tinkerloft/fleetlift/internal/server/handlers"
 	"github.com/tinkerloft/fleetlift/internal/server/notify"
@@ -98,6 +99,7 @@ func main() {
 		Credentials:       credHandler,
 		SystemCredentials: sysCredHandler,
 		Knowledge:         handlers.NewKnowledgeHandler(knowledgeStore),
+		Actions:           handlers.NewActionsHandler(model.DefaultActionRegistry()),
 	}
 
 	handler, err := server.NewRouter(deps)
