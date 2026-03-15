@@ -177,11 +177,11 @@ func TestShim_MemoryAddLearningToolHandler(t *testing.T) {
 		assert.Equal(t, "POST", r.Method)
 		assert.Equal(t, "/api/mcp/knowledge", r.URL.Path)
 		var body map[string]any
-		json.NewDecoder(r.Body).Decode(&body)
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 		assert.Equal(t, "pattern", body["type"])
 		assert.Equal(t, "always check nil", body["summary"])
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"id": "k-1"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "k-1"})
 	}))
 	defer backend.Close()
 
@@ -204,7 +204,7 @@ func TestShim_MemorySearchToolHandler(t *testing.T) {
 		assert.Equal(t, "nil checks", r.URL.Query().Get("q"))
 		assert.Equal(t, "go,patterns", r.URL.Query().Get("tags"))
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
 	}))
 	defer backend.Close()
 
@@ -224,7 +224,7 @@ func TestShim_ToolReturnsErrorOnBackendFailure(t *testing.T) {
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "run not found"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "run not found"})
 	}))
 	defer backend.Close()
 
