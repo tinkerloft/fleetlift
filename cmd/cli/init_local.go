@@ -15,11 +15,15 @@ import (
 	"github.com/charmbracelet/huh"
 	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
+
+	flcrypto "github.com/tinkerloft/fleetlift/internal/crypto"
 )
 
 const (
 	devUserID = "00000000-0000-0000-0000-000000000001"
 	devTeamID = "00000000-0000-0000-0000-000000000002"
+
+	defaultAppDSN = "postgres://fleetlift:fleetlift@localhost:5432/fleetlift?sslmode=disable"
 
 	localEnvPath = ".fleetlift/local.env" //nolint:unused
 	authJSONPath = ".fleetlift/auth.json" //nolint:unused
@@ -44,8 +48,6 @@ type localEnvConfig struct {
 	// Exactly one of these is set:
 	AnthropicAPIKey  string
 	ClaudeOAuthToken string
-	// Optional:
-	GitHubToken string
 }
 
 func generateHexSecret(n int) string {
@@ -91,10 +93,6 @@ func writeLocalEnv(path string, cfg localEnvConfig) error {
 		line("ANTHROPIC_API_KEY", cfg.AnthropicAPIKey)
 	} else if cfg.ClaudeOAuthToken != "" {
 		line("CLAUDE_CODE_OAUTH_TOKEN", cfg.ClaudeOAuthToken)
-	}
-	if cfg.GitHubToken != "" {
-		sb.WriteString("\n# GitHub\n")
-		line("GITHUB_TOKEN", cfg.GitHubToken)
 	}
 
 	tmp := path + ".tmp"
@@ -260,6 +258,56 @@ func seedDevIdentity(dbURL string) error {
 	return nil
 }
 
+// checkExistingGitHubToken returns true if a GITHUB_TOKEN credential already
+// exists for the dev team. Returns false (not an error) if the DB is unreachable
+// or the credentials table doesn't exist yet — expected on first-time runs.
+func checkExistingGitHubToken(dbURL string) (bool, error) {
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		return false, nil //nolint:nilerr
+	}
+	defer db.Close()
+
+	var exists bool
+	err = db.QueryRow(
+		`SELECT EXISTS(SELECT 1 FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN')`,
+		devTeamID,
+	).Scan(&exists)
+	if err != nil {
+		// Table may not exist yet on first run — treat as not found
+		return false, nil //nolint:nilerr
+	}
+	return exists, nil
+}
+
+// seedGitHubToken encrypts token and upserts it into the credentials table
+// for the dev team. It is idempotent — safe to call on repeated init-local runs.
+// Caller must ensure token is non-empty before calling.
+func seedGitHubToken(dbURL, encKey, token string) error {
+	valueEnc, err := flcrypto.EncryptAESGCM(encKey, token)
+	if err != nil {
+		return fmt.Errorf("encrypt github token: %w", err)
+	}
+
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		return fmt.Errorf("open db: %w", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`
+		INSERT INTO credentials (team_id, name, value_enc)
+		VALUES ($1, 'GITHUB_TOKEN', $2)
+		ON CONFLICT (team_id, name) WHERE team_id IS NOT NULL
+		DO UPDATE SET value_enc = EXCLUDED.value_enc, updated_at = now()`,
+		devTeamID, valueEnc,
+	)
+	if err != nil {
+		return fmt.Errorf("upsert github token credential: %w", err)
+	}
+	return nil
+}
+
 func initLocalCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init-local",
@@ -291,7 +339,7 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 		claudeAuthMethod string
 		anthropicKey     = existing["ANTHROPIC_API_KEY"]
 		oauthToken       = existing["CLAUDE_CODE_OAUTH_TOKEN"]
-		githubToken      = existing["GITHUB_TOKEN"]
+		githubToken      string
 	)
 
 	switch {
@@ -357,9 +405,39 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Step 3: GitHub token
-	if githubToken != "" {
-		fmt.Println("  Using existing GITHUB_TOKEN from local.env")
+	// Step 3: GitHub token — check DB first, prompt only if not already configured.
+	// cfg is not constructed yet; use defaultAppDSN (package-level const, same value).
+	var tokenAlreadySet bool
+	tokenAlreadySet, err = checkExistingGitHubToken(defaultAppDSN)
+	if err != nil {
+		return err
+	}
+	if tokenAlreadySet {
+		var overwriteToken bool
+		overwriteTokenForm := huh.NewForm(
+			huh.NewGroup(
+				huh.NewConfirm().
+					Title("GitHub token already configured in the database. Overwrite it?").
+					Value(&overwriteToken),
+			),
+		)
+		if err := overwriteTokenForm.Run(); err != nil {
+			return err
+		}
+		if overwriteToken {
+			ghForm := huh.NewForm(
+				huh.NewGroup(
+					huh.NewInput().
+						Title("GitHub personal access token").
+						Description("Required for workflows that interact with GitHub repos.").
+						EchoMode(huh.EchoModePassword).
+						Value(&githubToken),
+				),
+			)
+			if err := ghForm.Run(); err != nil {
+				return err
+			}
+		}
 	} else {
 		ghForm := huh.NewForm(
 			huh.NewGroup(
@@ -386,7 +464,7 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 	}
 
 	cfg := localEnvConfig{
-		DatabaseURL:             "postgres://fleetlift:fleetlift@localhost:5432/fleetlift?sslmode=disable",
+		DatabaseURL:             defaultAppDSN,
 		TemporalAddress:         "localhost:7233",
 		TemporalUIURL:           "http://localhost:8233",
 		OpenSandboxDomain:       "http://localhost:8090",
@@ -401,7 +479,6 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 		DevTeamID:               devTeamID,
 		AnthropicAPIKey:         strings.TrimSpace(anthropicKey),
 		ClaudeOAuthToken:        strings.TrimSpace(oauthToken),
-		GitHubToken:             strings.TrimSpace(githubToken),
 	}
 
 	// Step 5: Write ~/.fleetlift/local.env
@@ -496,6 +573,12 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("seed dev identity: %w", err)
 	}
 	fmt.Println("✓ Dev identity seeded (team + user + membership)")
+	if strings.TrimSpace(githubToken) != "" {
+		if err := seedGitHubToken(defaultAppDSN, credKey, strings.TrimSpace(githubToken)); err != nil {
+			return fmt.Errorf("seed github token: %w", err)
+		}
+		fmt.Println("✓ GitHub token stored as encrypted credential")
+	}
 
 	// Write ~/.fleetlift/auth.json
 	// "dev-token" is a placeholder — the server ignores the token value when DEV_NO_AUTH=1.

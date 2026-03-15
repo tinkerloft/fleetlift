@@ -70,6 +70,11 @@ func main() {
 		log.Fatalf("invalid credential encryption key: %v", err)
 	}
 
+	sysCredHandler, err := handlers.NewSystemCredentialsHandler(database, encKey)
+	if err != nil {
+		log.Fatalf("invalid credential encryption key for system credentials: %v", err)
+	}
+
 	// Knowledge store
 	knowledgeStore := knowledge.NewDBStore(database)
 
@@ -83,15 +88,16 @@ func main() {
 
 	// Build router
 	deps := server.Deps{
-		JWTSecret:     jwtSecret,
-		TemporalUIURL: envOr("TEMPORAL_UI_URL", "http://localhost:8233"),
-		Auth:          handlers.NewAuthHandler(database, ghProvider, jwtSecret),
-		Workflows:     handlers.NewWorkflowsHandler(registry),
-		Runs:          handlers.NewRunsHandler(database, temporalClient, registry, nl),
-		Inbox:         handlers.NewInboxHandler(database),
-		Reports:       handlers.NewReportsHandler(database),
-		Credentials:   credHandler,
-		Knowledge:     handlers.NewKnowledgeHandler(knowledgeStore),
+		JWTSecret:         jwtSecret,
+		TemporalUIURL:     envOr("TEMPORAL_UI_URL", "http://localhost:8233"),
+		Auth:              handlers.NewAuthHandler(database, ghProvider, jwtSecret),
+		Workflows:         handlers.NewWorkflowsHandler(registry),
+		Runs:              handlers.NewRunsHandler(database, temporalClient, registry, nl),
+		Inbox:             handlers.NewInboxHandler(database),
+		Reports:           handlers.NewReportsHandler(database),
+		Credentials:       credHandler,
+		SystemCredentials: sysCredHandler,
+		Knowledge:         handlers.NewKnowledgeHandler(knowledgeStore),
 	}
 
 	handler, err := server.NewRouter(deps)

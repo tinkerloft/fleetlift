@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jmoiron/sqlx"
@@ -12,6 +13,29 @@ import (
 	"github.com/tinkerloft/fleetlift/internal/auth"
 	flcrypto "github.com/tinkerloft/fleetlift/internal/crypto"
 )
+
+var (
+	credentialNameRe        = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+	reservedCredentialNames = map[string]bool{
+		"PATH": true, "LD_PRELOAD": true, "LD_LIBRARY_PATH": true,
+		"HOME": true, "USER": true, "SHELL": true,
+		"TMPDIR": true, "TMP": true, "TEMP": true,
+	}
+)
+
+// validateCredentialName checks that name matches ^[A-Z][A-Z0-9_]*$ and is not reserved.
+func validateCredentialName(name string) error {
+	if name == "" {
+		return fmt.Errorf("name and value are required")
+	}
+	if !credentialNameRe.MatchString(name) {
+		return fmt.Errorf("invalid credential name: must match ^[A-Z][A-Z0-9_]*$")
+	}
+	if reservedCredentialNames[name] {
+		return fmt.Errorf("credential name %q is reserved", name)
+	}
+	return nil
+}
 
 // CredentialsHandler handles team credential management endpoints.
 type CredentialsHandler struct {
@@ -49,7 +73,7 @@ func (h *CredentialsHandler) List(w http.ResponseWriter, r *http.Request) {
 	if teamID == "" {
 		return // error already written
 	}
-	var creds []credentialEntry
+	creds := make([]credentialEntry, 0)
 	err := h.db.SelectContext(r.Context(), &creds,
 		`SELECT name, created_at, updated_at FROM credentials WHERE team_id = $1 ORDER BY name`,
 		teamID)
@@ -80,8 +104,12 @@ func (h *CredentialsHandler) Set(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == "" || req.Value == "" {
+	if req.Value == "" {
 		writeJSONError(w, http.StatusBadRequest, "name and value are required")
+		return
+	}
+	if err := validateCredentialName(req.Name); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -99,7 +127,8 @@ func (h *CredentialsHandler) Set(w http.ResponseWriter, r *http.Request) {
 	_, err = h.db.ExecContext(r.Context(),
 		`INSERT INTO credentials (team_id, name, value_enc)
 		 VALUES ($1, $2, $3)
-		 ON CONFLICT (team_id, name) DO UPDATE SET value_enc = $3, updated_at = now()`,
+		 ON CONFLICT (team_id, name) WHERE team_id IS NOT NULL
+		 DO UPDATE SET value_enc = $3, updated_at = now()`,
 		teamID, req.Name, encrypted)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "failed to save credential")
