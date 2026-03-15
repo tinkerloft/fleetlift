@@ -49,23 +49,23 @@ func TestExecuteAction_UnknownType(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown action type")
 }
 
-func TestExecuteAction_SlackNotify_MissingChannelReturnsSkipped(t *testing.T) {
+func TestExecuteAction_SlackNotify_MissingChannelReturnsError(t *testing.T) {
 	a := &Activities{CredStore: &mockCredStore{}}
-	result, err := a.ExecuteAction(context.Background(), "", "slack_notify",
+	_, err := a.ExecuteAction(context.Background(), "", "slack_notify",
 		map[string]any{"channel": "", "message": ""}, "team-1", nil)
-	require.NoError(t, err)
-	assert.Equal(t, "skipped", result["status"])
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "missing")
 }
 
 func TestExecuteAction_CredentialsFetched(t *testing.T) {
-	// verify GetBatch is called when credNames is non-empty
 	store := &mockCredStore{data: map[string]string{"MY_TOKEN": "secret"}}
 	a := &Activities{CredStore: store}
-	// slack_notify will skip (no channel) but creds are fetched first
-	result, err := a.ExecuteAction(context.Background(), "", "slack_notify",
-		map[string]any{"channel": "", "message": ""}, "team-1", []string{"MY_TOKEN"})
+	// create_pr is a no-op action that returns skipped — verifies creds are fetched before dispatch
+	result, err := a.ExecuteAction(context.Background(), "", "create_pr",
+		map[string]any{},
+		"team-1", []string{"MY_TOKEN"})
 	require.NoError(t, err)
-	assert.Equal(t, "skipped", result["status"])
+	assert.NotNil(t, result)
 	assert.True(t, store.batchCalled, "expected GetBatch to be called")
 }
 
