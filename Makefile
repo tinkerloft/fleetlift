@@ -1,4 +1,4 @@
-.PHONY: build test clean fleetlift-worker fleetlift all temporal-dev temporal-up temporal-down temporal-logs sandbox-build agent-image kind-setup test-integration-k8s build-web dev-web opensandbox-up opensandbox-down opensandbox-logs init-local
+.PHONY: build test clean fleetlift-worker fleetlift mcp-sidecar all temporal-dev temporal-up temporal-down temporal-logs sandbox-build agent-image kind-setup test-integration-k8s build-web dev-web opensandbox-up opensandbox-down opensandbox-logs init-local
 
 # Build all binaries
 all: build
@@ -16,6 +16,7 @@ build: build-web
 	go build -o bin/fleetlift-worker ./cmd/worker
 	go build -o bin/fleetlift ./cmd/cli
 	go build -o bin/fleetlift-server ./cmd/server
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bin/fleetlift-mcp ./cmd/mcp-sidecar
 
 # Build worker only
 fleetlift-worker:
@@ -24,6 +25,10 @@ fleetlift-worker:
 # Build CLI only
 fleetlift:
 	go build -o bin/fleetlift ./cmd/cli
+
+# Build MCP sidecar (for sandbox upload)
+mcp-sidecar:
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bin/fleetlift-mcp ./cmd/mcp-sidecar
 
 # Run tests
 test:
