@@ -7,10 +7,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/huh"
 	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
 )
@@ -189,6 +191,233 @@ func initLocalCmd() *cobra.Command {
 }
 
 func runInitLocal(_ *cobra.Command, _ []string) error {
-	// Implemented in Task 4
-	return fmt.Errorf("not yet implemented")
+	fmt.Println("╔══════════════════════════════════════╗")
+	fmt.Println("║   Fleetlift — Local Setup Wizard     ║")
+	fmt.Println("╚══════════════════════════════════════╝")
+	fmt.Println()
+
+	// Step 1: Preflight — Docker running?
+	if err := exec.Command("docker", "info").Run(); err != nil {
+		return fmt.Errorf("Docker is not running. Start Docker Desktop and try again")
+	}
+
+	// Step 2 + 3: Collect secrets from user
+	var (
+		claudeAuthMethod string // "api_key" or "oauth_token"
+		anthropicKey     string
+		oauthToken       string
+		githubToken      string
+	)
+
+	authForm := huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Claude authentication method").
+				Options(
+					huh.NewOption("Anthropic API key (ANTHROPIC_API_KEY)", "api_key"),
+					huh.NewOption("Claude OAuth token (CLAUDE_CODE_OAUTH_TOKEN)", "oauth_token"),
+				).
+				Value(&claudeAuthMethod),
+		),
+	)
+	if err := authForm.Run(); err != nil {
+		return err
+	}
+
+	var secretForm *huh.Form
+	if claudeAuthMethod == "api_key" {
+		secretForm = huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Anthropic API key").
+					Description("Starts with sk-ant-api").
+					EchoMode(huh.EchoModePassword).
+					Value(&anthropicKey).
+					Validate(func(s string) error {
+						if strings.TrimSpace(s) == "" {
+							return fmt.Errorf("required")
+						}
+						return nil
+					}),
+				huh.NewInput().
+					Title("GitHub personal access token (optional)").
+					Description("Required for workflows that interact with GitHub repos. Press Enter to skip.").
+					EchoMode(huh.EchoModePassword).
+					Value(&githubToken),
+			),
+		)
+	} else {
+		secretForm = huh.NewForm(
+			huh.NewGroup(
+				huh.NewInput().
+					Title("Claude OAuth token").
+					Description("Starts with sk-ant-oat01-").
+					EchoMode(huh.EchoModePassword).
+					Value(&oauthToken).
+					Validate(func(s string) error {
+						if strings.TrimSpace(s) == "" {
+							return fmt.Errorf("required")
+						}
+						return nil
+					}),
+				huh.NewInput().
+					Title("GitHub personal access token (optional)").
+					Description("Required for workflows that interact with GitHub repos. Press Enter to skip.").
+					EchoMode(huh.EchoModePassword).
+					Value(&githubToken),
+			),
+		)
+	}
+	if err := secretForm.Run(); err != nil {
+		return err
+	}
+
+	// Step 4: Generate secrets
+	cfg := localEnvConfig{
+		DatabaseURL:             "postgres://fleetlift:fleetlift@localhost:5432/fleetlift?sslmode=disable",
+		TemporalAddress:         "localhost:7233",
+		TemporalUIURL:           "http://localhost:8233",
+		OpenSandboxDomain:       "http://localhost:8090",
+		OpenSandboxAPIKey:       "",
+		AgentImage:              "claude-code-sandbox:latest",
+		GitUserEmail:            "claude-agent@noreply.localhost",
+		GitUserName:             "Claude Code Agent",
+		JWTSecret:               generateHexSecret(32),
+		CredentialEncryptionKey: generateHexSecret(32),
+		DevNoAuth:               true,
+		DevUserID:               devUserID,
+		DevTeamID:               devTeamID,
+		AnthropicAPIKey:         strings.TrimSpace(anthropicKey),
+		ClaudeOAuthToken:        strings.TrimSpace(oauthToken),
+		GitHubToken:             strings.TrimSpace(githubToken),
+	}
+
+	// Step 5: Write ~/.fleetlift/local.env
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	envPath := filepath.Join(home, localEnvPath)
+
+	if _, statErr := os.Stat(envPath); statErr == nil {
+		var overwrite bool
+		overwriteForm := huh.NewForm(
+			huh.NewGroup(
+				huh.NewConfirm().
+					Title(envPath + " already exists. Overwrite?").
+					Value(&overwrite),
+			),
+		)
+		if err := overwriteForm.Run(); err != nil {
+			return err
+		}
+		if !overwrite {
+			fmt.Println("Skipping env file write. Using existing local.env.")
+		} else {
+			if err := writeLocalEnv(envPath, cfg); err != nil {
+				return fmt.Errorf("write local.env: %w", err)
+			}
+			fmt.Println("✓ Written:", envPath)
+		}
+	} else {
+		if err := writeLocalEnv(envPath, cfg); err != nil {
+			return fmt.Errorf("write local.env: %w", err)
+		}
+		fmt.Println("✓ Written:", envPath)
+	}
+
+	// Step 6: Patch dev-env.sh
+	devEnvScript := "scripts/integration/dev-env.sh"
+	if err := patchDevEnv(devEnvScript); err != nil {
+		fmt.Printf("Warning: could not patch %s: %v\n", devEnvScript, err)
+		fmt.Printf("Manually add this line after the shebang in %s:\n  %s\n", devEnvScript, sourceLineMarker)
+	} else {
+		fmt.Println("✓ Patched:", devEnvScript)
+	}
+
+	// Step 7: Start Docker stacks
+	var startDocker bool
+	dockerForm := huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title("Start Docker Compose stacks now? (Temporal + Postgres + OpenSandbox)").
+				Value(&startDocker),
+		),
+	)
+	if err := dockerForm.Run(); err != nil {
+		return err
+	}
+
+	if startDocker {
+		fmt.Println("Starting Temporal + Postgres...")
+		if err := execCmd("docker", "compose", "up", "-d"); err != nil {
+			return fmt.Errorf("docker compose up failed: %w", err)
+		}
+		fmt.Println("Starting OpenSandbox...")
+		if err := execCmd("docker", "compose", "-f", "docker-compose.opensandbox.yaml", "up", "-d"); err != nil {
+			return fmt.Errorf("docker compose opensandbox up failed: %w", err)
+		}
+	} else {
+		var alreadyUp bool
+		alreadyUpForm := huh.NewForm(
+			huh.NewGroup(
+				huh.NewConfirm().
+					Title("Are the Docker stacks already running? Proceed with database setup?").
+					Value(&alreadyUp),
+			),
+		)
+		if err := alreadyUpForm.Run(); err != nil {
+			return err
+		}
+		if !alreadyUp {
+			printManualSteps()
+			return nil
+		}
+	}
+
+	// Step 8: Seed dev identity
+	fmt.Print("Waiting for Postgres")
+	if err := seedDevIdentity(cfg.DatabaseURL); err != nil {
+		return fmt.Errorf("seed dev identity: %w", err)
+	}
+	fmt.Println("✓ Dev identity seeded (team + user + membership)")
+
+	// Write ~/.fleetlift/auth.json
+	// "dev-token" is a placeholder — the server ignores the token value when DEV_NO_AUTH=1.
+	// The devAuthBypass middleware skips JWT validation and injects claims from DEV_USER_ID/DEV_TEAM_ID env vars.
+	if err := saveToken("dev-token"); err != nil {
+		return fmt.Errorf("write auth.json: %w", err)
+	}
+	fmt.Println("✓ Written:", filepath.Join(home, authJSONPath))
+
+	// Step 9: Print next steps
+	fmt.Println()
+	fmt.Println("┌─────────────────────────────────────────┐")
+	fmt.Println("│   Local environment ready!              │")
+	fmt.Println("└─────────────────────────────────────────┘")
+	fmt.Println()
+	fmt.Println("Start the server and worker:")
+	fmt.Println("  scripts/integration/start.sh")
+	fmt.Println()
+	fmt.Println("Tail logs:")
+	fmt.Println("  scripts/integration/logs.sh")
+	fmt.Println()
+	fmt.Println("Temporal UI: http://localhost:8233")
+	fmt.Println("Fleetlift:   http://localhost:8080")
+	return nil
+}
+
+func execCmd(name string, args ...string) error {
+	c := exec.Command(name, args...)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	return c.Run()
+}
+
+func printManualSteps() {
+	fmt.Println()
+	fmt.Println("Start the stacks manually, then re-run 'fleetlift init-local':")
+	fmt.Println()
+	fmt.Println("  docker compose up -d")
+	fmt.Println("  docker compose -f docker-compose.opensandbox.yaml up -d")
 }
