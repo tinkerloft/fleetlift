@@ -27,6 +27,7 @@ func main() {
 		inboxCmd(),
 		credentialCmd(),
 		knowledgeCmd(),
+		initLocalCmd(),
 	)
 
 	if err := root.Execute(); err != nil {
