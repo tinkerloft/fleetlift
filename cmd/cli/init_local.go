@@ -142,10 +142,15 @@ func patchDevEnv(scriptPath string) error {
 	return os.WriteFile(scriptPath, []byte(strings.Join(patched, "\n")+"\n"), info.Mode())
 }
 
-func seedDevIdentity(dbURL string) error {
-	db, err := sql.Open("postgres", dbURL)
+// adminDSN is the superuser DSN matching the docker-compose postgres service.
+const adminDSN = "postgres://temporal:temporal@localhost:5432/postgres?sslmode=disable"
+
+// ensureFleetliftDB creates the fleetlift role and database if they don't exist.
+// Connects as the temporal superuser which is created by docker-compose.
+func ensureFleetliftDB() error {
+	db, err := sql.Open("postgres", adminDSN)
 	if err != nil {
-		return fmt.Errorf("open db: %w", err)
+		return fmt.Errorf("open admin db: %w", err)
 	}
 	defer db.Close()
 
@@ -163,6 +168,55 @@ func seedDevIdentity(dbURL string) error {
 		os.Stdout.Sync() //nolint:errcheck
 	}
 	fmt.Println()
+
+	// Create role if not exists
+	_, err = db.Exec(`DO $$ BEGIN
+		IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'fleetlift') THEN
+			CREATE USER fleetlift WITH PASSWORD 'fleetlift';
+		END IF;
+	END $$`)
+	if err != nil {
+		return fmt.Errorf("create role: %w", err)
+	}
+
+	// Create database if not exists (CREATE DATABASE cannot run in a transaction)
+	var exists bool
+	if err := db.QueryRow(`SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = 'fleetlift')`).Scan(&exists); err != nil {
+		return fmt.Errorf("check database: %w", err)
+	}
+	if !exists {
+		if _, err := db.Exec(`CREATE DATABASE fleetlift OWNER fleetlift`); err != nil {
+			return fmt.Errorf("create database: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// applySchema runs the embedded schema.sql against the fleetlift database.
+// schema.sql uses CREATE TABLE IF NOT EXISTS so this is safe to run repeatedly.
+func applySchema(appDSN string) error {
+	schema, err := os.ReadFile("internal/db/schema.sql")
+	if err != nil {
+		return fmt.Errorf("read schema.sql: %w", err)
+	}
+	db, err := sql.Open("postgres", appDSN)
+	if err != nil {
+		return fmt.Errorf("open db: %w", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(string(schema)); err != nil {
+		return fmt.Errorf("apply schema: %w", err)
+	}
+	return nil
+}
+
+func seedDevIdentity(dbURL string) error {
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		return fmt.Errorf("open db: %w", err)
+	}
+	defer db.Close()
 
 	_, err = db.Exec(`INSERT INTO teams (id, name, slug) VALUES ($1, 'dev-team', 'dev-team') ON CONFLICT (slug) DO NOTHING`, devTeamID)
 	if err != nil {
@@ -375,8 +429,16 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Step 8: Seed dev identity
+	// Step 8: Create DB, apply schema, seed dev identity
 	fmt.Print("Waiting for Postgres")
+	if err := ensureFleetliftDB(); err != nil {
+		return fmt.Errorf("setup database: %w", err)
+	}
+	fmt.Println("✓ Database ready")
+	if err := applySchema(cfg.DatabaseURL); err != nil {
+		return fmt.Errorf("apply schema: %w", err)
+	}
+	fmt.Println("✓ Schema applied")
 	if err := seedDevIdentity(cfg.DatabaseURL); err != nil {
 		return fmt.Errorf("seed dev identity: %w", err)
 	}

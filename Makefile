@@ -101,6 +101,6 @@ opensandbox-down:
 opensandbox-logs:
 	docker compose -f docker-compose.opensandbox.yaml logs -f opensandbox-server
 
-# Run local setup wizard (builds agent image first, then CLI, then runs wizard)
-init-local: sandbox-build
-	go build -o ./fleetlift ./cmd/cli && ./fleetlift init-local; rm -f ./fleetlift
+# Run local setup wizard (builds agent image and CLI first, then runs wizard)
+init-local: sandbox-build fleetlift
+	bin/fleetlift init-local
