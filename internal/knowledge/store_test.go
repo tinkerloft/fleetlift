@@ -73,19 +73,19 @@ func TestMemoryStore_SearchByTeam(t *testing.T) {
 	store := knowledge.NewMemoryStore()
 	ctx := context.Background()
 
-	store.Save(ctx, model.KnowledgeItem{
+	_, _ = store.Save(ctx, model.KnowledgeItem{
 		TeamID: "team-1", Summary: "React migration requires babel config",
 		Tags: pq.StringArray{"react", "migration"}, Status: model.KnowledgeStatusApproved, Confidence: 0.9,
 	})
-	store.Save(ctx, model.KnowledgeItem{
+	_, _ = store.Save(ctx, model.KnowledgeItem{
 		TeamID: "team-1", Summary: "Go tests need -race flag",
 		Tags: pq.StringArray{"go", "testing"}, Status: model.KnowledgeStatusApproved, Confidence: 0.8,
 	})
-	store.Save(ctx, model.KnowledgeItem{
+	_, _ = store.Save(ctx, model.KnowledgeItem{
 		TeamID: "team-1", Summary: "Pending item about React",
 		Tags: pq.StringArray{"react"}, Status: model.KnowledgeStatusPending, Confidence: 0.7,
 	})
-	store.Save(ctx, model.KnowledgeItem{
+	_, _ = store.Save(ctx, model.KnowledgeItem{
 		TeamID: "team-2", Summary: "Other team React item",
 		Tags: pq.StringArray{"react"}, Status: model.KnowledgeStatusApproved, Confidence: 0.9,
 	})

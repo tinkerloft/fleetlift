@@ -87,9 +87,7 @@ func (c *Client) sandboxProxyURL(id string) string {
 
 func (c *Client) Create(ctx context.Context, opts sandbox.CreateOpts) (string, error) {
 	timeoutSecs := opts.TimeoutMins * 60
-	if timeoutSecs < 60 {
-		timeoutSecs = 60
-	}
+	timeoutSecs = max(timeoutSecs, 60)
 	body := map[string]any{
 		"image":          map[string]string{"uri": opts.Image},
 		"env":            opts.Env,
