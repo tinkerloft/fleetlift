@@ -18,6 +18,27 @@ const ICON_MAP: Record<string, React.FC<{ className?: string }>> = {
   Shield, Bug, GitBranch, Search, Tag, Terminal,
 }
 
+function coerceParams(def: WorkflowDef, raw: Record<string, string>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const p of def.parameters ?? []) {
+    const v = raw[p.name]
+    if (v === undefined || v === '') continue // let server apply default
+    switch (p.type) {
+      case 'int': {
+        const n = Number(v)
+        if (!Number.isNaN(n)) out[p.name] = n
+        break
+      }
+      case 'bool':
+        out[p.name] = v === 'true' || v === '1'
+        break
+      default:
+        out[p.name] = v
+    }
+  }
+  return out
+}
+
 export function WorkflowDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -33,7 +54,7 @@ export function WorkflowDetailPage() {
   const [showYaml, setShowYaml] = useState(false)
 
   const runMutation = useMutation({
-    mutationFn: () => api.createRun(wf!.id, params),
+    mutationFn: () => api.createRun(wf!.id, def ? coerceParams(def, params) : params),
     onSuccess: (run) => {
       queryClient.invalidateQueries({ queryKey: ['runs'] })
       navigate(`/runs/${run.id}`)

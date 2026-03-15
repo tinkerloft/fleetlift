@@ -21,11 +21,23 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
+function formatApiError(err: Record<string, unknown>, fallback: string): string {
+  const base = (err.error as string) ?? fallback
+  const validationErrors = err.validation_errors as Array<{ field?: string; step_id?: string; message: string }> | undefined
+  if (validationErrors?.length) {
+    const details = validationErrors
+      .map(e => [e.step_id, e.field, e.message].filter(Boolean).join(' › '))
+      .join('; ')
+    return `${base}: ${details}`
+  }
+  return base
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { headers: authHeaders() })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(err.error ?? res.statusText)
+    throw new Error(formatApiError(err, res.statusText))
   }
   return res.json()
 }
@@ -38,7 +50,7 @@ export async function post<T>(path: string, body?: unknown): Promise<T> {
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error(err.error ?? res.statusText)
+    throw new Error(formatApiError(err, res.statusText))
   }
   return res.json()
 }
