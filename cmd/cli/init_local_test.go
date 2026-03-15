@@ -180,6 +180,38 @@ func TestWriteLocalEnv_Permissions(t *testing.T) {
 	}
 }
 
+func TestParseLocalEnv(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "local.env")
+	content := "# comment\nexport ANTHROPIC_API_KEY=\"sk-ant-test\"\nexport JWT_SECRET=\"abc\"\nexport GITHUB_TOKEN=\"\"\nexport DEV_NO_AUTH=1\n"
+	os.WriteFile(path, []byte(content), 0o600) //nolint:errcheck
+
+	got := parseLocalEnv(path)
+
+	if got["ANTHROPIC_API_KEY"] != "sk-ant-test" {
+		t.Errorf("ANTHROPIC_API_KEY: got %q", got["ANTHROPIC_API_KEY"])
+	}
+	if got["JWT_SECRET"] != "abc" {
+		t.Errorf("JWT_SECRET: got %q", got["JWT_SECRET"])
+	}
+	if v, ok := got["GITHUB_TOKEN"]; !ok || v != "" {
+		t.Errorf("GITHUB_TOKEN: got %q, ok=%v", v, ok)
+	}
+	if _, ok := got["comment"]; ok {
+		t.Error("comment should not be parsed as a key")
+	}
+	if got["DEV_NO_AUTH"] != "1" {
+		t.Errorf("DEV_NO_AUTH: got %q", got["DEV_NO_AUTH"])
+	}
+}
+
+func TestParseLocalEnv_Missing(t *testing.T) {
+	got := parseLocalEnv("/nonexistent/path/local.env")
+	if got != nil {
+		t.Error("expected nil for missing file")
+	}
+}
+
 func TestSeedDevIdentity(t *testing.T) {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {

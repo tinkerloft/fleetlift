@@ -104,6 +104,30 @@ func writeLocalEnv(path string, cfg localEnvConfig) error {
 	return os.Rename(tmp, path)
 }
 
+// parseLocalEnv reads an existing local.env file and returns a map of key→value.
+// It handles lines of the form: export KEY="value" or export KEY=value
+func parseLocalEnv(path string) map[string]string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	result := make(map[string]string)
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		line = strings.TrimPrefix(line, "export ")
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		v = strings.Trim(v, `"`)
+		result[k] = v
+	}
+	return result
+}
+
 func patchDevEnv(scriptPath string) error {
 	info, err := os.Stat(scriptPath)
 	if err != nil {
@@ -255,65 +279,90 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("Docker is not running. Start Docker Desktop and try again")
 	}
 
-	// Step 2 + 3: Collect secrets from user
+	// Step 2: Load existing local.env values (if present) to pre-fill prompts
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	envPath := filepath.Join(home, localEnvPath)
+	existing := parseLocalEnv(envPath)
+
 	var (
-		claudeAuthMethod string // "api_key" or "oauth_token"
-		anthropicKey     string
-		oauthToken       string
-		githubToken      string
+		claudeAuthMethod string
+		anthropicKey     = existing["ANTHROPIC_API_KEY"]
+		oauthToken       = existing["CLAUDE_CODE_OAUTH_TOKEN"]
+		githubToken      = existing["GITHUB_TOKEN"]
 	)
 
-	authForm := huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Claude authentication method").
-				Options(
-					huh.NewOption("Anthropic API key (ANTHROPIC_API_KEY)", "api_key"),
-					huh.NewOption("Claude OAuth token (CLAUDE_CODE_OAUTH_TOKEN)", "oauth_token"),
-				).
-				Value(&claudeAuthMethod),
-		),
-	)
-	if err := authForm.Run(); err != nil {
-		return err
-	}
-
-	var secretForm *huh.Form
-	if claudeAuthMethod == "api_key" {
-		secretForm = huh.NewForm(
+	switch {
+	case anthropicKey != "":
+		claudeAuthMethod = "api_key"
+		fmt.Println("  Using existing ANTHROPIC_API_KEY from local.env")
+	case oauthToken != "":
+		claudeAuthMethod = "oauth_token"
+		fmt.Println("  Using existing CLAUDE_CODE_OAUTH_TOKEN from local.env")
+	default:
+		// No existing token — prompt
+		authForm := huh.NewForm(
 			huh.NewGroup(
-				huh.NewInput().
-					Title("Anthropic API key").
-					Description("Starts with sk-ant-api").
-					EchoMode(huh.EchoModePassword).
-					Value(&anthropicKey).
-					Validate(func(s string) error {
-						if strings.TrimSpace(s) == "" {
-							return fmt.Errorf("required")
-						}
-						return nil
-					}),
-				huh.NewInput().
-					Title("GitHub personal access token (optional)").
-					Description("Required for workflows that interact with GitHub repos. Press Enter to skip.").
-					EchoMode(huh.EchoModePassword).
-					Value(&githubToken),
+				huh.NewSelect[string]().
+					Title("Claude authentication method").
+					Options(
+						huh.NewOption("Anthropic API key (ANTHROPIC_API_KEY)", "api_key"),
+						huh.NewOption("Claude OAuth token (CLAUDE_CODE_OAUTH_TOKEN)", "oauth_token"),
+					).
+					Value(&claudeAuthMethod),
 			),
 		)
+		if err := authForm.Run(); err != nil {
+			return err
+		}
+
+		var secretForm *huh.Form
+		if claudeAuthMethod == "api_key" {
+			secretForm = huh.NewForm(
+				huh.NewGroup(
+					huh.NewInput().
+						Title("Anthropic API key").
+						Description("Starts with sk-ant-api").
+						EchoMode(huh.EchoModePassword).
+						Value(&anthropicKey).
+						Validate(func(s string) error {
+							if strings.TrimSpace(s) == "" {
+								return fmt.Errorf("required")
+							}
+							return nil
+						}),
+				),
+			)
+		} else {
+			secretForm = huh.NewForm(
+				huh.NewGroup(
+					huh.NewInput().
+						Title("Claude OAuth token").
+						Description("Starts with sk-ant-oat01-").
+						EchoMode(huh.EchoModePassword).
+						Value(&oauthToken).
+						Validate(func(s string) error {
+							if strings.TrimSpace(s) == "" {
+								return fmt.Errorf("required")
+							}
+							return nil
+						}),
+				),
+			)
+		}
+		if err := secretForm.Run(); err != nil {
+			return err
+		}
+	}
+
+	// Step 3: GitHub token
+	if githubToken != "" {
+		fmt.Println("  Using existing GITHUB_TOKEN from local.env")
 	} else {
-		secretForm = huh.NewForm(
+		ghForm := huh.NewForm(
 			huh.NewGroup(
-				huh.NewInput().
-					Title("Claude OAuth token").
-					Description("Starts with sk-ant-oat01-").
-					EchoMode(huh.EchoModePassword).
-					Value(&oauthToken).
-					Validate(func(s string) error {
-						if strings.TrimSpace(s) == "" {
-							return fmt.Errorf("required")
-						}
-						return nil
-					}),
 				huh.NewInput().
 					Title("GitHub personal access token (optional)").
 					Description("Required for workflows that interact with GitHub repos. Press Enter to skip.").
@@ -321,12 +370,21 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 					Value(&githubToken),
 			),
 		)
-	}
-	if err := secretForm.Run(); err != nil {
-		return err
+		if err := ghForm.Run(); err != nil {
+			return err
+		}
 	}
 
-	// Step 4: Generate secrets
+	// Step 4: Generate secrets (reuse existing ones to avoid breaking running services)
+	jwtSecret := existing["JWT_SECRET"]
+	if jwtSecret == "" {
+		jwtSecret = generateHexSecret(32)
+	}
+	credKey := existing["CREDENTIAL_ENCRYPTION_KEY"]
+	if credKey == "" {
+		credKey = generateHexSecret(32)
+	}
+
 	cfg := localEnvConfig{
 		DatabaseURL:             "postgres://fleetlift:fleetlift@localhost:5432/fleetlift?sslmode=disable",
 		TemporalAddress:         "localhost:7233",
@@ -336,8 +394,8 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 		AgentImage:              "claude-code-sandbox:latest",
 		GitUserEmail:            "claude-agent@noreply.localhost",
 		GitUserName:             "Claude Code Agent",
-		JWTSecret:               generateHexSecret(32),
-		CredentialEncryptionKey: generateHexSecret(32),
+		JWTSecret:               jwtSecret,
+		CredentialEncryptionKey: credKey,
 		DevNoAuth:               true,
 		DevUserID:               devUserID,
 		DevTeamID:               devTeamID,
@@ -347,11 +405,6 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 	}
 
 	// Step 5: Write ~/.fleetlift/local.env
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	envPath := filepath.Join(home, localEnvPath)
 
 	if _, statErr := os.Stat(envPath); statErr == nil {
 		var overwrite bool
