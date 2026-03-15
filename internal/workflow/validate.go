@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 	"text/template/parse"
 
 	"github.com/tinkerloft/fleetlift/internal/model"
@@ -25,14 +26,7 @@ func (e ValidationError) Error() string {
 
 var stepIDRe = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
-var validActionTypes = map[string]bool{
-	"slack_notify":     true,
-	"github_pr_review": true,
-	"github_assign":    true,
-	"github_label":     true,
-	"github_comment":   true,
-	"create_pr":        true,
-}
+var defaultRegistry = model.DefaultActionRegistry()
 
 var validAgentTypes = map[string]bool{
 	"claude-code": true,
@@ -240,15 +234,30 @@ func checkParamType(name, typ string, val any) *ValidationError {
 	return nil
 }
 
-// validateActionTypes checks that action steps use a known action type.
+// validateActionTypes checks that action steps use a known action type and valid config.
 func validateActionTypes(def model.WorkflowDef) []ValidationError {
 	var errs []ValidationError
 	for _, step := range def.Steps {
 		if step.Action == nil {
 			continue
 		}
-		if !validActionTypes[step.Action.Type] {
-			errs = append(errs, ValidationError{StepID: step.ID, Field: "action.type", Message: fmt.Sprintf("unknown action type %q", step.Action.Type)})
+		_, ok := defaultRegistry.Get(step.Action.Type)
+		if !ok {
+			known := defaultRegistry.Types()
+			errs = append(errs, ValidationError{
+				StepID:  step.ID,
+				Field:   "action.type",
+				Message: fmt.Sprintf("unknown action type %q; known: %s", step.Action.Type, strings.Join(known, ", ")),
+			})
+			continue
+		}
+		// Validate config keys and types against contract
+		for _, violation := range defaultRegistry.ValidateConfig(step.Action.Type, step.Action.Config) {
+			errs = append(errs, ValidationError{
+				StepID:  step.ID,
+				Field:   "action.config",
+				Message: violation,
+			})
 		}
 	}
 	return errs
@@ -515,6 +524,18 @@ func validateTemplateRefs(def model.WorkflowDef) []ValidationError {
 							StepID:  step.ID,
 							Field:   tt.field,
 							Message: fmt.Sprintf("template references output field %q on step %q which is not in its output schema", sRef.OutputKey, sRef.StepID),
+						})
+					}
+				}
+				// If step has an action, validate output field ref against action contract
+				if sRef.OutputKey != "" && refStep.Action != nil {
+					contract, cOK := defaultRegistry.Get(refStep.Action.Type)
+					if cOK && !contract.HasOutputField(sRef.OutputKey) {
+						errs = append(errs, ValidationError{
+							StepID: step.ID,
+							Field:  tt.field,
+							Message: fmt.Sprintf(".Steps.%s.Output.%s: action %q does not declare output field %q; available: %s",
+								sRef.StepID, sRef.OutputKey, refStep.Action.Type, sRef.OutputKey, contract.OutputFieldNames()),
 						})
 					}
 				}
