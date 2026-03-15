@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+[ -f ~/.fleetlift/local.env ] && source ~/.fleetlift/local.env
 # Shared dev environment variables for integration scripts.
 # Source this file from other scripts: source "$(dirname "$0")/dev-env.sh"
 

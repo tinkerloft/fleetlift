@@ -247,7 +247,7 @@ func seedDevIdentity(dbURL string) error {
 		return fmt.Errorf("upsert team: %w", err)
 	}
 
-	_, err = db.Exec(`INSERT INTO users (id, name, provider, provider_id) VALUES ($1, 'Dev User', 'dev', $1) ON CONFLICT (provider, provider_id) DO NOTHING`, devUserID)
+	_, err = db.Exec(`INSERT INTO users (id, name, provider, provider_id) VALUES ($1, 'Dev User', 'dev', $2) ON CONFLICT (provider, provider_id) DO NOTHING`, devUserID, devUserID)
 	if err != nil {
 		return fmt.Errorf("upsert user: %w", err)
 	}
