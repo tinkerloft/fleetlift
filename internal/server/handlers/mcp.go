@@ -147,7 +147,7 @@ func (h *MCPHandler) HandleGetKnowledge(w http.ResponseWriter, r *http.Request) 
 	maxItems := 10
 	if m := r.URL.Query().Get("max"); m != "" {
 		if v, err := strconv.Atoi(m); err == nil && v > 0 {
-			maxItems = v
+			maxItems = min(v, 100)
 		}
 	}
 
@@ -329,7 +329,7 @@ func (h *MCPHandler) HandleSearchKnowledge(w http.ResponseWriter, r *http.Reques
 	maxItems := 10
 	if m := r.URL.Query().Get("max"); m != "" {
 		if v, err := strconv.Atoi(m); err == nil && v > 0 {
-			maxItems = v
+			maxItems = min(v, 100)
 		}
 	}
 	var tags []string

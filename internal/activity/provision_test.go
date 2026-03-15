@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -166,11 +167,11 @@ func (m *mcpSandbox) Create(_ context.Context, _ sandbox.CreateOpts) (string, er
 
 func (m *mcpSandbox) Exec(_ context.Context, _, cmd, _ string) (string, string, error) {
 	m.execCmds = append(m.execCmds, cmd)
-	if m.failExec != "" && contains(cmd, m.failExec) {
+	if m.failExec != "" && strings.Contains(cmd, m.failExec) {
 		return "", "", fmt.Errorf("exec failed: %s", m.failExec)
 	}
 	// Health check returns "ok"
-	if contains(cmd, "/health") {
+	if strings.Contains(cmd, "/health") {
 		return `{"status":"ok"}`, "", nil
 	}
 	return "", "", nil
@@ -182,19 +183,6 @@ func (m *mcpSandbox) WriteBytes(_ context.Context, _, path string, data []byte) 
 }
 
 func (m *mcpSandbox) Kill(_ context.Context, _ string) error { return nil }
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && findSubstring(s, substr))
-}
-
-func findSubstring(s, sub string) bool {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
-}
 
 func TestProvisionSandbox_MCPSetup(t *testing.T) {
 	// Create a temp file to act as the MCP binary.
@@ -224,7 +212,7 @@ func TestProvisionSandbox_MCPSetup(t *testing.T) {
 
 	// Verify the nohup command does NOT contain --token flag
 	for _, cmd := range sb.execCmds {
-		if findSubstring(cmd, "nohup") {
+		if strings.Contains(cmd, "nohup") {
 			assert.NotContains(t, cmd, "--token", "token should not be in CLI args")
 			assert.Contains(t, cmd, "FLEETLIFT_MCP_TOKEN=", "token should be in env var")
 		}
