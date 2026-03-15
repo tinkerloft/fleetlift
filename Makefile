@@ -1,4 +1,4 @@
-.PHONY: build test clean fleetlift-worker fleetlift all temporal-dev temporal-up temporal-down temporal-logs sandbox-build agent-image kind-setup test-integration-k8s build-web dev-web opensandbox-up opensandbox-down opensandbox-logs
+.PHONY: build test clean fleetlift-worker fleetlift all temporal-dev temporal-up temporal-down temporal-logs sandbox-build agent-image kind-setup test-integration-k8s build-web dev-web opensandbox-up opensandbox-down opensandbox-logs init-local
 
 # Build all binaries
 all: build
@@ -100,3 +100,7 @@ opensandbox-down:
 # View OpenSandbox lifecycle server logs
 opensandbox-logs:
 	docker compose -f docker-compose.opensandbox.yaml logs -f opensandbox-server
+
+# Run local setup wizard (builds agent image first, then CLI, then runs wizard)
+init-local: sandbox-build
+	go build -o ./fleetlift ./cmd/cli && ./fleetlift init-local; rm -f ./fleetlift

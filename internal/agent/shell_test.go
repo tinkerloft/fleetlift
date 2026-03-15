@@ -23,8 +23,13 @@ type mockSandbox struct {
 	err   error    // error to return from ExecStream
 }
 
-func (m *mockSandbox) ExecStream(_ context.Context, _, _, _ string, onLine func(string)) error {
+func (m *mockSandbox) ExecStream(ctx context.Context, _, _, _ string, onLine func(string)) error {
 	for _, line := range m.lines {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		onLine(line)
 	}
 	return m.err
