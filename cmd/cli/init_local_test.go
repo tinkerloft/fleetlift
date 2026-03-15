@@ -146,6 +146,40 @@ func TestPatchDevEnv_Idempotent(t *testing.T) {
 	}
 }
 
+func TestPatchDevEnv_NoShebang(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "no-shebang.sh")
+	os.WriteFile(script, []byte("export FOO=bar\n"), 0o755) //nolint:errcheck
+
+	err := patchDevEnv(script)
+	if err == nil {
+		t.Error("expected error for file without shebang, got nil")
+	}
+}
+
+func TestWriteLocalEnv_Permissions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "local.env")
+	cfg := localEnvConfig{
+		DatabaseURL: "postgres://x", TemporalAddress: "localhost:7233",
+		TemporalUIURL: "http://localhost:8233", OpenSandboxDomain: "http://localhost:8090",
+		AgentImage: "img", GitUserEmail: "a@b.com", GitUserName: "Bot",
+		JWTSecret: "s", CredentialEncryptionKey: "e",
+		DevNoAuth: true, DevUserID: devUserID, DevTeamID: devTeamID,
+		AnthropicAPIKey: "key",
+	}
+	if err := writeLocalEnv(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("expected mode 0600, got %o", fi.Mode().Perm())
+	}
+}
+
 func TestSeedDevIdentity(t *testing.T) {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {

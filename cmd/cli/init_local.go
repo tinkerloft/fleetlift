@@ -95,10 +95,19 @@ func writeLocalEnv(path string, cfg localEnvConfig) error {
 		line("GITHUB_TOKEN", cfg.GitHubToken)
 	}
 
-	return os.WriteFile(path, []byte(sb.String()), 0o600)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(sb.String()), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func patchDevEnv(scriptPath string) error {
+	info, err := os.Stat(scriptPath)
+	if err != nil {
+		return err
+	}
+
 	data, err := os.ReadFile(scriptPath)
 	if err != nil {
 		return err
@@ -116,7 +125,10 @@ func patchDevEnv(scriptPath string) error {
 		lines = append(lines, scanner.Text())
 	}
 	if len(lines) == 0 {
-		return nil
+		return fmt.Errorf("patchDevEnv: %s is empty or unreadable", scriptPath)
+	}
+	if !strings.HasPrefix(lines[0], "#!") {
+		return fmt.Errorf("patchDevEnv: %s does not start with a shebang line", scriptPath)
 	}
 
 	// Insert after shebang (line 0)
@@ -125,7 +137,7 @@ func patchDevEnv(scriptPath string) error {
 	patched = append(patched, sourceLineMarker)
 	patched = append(patched, lines[1:]...)
 
-	return os.WriteFile(scriptPath, []byte(strings.Join(patched, "\n")+"\n"), 0o755)
+	return os.WriteFile(scriptPath, []byte(strings.Join(patched, "\n")+"\n"), info.Mode())
 }
 
 func seedDevIdentity(dbURL string) error {
@@ -146,6 +158,7 @@ func seedDevIdentity(dbURL string) error {
 		}
 		time.Sleep(1 * time.Second)
 		fmt.Print(".")
+		os.Stdout.Sync() //nolint:errcheck
 	}
 	fmt.Println()
 
