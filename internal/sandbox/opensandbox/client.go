@@ -322,6 +322,51 @@ func (c *Client) WriteFile(ctx context.Context, id, path, content string) error 
 	return nil
 }
 
+func (c *Client) WriteBytes(ctx context.Context, id, path string, data []byte) error {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+
+	metadataJSON, err := json.Marshal(map[string]string{"path": path})
+	if err != nil {
+		return fmt.Errorf("opensandbox: marshal metadata: %w", err)
+	}
+	mw, err := w.CreateFormFile("metadata", "metadata.json")
+	if err != nil {
+		return fmt.Errorf("opensandbox: create metadata part: %w", err)
+	}
+	if _, err := mw.Write(metadataJSON); err != nil {
+		return fmt.Errorf("opensandbox: write metadata: %w", err)
+	}
+
+	fw, err := w.CreateFormFile("file", "upload")
+	if err != nil {
+		return fmt.Errorf("opensandbox: create form file: %w", err)
+	}
+	if _, err := io.Copy(fw, bytes.NewReader(data)); err != nil {
+		return fmt.Errorf("opensandbox: write file content: %w", err)
+	}
+	w.Close()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.sandboxProxyURL(id)+"/files/upload", &buf)
+	if err != nil {
+		return fmt.Errorf("opensandbox: write bytes request: %w", err)
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	c.setAuth(req)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("opensandbox: write bytes: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		b, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("opensandbox: write bytes returned %d: %s", resp.StatusCode, string(b))
+	}
+	return nil
+}
+
 func (c *Client) ReadFile(ctx context.Context, id, path string) (string, error) {
 	b, err := c.ReadBytes(ctx, id, path)
 	if err != nil {
