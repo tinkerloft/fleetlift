@@ -189,8 +189,8 @@ See: [`archive/2026-03-14-mcp-agent-interface.md`](archive/2026-03-14-mcp-agent-
 
 | Phase | Scope | Key Tools | Status |
 |-------|-------|-----------|--------|
-| E1 | Read-only context tools | `context.get_run`, `context.get_step_output`, `context.get_knowledge` | ⬜ |
-| E2 | Write tools | `artifact.create`, `memory.add_learning`, `memory.search`, `progress.update` | ⬜ |
+| E1 | Read-only context tools | `context.get_run`, `context.get_step_output`, `context.get_knowledge` | ✅ |
+| E2 | Write tools | `artifact.create`, `memory.add_learning`, `memory.search`, `progress.update` | ✅ |
 | E3 | Interactive tools | `inbox.request_input`, `inbox.notify` | ⬜ |
 
 ### Track F: Feature Completion
