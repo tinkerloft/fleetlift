@@ -64,6 +64,7 @@ func TestActionContract_OutputKeysMatchContract(t *testing.T) {
 	registry := model.DefaultActionRegistry()
 
 	// Test cases with valid config that produce non-nil output without external calls
+	// Only actions that don't call activity.GetLogger (requires Temporal context)
 	testCases := map[string]map[string]any{
 		"create_pr": {"title": "test"},
 	}

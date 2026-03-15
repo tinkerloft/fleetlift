@@ -73,7 +73,7 @@ func actionNotifySlack(ctx context.Context, config map[string]any, _ map[string]
 	slackActs := NewSlackActivities()
 	_, err := slackActs.NotifySlack(ctx, channel, message, nil)
 	if err != nil {
-		return map[string]any{"status": "failed", "channel": channel}, err
+		return nil, err
 	}
 	return map[string]any{"status": "sent", "channel": channel}, nil
 }

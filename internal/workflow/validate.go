@@ -26,6 +26,10 @@ func (e ValidationError) Error() string {
 
 var stepIDRe = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
+// defaultRegistry is the package-level registry used by ValidateWorkflow.
+// It is initialized once and must not be mutated after init.
+// A separate instance is created for the API handler in cmd/server/main.go;
+// both are populated by the same DefaultActionRegistry() builder.
 var defaultRegistry = model.DefaultActionRegistry()
 
 var validAgentTypes = map[string]bool{

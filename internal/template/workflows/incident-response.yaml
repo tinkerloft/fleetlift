@@ -105,6 +105,8 @@ steps:
     title: Post incident summary
     depends_on:
       - deploy_check
+    condition: '{{ ne .params.slack_channel "" }}'
+    optional: true
     action:
       type: slack_notify
       config:

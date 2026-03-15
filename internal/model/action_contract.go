@@ -221,6 +221,7 @@ func DefaultActionRegistry() *ActionRegistry {
 			{Name: "status", Type: "string", Required: true, Description: "assigned | skipped"},
 			{Name: "reason", Type: "string", Required: false, Description: "Reason if skipped"},
 		},
+		Credentials: []string{"GITHUB_TOKEN"},
 	})
 
 	r.Register(ActionContract{
