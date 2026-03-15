@@ -3,6 +3,7 @@ package activity
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -65,11 +66,18 @@ func logAction(ctx context.Context, a *Activities, stepRunID string, seq int64, 
 }
 
 // credOrEnv returns the credential value from the map, falling back to os.Getenv.
+// TODO(multi-tenant): Remove env fallback once all teams use the credential store.
+// The fallback risks leaking the platform operator's token to teams without their own.
 func credOrEnv(credentials map[string]string, name string) string {
 	if v, ok := credentials[name]; ok && v != "" {
 		return v
 	}
-	return os.Getenv(name)
+	if v := os.Getenv(name); v != "" {
+		slog.Warn("credential not found in store, falling back to environment variable",
+			"credential", name)
+		return v
+	}
+	return ""
 }
 
 func actionNotifySlack(ctx context.Context, config map[string]any, credentials map[string]string) (map[string]any, error) {

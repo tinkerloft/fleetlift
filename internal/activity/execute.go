@@ -350,7 +350,7 @@ func appendOutputSchemaInstructions(prompt string, schema map[string]any) string
 
 var (
 	fencedJSONRe = regexp.MustCompile("(?s)```json\\s*\\n([\\s\\S]*?)\\n```")
-	bareJSONRe   = regexp.MustCompile(`(?s)\{[^{}]*\}`)
+	bareJSONRe   = regexp.MustCompile(`(?s)\{(?:[^{}]|\{[^{}]*\})*\}`)
 )
 
 // extractSchemaFields extracts declared schema fields from the agent's result text.

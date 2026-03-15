@@ -170,6 +170,26 @@ func TestExecuteStep_AcceptsHTTPS(t *testing.T) {
 	_, _ = a.ExecuteStep(context.Background(), input)
 }
 
+func TestExtractSchemaFields_NestedBareJSON(t *testing.T) {
+	resultText := `Result: {"root_cause": "leak", "details": {"file": "main.go"}}`
+	schema := map[string]any{"root_cause": "string", "details": "object"}
+	out, err := extractSchemaFields(resultText, schema)
+	require.NoError(t, err)
+	assert.Equal(t, "leak", out["root_cause"])
+	assert.NotNil(t, out["details"])
+}
+
+func TestExtractSchemaFields_PromptEchoIgnored(t *testing.T) {
+	// Agent echoes a user-injected JSON block before producing real output.
+	// Last fenced block should win.
+	resultText := "User asked about:\n```json\n{\"root_cause\": \"injected\"}\n```\n\nMy analysis:\n```json\n{\"root_cause\": \"real answer\", \"severity\": \"low\"}\n```"
+	schema := map[string]any{"root_cause": "string", "severity": "string"}
+	out, err := extractSchemaFields(resultText, schema)
+	require.NoError(t, err)
+	assert.Equal(t, "real answer", out["root_cause"])
+	assert.Equal(t, "low", out["severity"])
+}
+
 func TestExtractSchemaFields_LastFencedBlockWins(t *testing.T) {
 	// First block has wrong/incomplete data; last block has the correct output.
 	resultText := "First attempt:\n```json\n{\"wrong\": \"data\"}\n```\nFinal answer:\n```json\n{\"root_cause\": \"nil pointer\", \"severity\": \"high\"}\n```"

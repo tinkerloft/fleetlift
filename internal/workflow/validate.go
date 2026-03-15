@@ -462,10 +462,15 @@ func validateTemplateRefs(def model.WorkflowDef) []ValidationError {
 		if step.Execution != nil && step.Execution.Prompt != "" {
 			templates = append(templates, taggedTemplate{tmpl: step.Execution.Prompt, field: "execution.prompt"})
 		}
-		// Collect string values from action config
+		// Collect string values from action config (sorted for deterministic error ordering).
 		if step.Action != nil {
-			for _, v := range step.Action.Config {
-				if s, ok := v.(string); ok && s != "" {
+			keys := make([]string, 0, len(step.Action.Config))
+			for k := range step.Action.Config {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				if s, ok := step.Action.Config[k].(string); ok && s != "" {
 					templates = append(templates, taggedTemplate{tmpl: s, field: "action.config"})
 				}
 			}

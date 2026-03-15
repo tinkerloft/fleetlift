@@ -217,8 +217,15 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 					}
 
 					// Resolve template strings in action config.
+					configKeys := make([]string, 0, len(step.Action.Config))
+					for k := range step.Action.Config {
+						configKeys = append(configKeys, k)
+					}
+					sort.Strings(configKeys)
+
 					resolvedConfig := make(map[string]any, len(step.Action.Config))
-					for k, v := range step.Action.Config {
+					for _, k := range configKeys {
+						v := step.Action.Config[k]
 						if s, ok := v.(string); ok {
 							rendered, renderErr := fltemplate.RenderPrompt(s, fltemplate.RenderContext{
 								Params: input.Parameters,
