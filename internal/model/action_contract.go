@@ -1,6 +1,10 @@
 package model
 
-import "sort"
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
 
 // FieldContract declares a single input or output field for an action.
 type FieldContract struct {
@@ -58,6 +62,117 @@ func (r *ActionRegistry) All() []ActionContract {
 		out = append(out, r.contracts[t])
 	}
 	return out
+}
+
+// ValidateConfig checks an action's config map against its declared contract.
+// Returns a list of human-readable error strings. Empty means valid.
+// Config values containing "{{" skip type checking (template expressions).
+func (r *ActionRegistry) ValidateConfig(actionType string, config map[string]any) []string {
+	contract, ok := r.contracts[actionType]
+	if !ok {
+		return []string{fmt.Sprintf("unknown action type %q", actionType)}
+	}
+
+	if config == nil {
+		config = map[string]any{}
+	}
+
+	var errs []string
+
+	// Build set of known input names
+	knownInputs := make(map[string]FieldContract, len(contract.Inputs))
+	for _, f := range contract.Inputs {
+		knownInputs[f.Name] = f
+	}
+
+	// Check for unknown keys
+	keys := make([]string, 0, len(config))
+	for k := range config {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if _, ok := knownInputs[k]; !ok {
+			errs = append(errs, fmt.Sprintf("unknown config key %q; known keys: %s", k, inputNames(contract)))
+		}
+	}
+
+	// Check required fields present + type check non-template values
+	for _, f := range contract.Inputs {
+		val, provided := config[f.Name]
+		if !provided {
+			if f.Required {
+				errs = append(errs, fmt.Sprintf("required config key %q is missing", f.Name))
+			}
+			continue
+		}
+		// Skip type checking for template expressions
+		if s, ok := val.(string); ok && strings.Contains(s, "{{") {
+			continue
+		}
+		if err := checkFieldType(f, val); err != "" {
+			errs = append(errs, err)
+		}
+	}
+
+	return errs
+}
+
+// HasOutputField returns true if the contract declares an output field with the given name.
+func (c ActionContract) HasOutputField(name string) bool {
+	for _, f := range c.Outputs {
+		if f.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// OutputFieldNames returns a comma-separated list of output field names.
+func (c ActionContract) OutputFieldNames() string {
+	names := make([]string, len(c.Outputs))
+	for i, f := range c.Outputs {
+		names[i] = f.Name
+	}
+	return strings.Join(names, ", ")
+}
+
+func checkFieldType(f FieldContract, val any) string {
+	switch f.Type {
+	case "string":
+		if _, ok := val.(string); !ok {
+			return fmt.Sprintf("config key %q expects type string, got %T", f.Name, val)
+		}
+	case "int":
+		switch v := val.(type) {
+		case int, int64, float64:
+			if fv, ok := v.(float64); ok && fv != float64(int64(fv)) {
+				return fmt.Sprintf("config key %q expects type int, got fractional float", f.Name)
+			}
+		default:
+			return fmt.Sprintf("config key %q expects type int, got %T", f.Name, val)
+		}
+	case "bool":
+		if _, ok := val.(bool); !ok {
+			return fmt.Sprintf("config key %q expects type bool, got %T", f.Name, val)
+		}
+	case "array":
+		switch val.(type) {
+		case []any, []string:
+			// ok
+		default:
+			return fmt.Sprintf("config key %q expects type array, got %T", f.Name, val)
+		}
+	}
+	return ""
+}
+
+func inputNames(c ActionContract) string {
+	names := make([]string, len(c.Inputs))
+	for i, f := range c.Inputs {
+		names[i] = f.Name
+	}
+	return strings.Join(names, ", ")
 }
 
 // DefaultActionRegistry returns a registry populated with all builtin action contracts.
