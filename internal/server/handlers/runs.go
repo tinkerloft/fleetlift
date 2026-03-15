@@ -64,7 +64,15 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// Parse workflow definition
 	var def model.WorkflowDef
 	if err := model.ParseWorkflowYAML([]byte(t.YAMLBody), &def); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "invalid workflow definition")
+		writeJSONError(w, http.StatusBadRequest, "invalid workflow definition")
+		return
+	}
+
+	if errs := workflow.ValidateWorkflow(def, req.Parameters); len(errs) > 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{
+			"error":             "workflow validation failed",
+			"validation_errors": errs,
+		})
 		return
 	}
 

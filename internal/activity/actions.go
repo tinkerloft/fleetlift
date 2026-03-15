@@ -3,7 +3,6 @@ package activity
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/google/go-github/v62/github"
@@ -12,120 +11,185 @@ import (
 )
 
 // ExecuteAction dispatches an action step to the appropriate handler based on action type.
-func (a *Activities) ExecuteAction(ctx context.Context, actionType string, config map[string]any) (map[string]any, error) {
+func (a *Activities) ExecuteAction(ctx context.Context, stepRunID string, actionType string, config map[string]any, teamID string, credNames []string) (map[string]any, error) {
+	// Fetch credentials if requested.
+	var credentials map[string]string
+	if len(credNames) > 0 && a.CredStore != nil {
+		var err error
+		credentials, err = a.CredStore.GetBatch(ctx, teamID, credNames)
+		if err != nil {
+			return nil, fmt.Errorf("fetch credentials: %w", err)
+		}
+	}
+
+	var seq int64
+	logAction(ctx, a, stepRunID, seq, fmt.Sprintf("Executing action: %s", actionType))
+	seq++
+
+	var result map[string]any
+	var err error
+
 	switch actionType {
 	case "slack_notify":
-		return nil, a.actionNotifySlack(ctx, config)
+		result, err = actionNotifySlack(ctx, config, credentials)
 	case "github_pr_review":
-		return nil, a.actionGitHubPostReviewComment(ctx, config)
+		result, err = actionGitHubPostReviewComment(ctx, config, credentials)
 	case "github_assign":
-		return nil, a.actionGitHubAssignIssue(ctx, config)
+		result, err = actionGitHubAssignIssue(ctx, config, credentials)
 	case "github_label":
-		return nil, a.actionGitHubAddLabel(ctx, config)
+		result, err = actionGitHubAddLabel(ctx, config, credentials)
 	case "github_comment":
-		return nil, a.actionGitHubPostIssueComment(ctx, config)
+		result, err = actionGitHubPostIssueComment(ctx, config, credentials)
 	case "create_pr":
 		// PR creation is handled by CreatePullRequest activity directly
 		return map[string]any{"status": "skipped_in_action"}, nil
 	default:
 		return nil, fmt.Errorf("unknown action type: %s", actionType)
 	}
+
+	if err != nil {
+		logAction(ctx, a, stepRunID, seq, fmt.Sprintf("Action failed: %v", err))
+		return nil, err
+	}
+	logAction(ctx, a, stepRunID, seq, "Action completed successfully")
+	return result, nil
 }
 
-func (a *Activities) actionNotifySlack(ctx context.Context, config map[string]any) error {
+// logAction writes a single log line for an action step run.
+func logAction(ctx context.Context, a *Activities, stepRunID string, seq int64, msg string) {
+	if a.DB == nil || stepRunID == "" {
+		return
+	}
+	_ = batchInsertLogs(ctx, a, stepRunID, []logLine{{Seq: seq, Stream: "stdout", Content: msg}})
+}
+
+func actionNotifySlack(ctx context.Context, config map[string]any, _ map[string]string) (map[string]any, error) {
 	channel, _ := config["channel"].(string)
 	message, _ := config["message"].(string)
 	if channel == "" || message == "" {
-		activity.GetLogger(ctx).Warn("slack_notify: missing channel or message")
-		return nil
+		return map[string]any{"status": "skipped", "reason": "missing channel or message"}, nil
 	}
 
 	slackActs := NewSlackActivities()
 	_, err := slackActs.NotifySlack(ctx, channel, message, nil)
-	return err
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"status": "sent", "channel": channel}, nil
 }
 
-func (a *Activities) actionGitHubPostReviewComment(ctx context.Context, config map[string]any) error {
+func actionGitHubPostReviewComment(ctx context.Context, config map[string]any, credentials map[string]string) (map[string]any, error) {
 	repoURL, _ := config["repo_url"].(string)
 	prNumber := toInt(config["pr_number"])
 	summary, _ := config["summary"].(string)
 
 	if repoURL == "" || prNumber == 0 {
-		return fmt.Errorf("github_pr_review: missing repo_url or pr_number")
+		return nil, fmt.Errorf("github_pr_review: missing repo_url or pr_number")
 	}
 
-	ghClient := newGitHubClient(ctx)
+	token := credentials["GITHUB_TOKEN"]
+	ghClient := newGitHubClientWithToken(ctx, token)
 	if ghClient == nil {
-		return fmt.Errorf("github_pr_review: GITHUB_TOKEN is not set")
+		return nil, fmt.Errorf("github_pr_review: GITHUB_TOKEN is not set")
 	}
 
 	if summary == "" {
-		activity.GetLogger(ctx).Warn("github_pr_review: empty summary, skipping")
-		return nil
+		return map[string]any{"status": "skipped", "reason": "empty summary"}, nil
 	}
 
 	owner, repo := extractOwnerRepo(repoURL)
-	_, _, err := ghClient.PullRequests.CreateReview(ctx, owner, repo, prNumber, &github.PullRequestReviewRequest{
+	review, _, err := ghClient.PullRequests.CreateReview(ctx, owner, repo, prNumber, &github.PullRequestReviewRequest{
 		Body:  github.String(summary),
 		Event: github.String("COMMENT"),
 	})
-	return err
+	if err != nil {
+		return nil, err
+	}
+	reviewID := int64(0)
+	if review != nil && review.ID != nil {
+		reviewID = *review.ID
+	}
+	return map[string]any{"status": "posted", "review_id": reviewID}, nil
 }
 
-func (a *Activities) actionGitHubAssignIssue(ctx context.Context, config map[string]any) error {
+func actionGitHubAssignIssue(ctx context.Context, config map[string]any, _ map[string]string) (map[string]any, error) {
 	repoURL, _ := config["repo_url"].(string)
 	issueNumber := toInt(config["issue_number"])
 
 	if repoURL == "" || issueNumber == 0 {
-		return fmt.Errorf("github_assign: missing repo_url or issue_number")
+		return nil, fmt.Errorf("github_assign: missing repo_url or issue_number")
 	}
 
-	// Assignment logic would look up CODEOWNERS or a team map; for now, log and skip
+	// Assignment logic not yet implemented
 	activity.GetLogger(ctx).Info("github_assign: auto-assignment not yet configured",
 		"repo", repoURL, "issue", issueNumber)
-	return nil
+	return map[string]any{"status": "skipped", "reason": "not configured"}, nil
 }
 
-func (a *Activities) actionGitHubAddLabel(ctx context.Context, config map[string]any) error {
+func actionGitHubAddLabel(ctx context.Context, config map[string]any, credentials map[string]string) (map[string]any, error) {
 	repoURL, _ := config["repo_url"].(string)
 	issueNumber := toInt(config["issue_number"])
 	labels := toStringSlice(config["labels"])
 
 	if repoURL == "" || issueNumber == 0 || len(labels) == 0 {
-		return fmt.Errorf("github_label: missing repo_url, issue_number, or labels")
+		return nil, fmt.Errorf("github_label: missing repo_url, issue_number, or labels")
 	}
 
-	ghClient := newGitHubClient(ctx)
+	token := credentials["GITHUB_TOKEN"]
+	ghClient := newGitHubClientWithToken(ctx, token)
 	if ghClient == nil {
-		return fmt.Errorf("GITHUB_TOKEN not set")
+		return nil, fmt.Errorf("GITHUB_TOKEN not set")
 	}
 
 	owner, repo := extractOwnerRepo(repoURL)
-	_, _, err := ghClient.Issues.AddLabelsToIssue(ctx, owner, repo, issueNumber, labels)
-	return err
+	applied, _, err := ghClient.Issues.AddLabelsToIssue(ctx, owner, repo, issueNumber, labels)
+	if err != nil {
+		return nil, err
+	}
+	appliedNames := make([]string, 0, len(applied))
+	for _, l := range applied {
+		if l.Name != nil {
+			appliedNames = append(appliedNames, *l.Name)
+		}
+	}
+	return map[string]any{"status": "labeled", "labels": appliedNames}, nil
 }
 
-func (a *Activities) actionGitHubPostIssueComment(ctx context.Context, config map[string]any) error {
+func actionGitHubPostIssueComment(ctx context.Context, config map[string]any, credentials map[string]string) (map[string]any, error) {
 	repoURL, _ := config["repo_url"].(string)
 	issueNumber := toInt(config["issue_number"])
 	body, _ := config["body"].(string)
 
 	if repoURL == "" || issueNumber == 0 || body == "" {
-		return fmt.Errorf("github_comment: missing repo_url, issue_number, or body")
+		return nil, fmt.Errorf("github_comment: missing repo_url, issue_number, or body")
 	}
 
-	ghActs := NewGitHubActivities()
-	return ghActs.PostIssueComment(ctx, repoURL, issueNumber, body)
+	token := credentials["GITHUB_TOKEN"]
+	ghClient := newGitHubClientWithToken(ctx, token)
+	if ghClient == nil {
+		return nil, fmt.Errorf("GITHUB_TOKEN not set")
+	}
+
+	owner, repo := extractOwnerRepo(repoURL)
+	comment, _, err := ghClient.Issues.CreateComment(ctx, owner, repo, issueNumber, &github.IssueComment{
+		Body: github.String(body),
+	})
+	if err != nil {
+		return nil, err
+	}
+	commentID := int64(0)
+	if comment != nil && comment.ID != nil {
+		commentID = *comment.ID
+	}
+	return map[string]any{"status": "posted", "comment_id": commentID}, nil
 }
 
-func newGitHubClient(ctx context.Context) *github.Client {
-	token := os.Getenv("GITHUB_TOKEN")
+func newGitHubClientWithToken(ctx context.Context, token string) *github.Client {
 	if token == "" {
 		return nil
 	}
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
-	tc := oauth2.NewClient(ctx, ts)
-	return github.NewClient(tc)
+	return github.NewClient(oauth2.NewClient(ctx, ts))
 }
 
 func toInt(v any) int {

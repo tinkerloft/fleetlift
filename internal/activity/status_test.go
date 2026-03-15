@@ -45,3 +45,15 @@ func TestUpdateRunStatus_NilDB(t *testing.T) {
 	_ = a
 	assert.NotNil(t, a)
 }
+
+// Fix 4: log inserts must be idempotent across Temporal retries.
+// The generated SQL must use ON CONFLICT so duplicate (step_run_id, seq) rows are silently skipped.
+func TestBuildInsertLogsQuery_ContainsOnConflict(t *testing.T) {
+	lines := []logLine{
+		{Seq: 0, Stream: "stdout", Content: "Executing action: github_pr_review"},
+		{Seq: 1, Stream: "stdout", Content: "Action completed successfully"},
+	}
+	query := buildInsertLogsQuery(lines)
+	assert.Contains(t, query, "ON CONFLICT (step_run_id, seq) DO NOTHING",
+		"batchInsertLogs must be idempotent across Temporal activity retries")
+}

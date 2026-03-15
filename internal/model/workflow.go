@@ -109,8 +109,9 @@ type PRDef struct {
 }
 
 type ActionDef struct {
-	Type   string         `yaml:"type"`
-	Config map[string]any `yaml:"config"`
+	Type        string         `yaml:"type"`
+	Config      map[string]any `yaml:"config"`
+	Credentials []string       `yaml:"credentials,omitempty"`
 }
 
 type StepOutputsDef struct {

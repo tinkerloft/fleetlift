@@ -28,8 +28,9 @@ func (r *ShellRunner) SandboxEnv() map[string]string { return nil }
 
 func (r *ShellRunner) Run(ctx context.Context, sandboxID string, opts RunOpts) (<-chan Event, error) {
 	// Wrap the user command to capture the exit code via a sentinel line.
+	// Use /bin/sh (full path) because the sandbox execd may not have /usr/bin in PATH.
 	inner := opts.Prompt + "; echo " + exitCodeSentinel + "$?"
-	cmd := "bash -c " + shellquote.Quote(inner)
+	cmd := "/bin/sh -c " + shellquote.Quote(inner)
 
 	ch := make(chan Event, 64)
 	go func() {
@@ -109,7 +110,9 @@ func (r *ShellRunner) Run(ctx context.Context, sandboxID string, opts RunOpts) (
 }
 
 func (r *ShellRunner) Interrupt(ctx context.Context, sandboxID string) error {
-	_, _, err := r.sandbox.Exec(ctx, sandboxID, "pkill -INT -f 'bash'", "/")
+	// Use the sentinel to uniquely identify the process started by this runner,
+	// avoiding killing unrelated /bin/sh processes in the sandbox.
+	_, _, err := r.sandbox.Exec(ctx, sandboxID, "pkill -INT -f "+shellquote.Quote(exitCodeSentinel), "/")
 	return err
 }
 

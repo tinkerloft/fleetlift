@@ -219,11 +219,13 @@ func (c *Client) ExecStream(ctx context.Context, id, cmd, workDir string, onLine
 		// OpenSandbox streams JSON lines: {"type":"stdout","text":"..."}
 		// Convert to the normalized format our callers expect: {"stream":"stdout","content":"..."}
 		var msg struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
+			Type  string `json:"type"`
+			Text  string `json:"text"`
+			Error *struct {
+				EValue string `json:"evalue"`
+			} `json:"error"`
 		}
 		if json.Unmarshal([]byte(line), &msg) == nil {
-			// Skip control messages (init, ping, execution_complete)
 			switch msg.Type {
 			case "stdout", "stderr":
 				normalized, _ := json.Marshal(map[string]string{
@@ -231,6 +233,18 @@ func (c *Client) ExecStream(ctx context.Context, id, cmd, workDir string, onLine
 					"content": msg.Text,
 				})
 				onLine(string(normalized))
+			case "error":
+				// Surface execution errors (e.g. command not found) so callers fail loudly
+				// instead of silently completing with empty output.
+				detail := msg.Text
+				if msg.Error != nil && msg.Error.EValue != "" {
+					detail = msg.Error.EValue
+				}
+				// Emit error as stderr so callers capture it in their log buffers.
+				if errLine, merr := json.Marshal(map[string]string{"stream": "stderr", "content": detail}); merr == nil {
+					onLine(string(errLine))
+				}
+				return fmt.Errorf("opensandbox: exec error: %s", detail)
 			default:
 				// init, ping, execution_complete — skip
 				continue

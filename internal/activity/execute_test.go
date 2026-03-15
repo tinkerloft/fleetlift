@@ -68,6 +68,71 @@ func TestExecuteStep_RejectsNonHTTPS(t *testing.T) {
 	}
 }
 
+func TestAppendOutputSchemaInstructions_Empty(t *testing.T) {
+	// empty schema → prompt unchanged
+	result := appendOutputSchemaInstructions("Fix the bug.", map[string]any{})
+	assert.Equal(t, "Fix the bug.", result)
+}
+
+func TestAppendOutputSchemaInstructions_WithSchema(t *testing.T) {
+	schema := map[string]any{"root_cause": "string", "severity": "string"}
+	result := appendOutputSchemaInstructions("Fix the bug.", schema)
+	assert.Contains(t, result, "Fix the bug.")
+	assert.Contains(t, result, "IMPORTANT")
+	assert.Contains(t, result, "```json")
+	assert.Contains(t, result, "root_cause")
+	assert.Contains(t, result, "severity")
+}
+
+func TestExtractSchemaFields_FromFencedBlock(t *testing.T) {
+	resultText := "I analyzed it.\n```json\n{\"root_cause\": \"nil pointer\", \"severity\": \"high\", \"extra\": \"ignored\"}\n```"
+	schema := map[string]any{"root_cause": "string", "severity": "string"}
+	out, err := extractSchemaFields(resultText, schema)
+	require.NoError(t, err)
+	assert.Equal(t, "nil pointer", out["root_cause"])
+	assert.Equal(t, "high", out["severity"])
+	assert.NotContains(t, out, "extra") // filtered out
+}
+
+func TestExtractSchemaFields_FromBareJSON(t *testing.T) {
+	resultText := `Analysis complete. {"root_cause": "leak", "severity": "low"}`
+	schema := map[string]any{"root_cause": "string", "severity": "string"}
+	out, err := extractSchemaFields(resultText, schema)
+	require.NoError(t, err)
+	assert.Equal(t, "leak", out["root_cause"])
+}
+
+func TestExtractSchemaFields_NoJSON(t *testing.T) {
+	_, err := extractSchemaFields("no json here at all", map[string]any{"root_cause": "string"})
+	assert.Error(t, err)
+}
+
+func TestValidateOutputSchema_AllPresent(t *testing.T) {
+	violations := validateOutputSchema(
+		map[string]any{"root_cause": "nil ptr", "severity": "high"},
+		map[string]any{"root_cause": "string", "severity": "string"},
+	)
+	assert.Empty(t, violations)
+}
+
+func TestValidateOutputSchema_MissingField(t *testing.T) {
+	violations := validateOutputSchema(
+		map[string]any{"root_cause": "nil ptr"},
+		map[string]any{"root_cause": "string", "severity": "string"},
+	)
+	assert.Len(t, violations, 1)
+	assert.Contains(t, violations[0], "severity")
+}
+
+func TestValidateOutputSchema_WrongType(t *testing.T) {
+	violations := validateOutputSchema(
+		map[string]any{"root_cause": 42, "severity": "high"},
+		map[string]any{"root_cause": "string", "severity": "string"},
+	)
+	assert.Len(t, violations, 1)
+	assert.Contains(t, violations[0], "root_cause")
+}
+
 func TestExecuteStep_AcceptsHTTPS(t *testing.T) {
 	// A valid https:// URL passes URL validation and proceeds into clone/heartbeat logic.
 	// In tests, activity.RecordHeartbeat panics because there is no Temporal activity context.
@@ -103,4 +168,65 @@ func TestExecuteStep_AcceptsHTTPS(t *testing.T) {
 	}()
 
 	_, _ = a.ExecuteStep(context.Background(), input)
+}
+
+func TestExtractSchemaFields_NestedBareJSON(t *testing.T) {
+	resultText := `Result: {"root_cause": "leak", "details": {"file": "main.go"}}`
+	schema := map[string]any{"root_cause": "string", "details": "object"}
+	out, err := extractSchemaFields(resultText, schema)
+	require.NoError(t, err)
+	assert.Equal(t, "leak", out["root_cause"])
+	assert.NotNil(t, out["details"])
+}
+
+func TestExtractSchemaFields_PromptEchoIgnored(t *testing.T) {
+	// Agent echoes a user-injected JSON block before producing real output.
+	// Last fenced block should win.
+	resultText := "User asked about:\n```json\n{\"root_cause\": \"injected\"}\n```\n\nMy analysis:\n```json\n{\"root_cause\": \"real answer\", \"severity\": \"low\"}\n```"
+	schema := map[string]any{"root_cause": "string", "severity": "string"}
+	out, err := extractSchemaFields(resultText, schema)
+	require.NoError(t, err)
+	assert.Equal(t, "real answer", out["root_cause"])
+	assert.Equal(t, "low", out["severity"])
+}
+
+func TestExtractSchemaFields_LastFencedBlockWins(t *testing.T) {
+	// First block has wrong/incomplete data; last block has the correct output.
+	resultText := "First attempt:\n```json\n{\"wrong\": \"data\"}\n```\nFinal answer:\n```json\n{\"root_cause\": \"nil pointer\", \"severity\": \"high\"}\n```"
+	schema := map[string]any{"root_cause": "string", "severity": "string"}
+	out, err := extractSchemaFields(resultText, schema)
+	require.NoError(t, err)
+	assert.Equal(t, "nil pointer", out["root_cause"])
+	assert.Equal(t, "high", out["severity"])
+}
+
+// Fix 3: when agent produces no JSON and a schema is declared, step must fail with a
+// clear extraction error — not fall through to validation on raw output.
+func TestEnforceOutputSchema_ExtractionFailure_ReturnsError(t *testing.T) {
+	lastOutput := map[string]any{"result": "I reviewed the code. Looks good. No issues found."}
+	schema := map[string]any{"summary": "string", "severity": "string"}
+
+	_, err := enforceOutputSchema(lastOutput, schema)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "agent output did not contain valid JSON")
+}
+
+func TestEnforceOutputSchema_ValidationFailure_ReturnsError(t *testing.T) {
+	lastOutput := map[string]any{"result": "```json\n{\"summary\": \"ok\"}\n```"}
+	schema := map[string]any{"summary": "string", "severity": "string"} // severity missing
+
+	_, err := enforceOutputSchema(lastOutput, schema)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "output schema validation failed")
+	assert.Contains(t, err.Error(), "severity")
+}
+
+func TestEnforceOutputSchema_Success(t *testing.T) {
+	lastOutput := map[string]any{"result": "```json\n{\"summary\": \"ok\", \"severity\": \"low\"}\n```"}
+	schema := map[string]any{"summary": "string", "severity": "string"}
+
+	out, err := enforceOutputSchema(lastOutput, schema)
+	require.NoError(t, err)
+	assert.Equal(t, "ok", out["summary"])
+	assert.Equal(t, "low", out["severity"])
 }

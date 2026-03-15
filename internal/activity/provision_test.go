@@ -7,8 +7,24 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tinkerloft/fleetlift/internal/sandbox"
 	"github.com/tinkerloft/fleetlift/internal/workflow"
 )
+
+// execRecordingSandbox records Exec calls for assertion in tests.
+type execRecordingSandbox struct {
+	noopSandbox
+	execCmds []string
+}
+
+func (s *execRecordingSandbox) Create(_ context.Context, _ sandbox.CreateOpts) (string, error) {
+	return "sb-test", nil
+}
+
+func (s *execRecordingSandbox) Exec(_ context.Context, _, cmd, _ string) (string, string, error) {
+	s.execCmds = append(s.execCmds, cmd)
+	return "", "", nil
+}
 
 func TestProvisionSandbox_RejectsInvalidCredentialName(t *testing.T) {
 	a := &Activities{
@@ -113,4 +129,19 @@ func (s *stubCredStore) GetBatch(_ context.Context, _ string, names []string) (m
 		result[name] = s.val
 	}
 	return result, nil
+}
+
+func TestProvisionSandbox_CreatesWorkspace(t *testing.T) {
+	rec := &execRecordingSandbox{}
+	a := &Activities{Sandbox: rec}
+
+	input := workflow.StepInput{
+		TeamID:       "team-1",
+		ResolvedOpts: workflow.ResolvedStepOpts{Agent: "shell"},
+	}
+	_, err := a.ProvisionSandbox(context.Background(), input)
+	require.NoError(t, err)
+
+	assert.Contains(t, rec.execCmds, "mkdir -p /workspace",
+		"ProvisionSandbox must create /workspace so agent commands can use it as cwd")
 }

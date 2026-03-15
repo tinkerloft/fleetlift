@@ -2,7 +2,10 @@ package activity
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"regexp"
+	"sort"
 	"strings"
 
 	"go.temporal.io/sdk/activity"
@@ -138,6 +141,11 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 		prompt = input.ConversationHistory + "\n\n" + prompt
 	}
 
+	// Append schema output instructions if step declares an output schema.
+	if stepInput.StepDef.Execution != nil && stepInput.StepDef.Execution.Output != nil {
+		prompt = appendOutputSchemaInstructions(prompt, stepInput.StepDef.Execution.Output.Schema)
+	}
+
 	// Set working directory to the repo if there's exactly one.
 	workDir := WorkspacePath
 	if len(stepInput.ResolvedOpts.Repos) == 1 {
@@ -227,6 +235,20 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 	// 4. Extract structured output from agent
 	structured := extractStructuredOutput(lastOutput)
 
+	// If the step declares an output schema, enforce it.
+	if stepInput.StepDef.Execution != nil && stepInput.StepDef.Execution.Output != nil {
+		enforced, err := enforceOutputSchema(lastOutput, stepInput.StepDef.Execution.Output.Schema)
+		if err != nil {
+			return &model.StepOutput{
+				StepID: stepInput.StepDef.ID,
+				Status: model.StepStatusFailed,
+				Output: structured,
+				Error:  err.Error(),
+			}, nil
+		}
+		structured = enforced
+	}
+
 	return &model.StepOutput{
 		StepID: stepInput.StepDef.ID,
 		Status: model.StepStatusComplete,
@@ -269,6 +291,24 @@ func splitLast(s, sep string) string {
 	return s
 }
 
+// enforceOutputSchema extracts schema fields from lastOutput and validates them.
+// Returns the filtered structured output, or an error if extraction or validation fails.
+func enforceOutputSchema(lastOutput map[string]any, schema map[string]any) (map[string]any, error) {
+	resultText, _ := lastOutput["result"].(string)
+
+	extracted, err := extractSchemaFields(resultText, schema)
+	if err != nil {
+		return nil, fmt.Errorf("agent output did not contain valid JSON matching schema: %w", err)
+	}
+
+	violations := validateOutputSchema(extracted, schema)
+	if len(violations) > 0 {
+		return nil, fmt.Errorf("output schema validation failed: %s", strings.Join(violations, "; "))
+	}
+
+	return extracted, nil
+}
+
 func extractStructuredOutput(raw map[string]any) map[string]any {
 	if raw == nil {
 		return nil
@@ -278,4 +318,121 @@ func extractStructuredOutput(raw map[string]any) map[string]any {
 		return result
 	}
 	return raw
+}
+
+// appendOutputSchemaInstructions appends schema output instructions to the prompt.
+// If schema is empty, the prompt is returned unchanged.
+func appendOutputSchemaInstructions(prompt string, schema map[string]any) string {
+	if len(schema) == 0 {
+		return prompt
+	}
+
+	// Build example JSON with placeholder values based on declared types.
+	keys := make([]string, 0, len(schema))
+	for k := range schema {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		var placeholder any
+		typ, _ := schema[k].(string)
+		switch typ {
+		case "array":
+			placeholder = []any{"<array>"}
+		case "boolean":
+			placeholder = "<boolean>"
+		case "number":
+			placeholder = "<number>"
+		case "object":
+			placeholder = map[string]any{}
+		default:
+			placeholder = "<string>"
+		}
+		valBytes, _ := json.Marshal(placeholder)
+		keyBytes, _ := json.Marshal(k)
+		parts = append(parts, string(keyBytes)+": "+string(valBytes))
+	}
+	exampleJSON := "{" + strings.Join(parts, ", ") + "}"
+
+	return prompt + "\n\nIMPORTANT: At the end of your response, you MUST output a JSON object with exactly these fields,\nwrapped in a ```json fenced code block:\n\n" + exampleJSON + "\n\nThis structured output is required for downstream workflow steps."
+}
+
+var (
+	fencedJSONRe = regexp.MustCompile("(?s)```json\\s*\\n([\\s\\S]*?)\\n```")
+	bareJSONRe   = regexp.MustCompile(`(?s)\{(?:[^{}]|\{[^{}]*\})*\}`)
+)
+
+// extractSchemaFields extracts declared schema fields from the agent's result text.
+func extractSchemaFields(resultText string, schema map[string]any) (map[string]any, error) {
+	// Strategy 1: find fenced ```json ... ``` blocks, parse the last one.
+	fencedMatches := fencedJSONRe.FindAllStringSubmatch(resultText, -1)
+	if len(fencedMatches) > 0 {
+		last := fencedMatches[len(fencedMatches)-1][1]
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(last), &parsed); err == nil {
+			return filterSchema(parsed, schema), nil
+		}
+	}
+
+	// Strategy 2: find bare {...} JSON objects, parse the last one.
+	bareMatches := bareJSONRe.FindAllString(resultText, -1)
+	if len(bareMatches) > 0 {
+		last := bareMatches[len(bareMatches)-1]
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(last), &parsed); err == nil {
+			return filterSchema(parsed, schema), nil
+		}
+	}
+
+	return nil, fmt.Errorf("no JSON object found in agent output")
+}
+
+// filterSchema returns a new map containing only keys declared in schema that exist in parsed.
+func filterSchema(parsed map[string]any, schema map[string]any) map[string]any {
+	result := make(map[string]any, len(schema))
+	for k := range schema {
+		if v, ok := parsed[k]; ok {
+			result[k] = v
+		}
+	}
+	return result
+}
+
+// validateOutputSchema checks that all schema fields are present in output with the correct types.
+// Returns a sorted list of violation messages.
+func validateOutputSchema(output map[string]any, schema map[string]any) []string {
+	var violations []string
+	for field, typVal := range schema {
+		val, ok := output[field]
+		if !ok {
+			violations = append(violations, fmt.Sprintf("missing required field %q", field))
+			continue
+		}
+		typ, _ := typVal.(string)
+		switch typ {
+		case "string":
+			if _, ok := val.(string); !ok {
+				violations = append(violations, fmt.Sprintf("field %q must be a string, got %T", field, val))
+			}
+		case "array":
+			if _, ok := val.([]any); !ok {
+				violations = append(violations, fmt.Sprintf("field %q must be a array, got %T", field, val))
+			}
+		case "boolean":
+			if _, ok := val.(bool); !ok {
+				violations = append(violations, fmt.Sprintf("field %q must be a boolean, got %T", field, val))
+			}
+		case "number":
+			switch val.(type) {
+			case float64, int, int64:
+				// valid
+			default:
+				violations = append(violations, fmt.Sprintf("field %q must be a number, got %T", field, val))
+			}
+		}
+	}
+	sort.Strings(violations)
+	return violations
 }

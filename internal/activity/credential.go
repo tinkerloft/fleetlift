@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
+	"go.temporal.io/sdk/temporal"
 
 	flcrypto "github.com/tinkerloft/fleetlift/internal/crypto"
 )
@@ -88,4 +90,24 @@ func (s *DBCredentialStore) GetBatch(ctx context.Context, teamID string, names [
 		}
 	}
 	return found, nil
+}
+
+// ValidateCredentials checks that all named credentials exist for the given team.
+// Returns a non-retryable error for missing credentials so Temporal does not
+// retry permanently-absent values. Transient DB errors remain retryable.
+func (a *Activities) ValidateCredentials(ctx context.Context, teamID string, credNames []string) error {
+	if len(credNames) == 0 || a.CredStore == nil {
+		return nil
+	}
+	if _, err := a.CredStore.GetBatch(ctx, teamID, credNames); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return temporal.NewNonRetryableApplicationError(
+				fmt.Sprintf("preflight credential check failed: %v", err),
+				"CREDENTIAL_NOT_FOUND",
+				err,
+			)
+		}
+		return fmt.Errorf("preflight credential check failed: %w", err)
+	}
+	return nil
 }

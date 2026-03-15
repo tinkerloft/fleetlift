@@ -1,6 +1,7 @@
 package activity
 
 import (
+	"context"
 	"encoding/hex"
 	"testing"
 
@@ -64,4 +65,23 @@ func TestNewDBCredentialStore_ValidKey(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, store)
 	assert.Equal(t, hexKey, store.encryptionKey)
+}
+
+func TestValidateCredentials_NoCredentials_ReturnsNil(t *testing.T) {
+	a := &Activities{CredStore: &stubCredStore{}}
+	err := a.ValidateCredentials(context.Background(), "team-1", nil)
+	require.NoError(t, err)
+}
+
+func TestValidateCredentials_AllPresent_ReturnsNil(t *testing.T) {
+	a := &Activities{CredStore: &stubCredStore{val: "secret"}}
+	err := a.ValidateCredentials(context.Background(), "team-1", []string{"GITHUB_TOKEN", "API_KEY"})
+	require.NoError(t, err)
+}
+
+func TestValidateCredentials_MissingCredential_ReturnsError(t *testing.T) {
+	// errCredStore (defined in actions_test.go) always returns an error from GetBatch.
+	a := &Activities{CredStore: &errCredStore{}}
+	err := a.ValidateCredentials(context.Background(), "team-1", []string{"GITHUB_TOKEN"})
+	require.Error(t, err)
 }

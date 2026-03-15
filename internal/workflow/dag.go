@@ -89,6 +89,44 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 	}()
 
 	steps := input.WorkflowDef.Steps
+
+	// Preflight: verify all required credentials exist before starting any work.
+	// This fails fast instead of discovering missing credentials deep in execution.
+	{
+		seen := map[string]struct{}{}
+		var allCreds []string
+		for _, s := range steps {
+			var names []string
+			if s.Execution != nil {
+				names = append(names, s.Execution.Credentials...)
+			}
+			if s.Action != nil {
+				names = append(names, s.Action.Credentials...)
+			}
+			for _, n := range names {
+				if _, ok := seen[n]; !ok {
+					seen[n] = struct{}{}
+					allCreds = append(allCreds, n)
+				}
+			}
+		}
+		sort.Strings(allCreds)
+		if len(allCreds) > 0 {
+			// MaximumAttempts: 3 — allows recovery from transient DB failures;
+			// missing-credential errors are marked non-retryable by the activity itself.
+			ao := workflow.ActivityOptions{
+				StartToCloseTimeout: 30 * time.Second,
+				RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 3},
+			}
+			if err := workflow.ExecuteActivity(
+				workflow.WithActivityOptions(ctx, ao),
+				ValidateCredentialsActivity, input.TeamID, allCreds,
+			).Get(ctx, nil); err != nil {
+				return fmt.Errorf("credential preflight: %w", err)
+			}
+		}
+	}
+
 	outputs := map[string]*model.StepOutput{}
 	sandboxes := map[string]string{} // sandbox_group -> sandbox_id
 	pending := make(map[string]model.StepDef, len(steps))
@@ -217,8 +255,15 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 					}
 
 					// Resolve template strings in action config.
+					configKeys := make([]string, 0, len(step.Action.Config))
+					for k := range step.Action.Config {
+						configKeys = append(configKeys, k)
+					}
+					sort.Strings(configKeys)
+
 					resolvedConfig := make(map[string]any, len(step.Action.Config))
-					for k, v := range step.Action.Config {
+					for _, k := range configKeys {
+						v := step.Action.Config[k]
 						if s, ok := v.(string); ok {
 							rendered, renderErr := fltemplate.RenderPrompt(s, fltemplate.RenderContext{
 								Params: input.Parameters,
@@ -240,7 +285,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 						}
 					}
 					step.Action.Config = resolvedConfig
-					results[i] = executeAction(gCtx, step, resolved)
+					results[i] = executeAction(gCtx, step, input.TeamID, stepRunID, step.Action.Credentials)
 					_ = finalizeStep(gCtx, logger, stepRunID, results[i])
 					return
 				}
@@ -569,7 +614,7 @@ func evalCondition(ctx workflow.Context, condition string, params map[string]any
 }
 
 // executeAction runs a non-agent action step (e.g., slack notification, GitHub action).
-func executeAction(ctx workflow.Context, step model.StepDef, _ ResolvedStepOpts) *model.StepOutput {
+func executeAction(ctx workflow.Context, step model.StepDef, teamID, stepRunID string, credNames []string) *model.StepOutput {
 	// Action steps are dispatched to specific activities based on action type
 	ao := workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
@@ -578,7 +623,7 @@ func executeAction(ctx workflow.Context, step model.StepDef, _ ResolvedStepOpts)
 	actCtx := workflow.WithActivityOptions(ctx, ao)
 
 	var result map[string]any
-	err := workflow.ExecuteActivity(actCtx, "ExecuteAction", step.Action.Type, step.Action.Config).Get(actCtx, &result)
+	err := workflow.ExecuteActivity(actCtx, "ExecuteAction", stepRunID, step.Action.Type, step.Action.Config, teamID, credNames).Get(actCtx, &result)
 	if err != nil {
 		return &model.StepOutput{
 			StepID: step.ID,
