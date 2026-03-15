@@ -51,6 +51,13 @@ func ValidateToken(secret []byte, tokenStr string) (*Claims, error) {
 	if !ok || !token.Valid {
 		return nil, fmt.Errorf("invalid token")
 	}
+	// Reject MCP-scoped tokens — they must use ValidateMCPToken instead.
+	aud, _ := claims.GetAudience()
+	for _, a := range aud {
+		if a == "mcp" {
+			return nil, fmt.Errorf("MCP tokens cannot be used for user authentication")
+		}
+	}
 	return claims, nil
 }
 
