@@ -23,55 +23,7 @@ steps:
         . /etc/profile.d/fleetlift-mcp.sh 2>/dev/null
         test -n "$FLEETLIFT_MCP_PORT" || { echo "FAIL: FLEETLIFT_MCP_PORT not set"; exit 1; }
         test -n "$FLEETLIFT_MCP_TOKEN" || { echo "FAIL: FLEETLIFT_MCP_TOKEN not set"; exit 1; }
-        cat > /tmp/mcp_test.pl << 'PERLEOF'
-        use strict; use warnings; use IO::Socket::INET;
-        my $port = $ENV{FLEETLIFT_MCP_PORT};
-        my $token = $ENV{FLEETLIFT_MCP_TOKEN};
-        my $api = "host.docker.internal:8080";
-        my ($pass,$fail) = (0,0);
-        sub http_req {
-          my ($method,$path,$body) = @_;
-          my $s = IO::Socket::INET->new(PeerAddr=>$api,Timeout=>5) or return (0,"connect failed");
-          my $req = "$method $path HTTP/1.0\r\nHost: $api\r\nAuthorization: Bearer $token\r\n";
-          if ($body) { $req .= "Content-Type: application/json\r\nContent-Length: ".length($body)."\r\n\r\n$body"; }
-          else { $req .= "\r\n"; }
-          print $s $req;
-          my $resp = join "", <$s>;
-          close $s;
-          $resp =~ /^HTTP\/\S+\s+(\d+)/s or return (0,"no status");
-          return ($1, $resp);
-        }
-        sub check {
-          my ($name,$expect,$got) = @_;
-          if ($got == $expect) { print "PASS: $name (HTTP $got)\n"; $pass++; }
-          else { print "FAIL: $name - expected HTTP $expect, got $got\n"; $fail++; }
-        }
-        my $healthy = 0;
-        for (1..5) {
-          my $s = IO::Socket::INET->new(PeerAddr=>"localhost:$port",Timeout=>1);
-          if ($s) { print $s "GET /health HTTP/1.0\r\nHost: localhost\r\n\r\n"; my $r=join"",$s->getlines; close $s; if ($r=~/ok/) { $healthy=1; last; } }
-          sleep 1;
-        }
-        if ($healthy) { print "PASS: sidecar health check\n"; $pass++; }
-        else { die "FAIL: sidecar health check not responding after 5s\n"; }
-        my ($c,$r) = http_req("POST","/api/mcp/progress",q({"percentage":25,"message":"mcp-test-shell"}));
-        check("POST /progress",200,$c);
-        ($c,$r) = http_req("POST","/api/mcp/artifacts",q({"name":"mcp-test-shell.txt","content":"hello from shell"}));
-        check("POST /artifacts",201,$c);
-        ($c,$r) = http_req("GET","/api/mcp/run",undef);
-        check("GET /run",200,$c);
-        ($c,$r) = http_req("POST","/api/mcp/knowledge",q({"type":"pattern","summary":"mcp-test-learning","details":"integration test"}));
-        check("POST /knowledge",201,$c);
-        ($c,$r) = http_req("GET","/api/mcp/knowledge/search?q=mcp-test&max=5",undef);
-        check("GET /knowledge/search",200,$c);
-        ($c,$r) = http_req("GET","/api/mcp/knowledge?max=5",undef);
-        check("GET /knowledge",200,$c);
-        ($c,$r) = http_req("GET","/api/mcp/steps/nonexistent/output",undef);
-        check("GET /steps/nonexistent/output",404,$c);
-        print "\nResults: $pass passed, $fail failed\n";
-        exit 1 if $fail > 0;
-        print "mcp-endpoints: ALL PASSED\n";
-        PERLEOF
+        printf %s dXNlIHN0cmljdDsgdXNlIHdhcm5pbmdzOyB1c2UgSU86OlNvY2tldDo6SU5FVDsKbXkgJHBvcnQgPSAkRU5We0ZMRUVUTElGVF9NQ1BfUE9SVH07Cm15ICR0b2tlbiA9ICRFTlZ7RkxFRVRMSUZUX01DUF9UT0tFTn07Cm15ICRhcGkgPSAiaG9zdC5kb2NrZXIuaW50ZXJuYWw6ODA4MCI7Cm15ICgkcGFzcywkZmFpbCkgPSAoMCwwKTsKc3ViIGh0dHBfcmVxIHsKICBteSAoJG1ldGhvZCwkcGF0aCwkYm9keSkgPSBAXzsKICBteSAkcyA9IElPOjpTb2NrZXQ6OklORVQtPm5ldyhQZWVyQWRkcj0+JGFwaSxUaW1lb3V0PT41KSBvciByZXR1cm4gKDAsImNvbm5lY3QgZmFpbGVkIik7CiAgbXkgJHJlcSA9ICIkbWV0aG9kICRwYXRoIEhUVFAvMS4wXHJcbkhvc3Q6ICRhcGlcclxuQXV0aG9yaXphdGlvbjogQmVhcmVyICR0b2tlblxyXG4iOwogIGlmICgkYm9keSkgeyAkcmVxIC49ICJDb250ZW50LVR5cGU6IGFwcGxpY2F0aW9uL2pzb25cclxuQ29udGVudC1MZW5ndGg6ICIubGVuZ3RoKCRib2R5KS4iXHJcblxyXG4kYm9keSI7IH0KICBlbHNlIHsgJHJlcSAuPSAiXHJcbiI7IH0KICBwcmludCAkcyAkcmVxOwogIG15ICRyZXNwID0gam9pbiAiIiwgPCRzPjsKICBjbG9zZSAkczsKICAkcmVzcCA9fiAvXkhUVFBcL1xTK1xzKyhcZCspL3Mgb3IgcmV0dXJuICgwLCJubyBzdGF0dXMiKTsKICByZXR1cm4gKCQxLCAkcmVzcCk7Cn0Kc3ViIGNoZWNrIHsKICBteSAoJG5hbWUsJGV4cGVjdCwkZ290KSA9IEBfOwogIGlmICgkZ290ID09ICRleHBlY3QpIHsgcHJpbnQgIlBBU1M6ICRuYW1lIChIVFRQICRnb3QpXG4iOyAkcGFzcysrOyB9CiAgZWxzZSB7IHByaW50ICJGQUlMOiAkbmFtZSAtIGV4cGVjdGVkIEhUVFAgJGV4cGVjdCwgZ290ICRnb3RcbiI7ICRmYWlsKys7IH0KfQpteSAkaGVhbHRoeSA9IDA7CmZvciAoMS4uNSkgewogIG15ICRzID0gSU86OlNvY2tldDo6SU5FVC0+bmV3KFBlZXJBZGRyPT4ibG9jYWxob3N0OiRwb3J0IixUaW1lb3V0PT4xKTsKICBpZiAoJHMpIHsgcHJpbnQgJHMgIkdFVCAvaGVhbHRoIEhUVFAvMS4wXHJcbkhvc3Q6IGxvY2FsaG9zdFxyXG5cclxuIjsgbXkgJHI9am9pbiIiLCRzLT5nZXRsaW5lczsgY2xvc2UgJHM7IGlmICgkcj1+L29rLykgeyAkaGVhbHRoeT0xOyBsYXN0OyB9IH0KICBzbGVlcCAxOwp9CmlmICgkaGVhbHRoeSkgeyBwcmludCAiUEFTUzogc2lkZWNhciBoZWFsdGggY2hlY2tcbiI7ICRwYXNzKys7IH0KZWxzZSB7IGRpZSAiRkFJTDogc2lkZWNhciBoZWFsdGggY2hlY2sgbm90IHJlc3BvbmRpbmcgYWZ0ZXIgNXNcbiI7IH0KbXkgKCRjLCRyKSA9IGh0dHBfcmVxKCJQT1NUIiwiL2FwaS9tY3AvcHJvZ3Jlc3MiLHEoeyJwZXJjZW50YWdlIjoyNSwibWVzc2FnZSI6Im1jcC10ZXN0LXNoZWxsIn0pKTsKY2hlY2soIlBPU1QgL3Byb2dyZXNzIiwyMDAsJGMpOwooJGMsJHIpID0gaHR0cF9yZXEoIlBPU1QiLCIvYXBpL21jcC9hcnRpZmFjdHMiLHEoeyJuYW1lIjoibWNwLXRlc3Qtc2hlbGwudHh0IiwiY29udGVudCI6ImhlbGxvIGZyb20gc2hlbGwifSkpOwpjaGVjaygiUE9TVCAvYXJ0aWZhY3RzIiwyMDEsJGMpOwooJGMsJHIpID0gaHR0cF9yZXEoIkdFVCIsIi9hcGkvbWNwL3J1biIsdW5kZWYpOwpjaGVjaygiR0VUIC9ydW4iLDIwMCwkYyk7CigkYywkcikgPSBodHRwX3JlcSgiUE9TVCIsIi9hcGkvbWNwL2tub3dsZWRnZSIscSh7InR5cGUiOiJwYXR0ZXJuIiwic3VtbWFyeSI6Im1jcC10ZXN0LWxlYXJuaW5nIiwiZGV0YWlscyI6ImludGVncmF0aW9uIHRlc3QifSkpOwpjaGVjaygiUE9TVCAva25vd2xlZGdlIiwyMDEsJGMpOwooJGMsJHIpID0gaHR0cF9yZXEoIkdFVCIsIi9hcGkvbWNwL2tub3dsZWRnZS9zZWFyY2g/cT1tY3AtdGVzdCZtYXg9NSIsdW5kZWYpOwpjaGVjaygiR0VUIC9rbm93bGVkZ2Uvc2VhcmNoIiwyMDAsJGMpOwooJGMsJHIpID0gaHR0cF9yZXEoIkdFVCIsIi9hcGkvbWNwL2tub3dsZWRnZT9tYXg9NSIsdW5kZWYpOwpjaGVjaygiR0VUIC9rbm93bGVkZ2UiLDIwMCwkYyk7CigkYywkcikgPSBodHRwX3JlcSgiR0VUIiwiL2FwaS9tY3Avc3RlcHMvbm9uZXhpc3RlbnQvb3V0cHV0Iix1bmRlZik7CmNoZWNrKCJHRVQgL3N0ZXBzL25vbmV4aXN0ZW50L291dHB1dCIsNDA0LCRjKTsKcHJpbnQgIlxuUmVzdWx0czogJHBhc3MgcGFzc2VkLCAkZmFpbCBmYWlsZWRcbiI7CmV4aXQgMSBpZiAkZmFpbCA+IDA7CnByaW50ICJtY3AtZW5kcG9pbnRzOiBBTEwgUEFTU0VEXG4iOwo= | base64 -d > /tmp/mcp_test.pl
         perl /tmp/mcp_test.pl
 
   - id: agent_uses_mcp
