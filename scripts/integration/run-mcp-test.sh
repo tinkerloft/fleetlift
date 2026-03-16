@@ -236,8 +236,7 @@ if [[ "$INCLUDE_AGENT" == "true" ]]; then
 fi
 
 # ── Cleanup test data ─────────────────────────────────────────────────────────
-psql "$DATABASE_URL" -c \
-  "DELETE FROM knowledge_items WHERE summary = 'mcp-test-learning'" 2>/dev/null || true
+dbquery "DELETE FROM knowledge_items WHERE summary = 'mcp-test-learning'" 2>/dev/null || true
 
 # ── Final result ──────────────────────────────────────────────────────────────
 echo ""
