@@ -230,3 +230,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS credentials_team_name_unique
   ON credentials (team_id, name) WHERE team_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS credentials_system_name_unique
   ON credentials (name) WHERE team_id IS NULL;
+
+-- Incremental schema additions (run manually against existing databases)
+ALTER TABLE step_runs ADD COLUMN IF NOT EXISTS cost_usd NUMERIC(10,6);
+ALTER TABLE runs      ADD COLUMN IF NOT EXISTS total_cost_usd NUMERIC(10,6);
