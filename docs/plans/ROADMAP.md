@@ -175,7 +175,6 @@ Independent of Track C. Can run in parallel. **D1–D7 completed in PR #22.**
 | D6 | Production deployment guide | `docs/DEPLOYMENT.md` | Medium | ✅ |
 | D7 | Example READMEs | `examples/README.md` | Medium | ✅ |
 | D8 | Demo video (after C1+C2) | YouTube + README embed | High | ✅ |
-| D9 | Web landing route (optional) | `web/` public route | Low | ⬜ |
 
 ---
 
@@ -199,10 +198,11 @@ See: [`archive/2026-03-14-mcp-agent-interface.md`](archive/2026-03-14-mcp-agent-
 |---|------|--------|
 | 1 | Implement GitHub activity stubs (assign, label, PR review) | ✅ (assign removed; PR creation, review comments, labels, issue comments all implemented) |
 | 2 | Implement Slack notification integration | ✅ |
-| 3 | Add artifact collection to more templates (audit, migration) | ⬜ |
+| 3 | Add artifact collection to more templates (audit, migration) | ⬜ superseded by E2 (`artifact.create` MCP tool — agents collect their own artifacts) |
 | 4 | Add Prometheus metrics (run counts, step durations, active sandboxes) | ✅ (activity duration/count, PRs created, sandbox provisioning) |
-| 5 | Notification preferences per-team/user | ⬜ |
-| 6 | Data retention/archival for runs table | ⬜ |
+| 5 | **HITL inbox notifications** — create inbox item when step enters `awaiting_input`; include step title and approval context | ⬜ |
+| 6 | **Per-step failure notifications** — create inbox item immediately when a non-optional step fails, don't wait for DAG completion | ⬜ |
+| 7 | **Agent output normalization** — when no schema declared, extract `result` text and agent metadata into separate fields rather than storing raw Claude event | ⬜ |
 
 ### Track G: Long-Term Platform
 
@@ -214,6 +214,18 @@ See: [`archive/2026-03-14-mcp-agent-interface.md`](archive/2026-03-14-mcp-agent-
 | 4 | Schema migration system (golang-migrate or atlas) | ⬜ |
 | 5 | Unify logging to slog everywhere with correlation IDs — see also H7 | ⬜ |
 | 6 | Semantic memory (embeddings, dedup, decay) | ⬜ |
+
+### Track I: Future Enhancements
+
+| # | Item | Status |
+|---|------|--------|
+| 1 | Notification preferences per-team/user | ⬜ |
+| 2 | Data retention/archival for runs table | ⬜ |
+| 3 | Run duration column in runs list | ⬜ |
+| 4 | Run detail as sequential step view (spinner on active step) | ⬜ |
+| 5 | Run cost tracking — aggregate `total_cost_usd` across steps, new DB column, display in runs list and run detail | ⬜ |
+| 6 | Dark mode toggle | ⬜ |
+| 7 | Visual polish (general UI improvements) | ⬜ |
 
 ---
 
