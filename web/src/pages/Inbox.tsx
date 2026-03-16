@@ -11,13 +11,15 @@ import { cn } from '@/lib/utils'
 import { Inbox as InboxIcon } from 'lucide-react'
 import type { InboxItem } from '@/api/types'
 
-type Filter = 'all' | 'awaiting_input' | 'failure' | 'output_ready'
+type Filter = 'all' | 'awaiting_input' | 'failure' | 'output_ready' | 'notify' | 'request_input'
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'awaiting_input', label: 'Action Required' },
+  { key: 'request_input', label: 'Input Requested' },
   { key: 'failure', label: 'Failures' },
   { key: 'output_ready', label: 'Output Ready' },
+  { key: 'notify', label: 'Notifications' },
 ]
 
 function KindBadge({ kind }: { kind: string }) {
@@ -32,8 +34,22 @@ function KindBadge({ kind }: { kind: string }) {
       </Badge>
     )
   }
+  if (kind === 'request_input') {
+    return (
+      <Badge variant="warning" className="gap-1">
+        <span className="relative flex h-1.5 w-1.5">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-50" />
+          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-current" />
+        </span>
+        Input Requested
+      </Badge>
+    )
+  }
   if (kind === 'failure') {
     return <Badge variant="destructive">Step Failed</Badge>
+  }
+  if (kind === 'notify') {
+    return <Badge variant="secondary">Notification</Badge>
   }
   return <Badge variant="success">Output Ready</Badge>
 }
@@ -43,6 +59,8 @@ export function InboxPage() {
   const [filter, setFilter] = useState<Filter>('all')
   const [steerOpenId, setSteerOpenId] = useState<string | null>(null)
   const [steerText, setSteerText] = useState('')
+  const [respondOpenId, setRespondOpenId] = useState<string | null>(null)
+  const [respondText, setRespondText] = useState('')
 
   const { data, isLoading } = useQuery({
     queryKey: ['inbox'],
@@ -73,6 +91,16 @@ export function InboxPage() {
     } catch (err) { setActionError(err instanceof Error ? err.message : 'Action failed') }
   }, [queryClient])
 
+  const handleRespond = useCallback(async (item: InboxItem, answer: string) => {
+    setActionError(null)
+    try {
+      await api.respondToInbox(item.id, answer)
+      setRespondOpenId(null)
+      setRespondText('')
+      queryClient.invalidateQueries({ queryKey: ['inbox'] })
+    } catch (err) { setActionError(err instanceof Error ? err.message : 'Action failed') }
+  }, [queryClient])
+
   const handleSteer = useCallback(async (item: InboxItem) => {
     if (!steerText.trim()) return
     setActionError(null)
@@ -90,8 +118,10 @@ export function InboxPage() {
   const counts: Record<Filter, number> = {
     all: items.length,
     awaiting_input: items.filter(i => i.kind === 'awaiting_input').length,
+    request_input: items.filter(i => i.kind === 'request_input').length,
     failure: items.filter(i => i.kind === 'failure').length,
     output_ready: items.filter(i => i.kind === 'output_ready').length,
+    notify: items.filter(i => i.kind === 'notify').length,
   }
 
   return (
@@ -152,7 +182,8 @@ export function InboxPage() {
             className={cn(
               'rounded-lg border bg-card p-4 transition-all',
               !item.read && item.kind === 'awaiting_input' && 'border-l-4 border-l-amber-500',
-              !item.read && item.kind !== 'awaiting_input' && 'border-l-4 border-l-blue-500',
+              !item.read && item.kind === 'request_input' && 'border-l-4 border-l-amber-500',
+              !item.read && item.kind !== 'awaiting_input' && item.kind !== 'request_input' && 'border-l-4 border-l-blue-500',
             )}
           >
             <div className="flex items-start justify-between gap-4">
@@ -163,6 +194,9 @@ export function InboxPage() {
                 <Link to={`/runs/${item.run_id}`} className="text-sm font-medium hover:underline block">
                   {item.title}
                 </Link>
+                {item.kind === 'request_input' && item.question && (
+                  <p className="text-sm font-medium text-amber-400">{item.question}</p>
+                )}
                 {item.summary && (
                   <p className="text-[13px] text-muted-foreground line-clamp-2">{item.summary}</p>
                 )}
@@ -185,7 +219,30 @@ export function InboxPage() {
                     </Button>
                   </div>
                 )}
-                {item.kind !== 'awaiting_input' && (
+                {item.kind === 'request_input' && !item.answer && (
+                  <div className="flex flex-col gap-2">
+                    {item.options && item.options.length > 0 ? (
+                      <div className="flex gap-1.5 flex-wrap">
+                        {item.options.map(opt => (
+                          <Button key={opt} size="sm" variant="secondary" className="h-7 text-xs" onClick={() => handleRespond(item, opt)}>
+                            {opt}
+                          </Button>
+                        ))}
+                      </div>
+                    ) : (
+                      <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => {
+                        setRespondOpenId(respondOpenId === item.id ? null : item.id)
+                        setRespondText('')
+                      }}>
+                        Respond
+                      </Button>
+                    )}
+                  </div>
+                )}
+                {item.kind === 'request_input' && item.answer && (
+                  <Badge variant="secondary">Answered</Badge>
+                )}
+                {item.kind !== 'awaiting_input' && item.kind !== 'request_input' && (
                   <div className="flex gap-1.5">
                     <Button size="sm" variant="secondary" className="h-7 text-xs" asChild>
                       <Link to={`/runs/${item.run_id}`}>View</Link>
@@ -211,6 +268,21 @@ export function InboxPage() {
                 />
                 <Button size="sm" onClick={() => handleSteer(item)} disabled={!steerText.trim()}>
                   Send
+                </Button>
+              </div>
+            )}
+            {/* Respond form */}
+            {respondOpenId === item.id && (
+              <div className="flex gap-2 mt-3 pt-3 border-t">
+                <input
+                  className="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="Type your response..."
+                  value={respondText}
+                  onChange={e => setRespondText(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleRespond(item, respondText)}
+                />
+                <Button size="sm" onClick={() => handleRespond(item, respondText)} disabled={!respondText.trim()}>
+                  Submit
                 </Button>
               </div>
             )}

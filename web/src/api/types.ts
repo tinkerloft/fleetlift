@@ -79,6 +79,8 @@ export interface StepRun {
   started_at?: string
   completed_at?: string
   created_at: string
+  parent_step_run_id?: string
+  checkpoint_branch?: string
 }
 
 export interface StepRunLog {
@@ -96,9 +98,15 @@ export interface InboxItem {
   team_id: string
   run_id: string
   step_run_id?: string
-  kind: string
+  kind: string  // "awaiting_input" | "output_ready" | "notify" | "request_input"
   title: string
   summary?: string
+  question?: string
+  options?: string[]
+  answer?: string
+  answered_at?: string
+  answered_by?: string
+  urgency?: string
   created_at: string
   read?: boolean
 }
