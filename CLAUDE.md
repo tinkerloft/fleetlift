@@ -12,6 +12,7 @@ Use the scripts in `scripts/integration/` to manage the local dev environment:
 - `scripts/integration/logs.sh` — tail worker and server logs
 - `scripts/integration/status.sh` — check if processes are running
 - `scripts/integration/run-sandbox-test.sh` — trigger a sandbox-test workflow run
+- `scripts/integration/run-mcp-test.sh [--with-agent]` — run MCP sidecar integration test
 
 Prerequisites: `docker compose up -d` (Temporal + Postgres) and `docker compose -f docker-compose.opensandbox.yaml up -d` (OpenSandbox) must be running.
 
