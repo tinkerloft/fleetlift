@@ -20,106 +20,77 @@ steps:
     execution:
       agent: shell
       prompt: |
-        set -euo pipefail
+        . /etc/profile.d/fleetlift-mcp.sh 2>/dev/null
+        exec perl -e '
+        use strict; use warnings; use IO::Socket::INET;
+        my $port = $ENV{FLEETLIFT_MCP_PORT} || die "FAIL: FLEETLIFT_MCP_PORT not set\n";
+        my $token = $ENV{FLEETLIFT_MCP_TOKEN} || die "FAIL: FLEETLIFT_MCP_TOKEN not set\n";
+        my $api = "host.docker.internal:8080";
+        my ($pass,$fail) = (0,0);
 
-        # ── Install curl (not present in minimal ubuntu:22.04) ──
-        apt-get update -qq > /dev/null 2>&1 && apt-get install -y -qq curl > /dev/null 2>&1 || true
-
-        # ── Load MCP env ──
-        . /etc/profile.d/fleetlift-mcp.sh 2>/dev/null || true
-
-        if [ -z "${FLEETLIFT_MCP_PORT:-}" ]; then
-          echo "FAIL: FLEETLIFT_MCP_PORT not set — ProvisionSandbox did not inject port"
-          exit 1
-        fi
-        if [ -z "${FLEETLIFT_MCP_TOKEN:-}" ]; then
-          echo "FAIL: FLEETLIFT_MCP_TOKEN not set — ProvisionSandbox did not inject token"
-          exit 1
-        fi
-
-        API="http://host.docker.internal:8080/api/mcp"
-        AUTH="Authorization: Bearer $FLEETLIFT_MCP_TOKEN"
-        PASS=0
-        FAIL=0
-
-        check() {
-          local name="$1" expected="$2" actual="$3"
-          if [ "$actual" = "$expected" ]; then
-            echo "PASS: $name (HTTP $actual)"
-            PASS=$((PASS + 1))
-          else
-            echo "FAIL: $name — expected HTTP $expected, got $actual"
-            FAIL=$((FAIL + 1))
-          fi
+        sub http_req {
+          my ($method,$path,$body) = @_;
+          my $s = IO::Socket::INET->new(PeerAddr=>$api,Timeout=>5) or return (0,"connect failed");
+          my $req = "$method $path HTTP/1.0\r\nHost: $api\r\nAuthorization: Bearer $token\r\n";
+          if ($body) { $req .= "Content-Type: application/json\r\nContent-Length: ".length($body)."\r\n\r\n$body"; }
+          else { $req .= "\r\n"; }
+          print $s $req;
+          my $resp = join "", <$s>;
+          close $s;
+          $resp =~ /^HTTP\/\S+\s+(\d+)/s or return (0,"no status");
+          return ($1, $resp);
         }
 
-        # ── Sidecar health check (retry 5x) ──
-        HEALTHY=false
-        for i in 1 2 3 4 5; do
-          if curl -sf "http://localhost:$FLEETLIFT_MCP_PORT/health" | grep -q ok; then
-            HEALTHY=true
-            break
-          fi
-          sleep 1
-        done
-        if [ "$HEALTHY" = "true" ]; then
-          echo "PASS: sidecar health check"
-          PASS=$((PASS + 1))
-        else
-          echo "FAIL: sidecar health check — not responding after 5s"
-          exit 1
-        fi
+        sub check {
+          my ($name,$expect,$got) = @_;
+          if ($got == $expect) { print "PASS: $name (HTTP $got)\n"; $pass++; }
+          else { print "FAIL: $name — expected HTTP $expect, got $got\n"; $fail++; }
+        }
 
-        # ── 1. POST /progress (call early while step is active) ──
-        CODE=$(curl -s -o /tmp/r.json -w '%{http_code}' -X POST \
-          -H "$AUTH" -H "Content-Type: application/json" \
-          -d '{"percentage":25,"message":"mcp-test-shell"}' \
-          "$API/progress")
-        check "POST /progress" "200" "$CODE"
+        # Health check (retry 5x)
+        my $healthy = 0;
+        for (1..5) {
+          my $s = IO::Socket::INET->new(PeerAddr=>"localhost:$port",Timeout=>1);
+          if ($s) { print $s "GET /health HTTP/1.0\r\nHost: localhost\r\n\r\n"; my $r=join"",$s->getlines; close $s; if ($r=~/ok/) { $healthy=1; last; } }
+          sleep 1;
+        }
+        if ($healthy) { print "PASS: sidecar health check\n"; $pass++; }
+        else { die "FAIL: sidecar health check — not responding after 5s\n"; }
 
-        # ── 2. POST /artifacts ──
-        CODE=$(curl -s -o /tmp/r.json -w '%{http_code}' -X POST \
-          -H "$AUTH" -H "Content-Type: application/json" \
-          -d '{"name":"mcp-test-shell.txt","content":"hello from shell"}' \
-          "$API/artifacts")
-        check "POST /artifacts" "201" "$CODE"
-        cat /tmp/r.json | grep -q artifact_id && echo "  artifact_id present" || echo "  WARN: artifact_id missing"
+        # 1. POST /progress
+        my ($c,$r) = http_req("POST","/api/mcp/progress",q({"percentage":25,"message":"mcp-test-shell"}));
+        check("POST /progress",200,$c);
 
-        # ── 3. GET /run ──
-        CODE=$(curl -s -o /tmp/r.json -w '%{http_code}' \
-          -H "$AUTH" "$API/run")
-        check "GET /run" "200" "$CODE"
-        cat /tmp/r.json | grep -q run_id && echo "  run_id present" || echo "  WARN: run_id missing"
+        # 2. POST /artifacts
+        ($c,$r) = http_req("POST","/api/mcp/artifacts",q({"name":"mcp-test-shell.txt","content":"hello from shell"}));
+        check("POST /artifacts",201,$c);
+        print "  artifact_id present\n" if $r =~ /artifact_id/;
 
-        # ── 4. POST /knowledge ──
-        CODE=$(curl -s -o /tmp/r.json -w '%{http_code}' -X POST \
-          -H "$AUTH" -H "Content-Type: application/json" \
-          -d '{"type":"pattern","summary":"mcp-test-learning","details":"integration test item"}' \
-          "$API/knowledge")
-        check "POST /knowledge" "201" "$CODE"
+        # 3. GET /run
+        ($c,$r) = http_req("GET","/api/mcp/run",undef);
+        check("GET /run",200,$c);
+        print "  run_id present\n" if $r =~ /run_id/;
 
-        # ── 5. GET /knowledge/search ──
-        CODE=$(curl -s -o /tmp/r.json -w '%{http_code}' \
-          -H "$AUTH" "$API/knowledge/search?q=mcp-test&max=5")
-        check "GET /knowledge/search" "200" "$CODE"
+        # 4. POST /knowledge
+        ($c,$r) = http_req("POST","/api/mcp/knowledge",q({"type":"pattern","summary":"mcp-test-learning","details":"integration test"}));
+        check("POST /knowledge",201,$c);
 
-        # ── 6. GET /knowledge ──
-        CODE=$(curl -s -o /tmp/r.json -w '%{http_code}' \
-          -H "$AUTH" "$API/knowledge?max=5")
-        check "GET /knowledge" "200" "$CODE"
+        # 5. GET /knowledge/search
+        ($c,$r) = http_req("GET","/api/mcp/knowledge/search?q=mcp-test&max=5",undef);
+        check("GET /knowledge/search",200,$c);
 
-        # ── 7. GET /steps/nonexistent/output (expect 404) ──
-        CODE=$(curl -s -o /tmp/r.json -w '%{http_code}' \
-          -H "$AUTH" "$API/steps/nonexistent/output")
-        check "GET /steps/nonexistent/output" "404" "$CODE"
+        # 6. GET /knowledge
+        ($c,$r) = http_req("GET","/api/mcp/knowledge?max=5",undef);
+        check("GET /knowledge",200,$c);
 
-        # ── Summary ──
-        echo ""
-        echo "Results: $PASS passed, $FAIL failed"
-        if [ "$FAIL" -gt 0 ]; then
-          exit 1
-        fi
-        echo "mcp-endpoints: ALL PASSED"
+        # 7. GET /steps/nonexistent/output (expect 404)
+        ($c,$r) = http_req("GET","/api/mcp/steps/nonexistent/output",undef);
+        check("GET /steps/nonexistent/output",404,$c);
+
+        print "\nResults: $pass passed, $fail failed\n";
+        exit 1 if $fail > 0;
+        print "mcp-endpoints: ALL PASSED\n";
+        '
 
   - id: agent_uses_mcp
     title: Agent uses MCP tools
@@ -130,27 +101,11 @@ steps:
     execution:
       agent: shell
       prompt: |
-        set -euo pipefail
-
-        if [ "{{ .Params.include_agent_step }}" != "true" ]; then
-          echo "agent step skipped (include_agent_step != true)"
-          exit 0
-        fi
-
-        # Source MCP env
+        if [ "{{ .Params.include_agent_step }}" != "true" ]; then echo "agent step skipped"; exit 0; fi
         . /etc/profile.d/fleetlift-mcp.sh 2>/dev/null || true
-
-        if [ -z "${FLEETLIFT_MCP_PORT:-}" ]; then
-          echo "FAIL: FLEETLIFT_MCP_PORT not set"
-          exit 1
-        fi
-
-        # Write MCP config for Claude Code discovery
+        test -n "${FLEETLIFT_MCP_PORT:-}" || { echo "FAIL: FLEETLIFT_MCP_PORT not set"; exit 1; }
         mkdir -p /workspace
-        printf '{"mcpServers":{"fleetlift":{"type":"sse","url":"http://localhost:%s/sse"}}}' "$FLEETLIFT_MCP_PORT" > /workspace/.mcp.json
-
+        printf "{\"mcpServers\":{\"fleetlift\":{\"type\":\"sse\",\"url\":\"http://localhost:%s/sse\"}}}" "$FLEETLIFT_MCP_PORT" > /workspace/.mcp.json
         cd /workspace
-        claude -p "You have MCP tools available from the fleetlift server. Do these in order: (1) Use the progress.update tool to report 75 percent progress with message 'agent-mcp-test'. (2) Use the artifact.create tool to create an artifact named 'mcp-test-agent.txt' with content 'hello from agent mcp'. (3) Print DONE." \
-          --output-format stream-json --dangerously-skip-permissions --max-turns 10 2>&1 || true
-
+        claude -p "You have MCP tools available from the fleetlift server. Do these in order: (1) Use the progress.update tool to report 75 percent progress with message agent-mcp-test. (2) Use the artifact.create tool to create an artifact named mcp-test-agent.txt with content hello from agent mcp. (3) Print DONE." --output-format stream-json --dangerously-skip-permissions --max-turns 10 2>&1 || true
         echo "agent-mcp-step-complete"
