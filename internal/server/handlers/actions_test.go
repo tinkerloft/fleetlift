@@ -26,7 +26,7 @@ func TestActionsHandler_List(t *testing.T) {
 	}
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	require.NoError(t, err)
-	assert.Len(t, resp.Items, 6)
+	assert.Len(t, resp.Items, 5)
 
 	// Verify first item has expected fields
 	found := false

@@ -210,21 +210,6 @@ func DefaultActionRegistry() *ActionRegistry {
 	})
 
 	r.Register(ActionContract{
-		Type:        "github_assign",
-		Description: "Assign an issue to a team member based on component",
-		Inputs: []FieldContract{
-			{Name: "repo_url", Type: "string", Required: true, Description: "GitHub repository URL"},
-			{Name: "issue_number", Type: "int", Required: true, Description: "Issue number"},
-			{Name: "component", Type: "string", Required: false, Description: "Component for routing"},
-		},
-		Outputs: []FieldContract{
-			{Name: "status", Type: "string", Required: true, Description: "assigned | skipped"},
-			{Name: "reason", Type: "string", Required: false, Description: "Reason if skipped"},
-		},
-		Credentials: []string{"GITHUB_TOKEN"},
-	})
-
-	r.Register(ActionContract{
 		Type:        "github_label",
 		Description: "Add labels to a GitHub issue",
 		Inputs: []FieldContract{

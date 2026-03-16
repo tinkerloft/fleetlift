@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -43,6 +44,7 @@ func (h *SystemCredentialsHandler) List(w http.ResponseWriter, r *http.Request) 
 	err := h.db.SelectContext(r.Context(), &creds,
 		`SELECT name, created_at, updated_at FROM credentials WHERE team_id IS NULL ORDER BY name`)
 	if err != nil {
+		slog.Error("failed to list system credentials", "error", err)
 		writeJSONError(w, http.StatusInternalServerError, "failed to list system credentials")
 		return
 	}
@@ -75,6 +77,7 @@ func (h *SystemCredentialsHandler) Set(w http.ResponseWriter, r *http.Request) {
 
 	encrypted, err := flcrypto.EncryptAESGCM(h.encryptionKey, req.Value)
 	if err != nil {
+		slog.Error("system credential encryption failed", "error", err)
 		writeJSONError(w, http.StatusInternalServerError, "encryption failed")
 		return
 	}
@@ -86,6 +89,7 @@ func (h *SystemCredentialsHandler) Set(w http.ResponseWriter, r *http.Request) {
 		 DO UPDATE SET value_enc = $2, updated_at = now()`,
 		req.Name, encrypted)
 	if err != nil {
+		slog.Error("failed to save system credential", "error", err, "name", req.Name)
 		writeJSONError(w, http.StatusInternalServerError, "failed to save system credential")
 		return
 	}
@@ -107,12 +111,14 @@ func (h *SystemCredentialsHandler) Delete(w http.ResponseWriter, r *http.Request
 		`DELETE FROM credentials WHERE team_id IS NULL AND name = $1`,
 		name)
 	if err != nil {
+		slog.Error("failed to delete system credential", "error", err, "name", name)
 		writeJSONError(w, http.StatusInternalServerError, "failed to delete system credential")
 		return
 	}
 
 	rows, err := result.RowsAffected()
 	if err != nil {
+		slog.Error("failed to check system credential deletion result", "error", err)
 		writeJSONError(w, http.StatusInternalServerError, "failed to check deletion result")
 		return
 	}

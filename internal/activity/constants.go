@@ -3,7 +3,7 @@ package activity
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"strings"
 )
@@ -142,7 +142,7 @@ func CheckConfig(mode ConfigValidationMode) error {
 		if issue.Required {
 			requiredMissing = append(requiredMissing, issue.Name)
 		}
-		log.Printf("CONFIG WARNING: %s not set - %s", issue.Name, issue.Description)
+		slog.Warn("config warning", "name", issue.Name, "description", issue.Description)
 	}
 
 	if mode == ConfigModeRequire && len(requiredMissing) > 0 {

@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -100,6 +101,7 @@ func (h *WorkflowsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	t.TeamID = teamID
 	if err := h.writable.Save(r.Context(), teamID, &t); err != nil {
+		slog.Error("failed to save workflow", "error", err, "team_id", teamID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to save workflow")
 		return
 	}
@@ -139,6 +141,7 @@ func (h *WorkflowsHandler) Update(w http.ResponseWriter, r *http.Request) {
 	t.TeamID = teamID
 	t.Slug = chi.URLParam(r, "id")
 	if err := h.writable.Save(r.Context(), teamID, &t); err != nil {
+		slog.Error("failed to update workflow", "error", err, "team_id", teamID, "slug", t.Slug)
 		writeJSONError(w, http.StatusInternalServerError, "failed to update workflow")
 		return
 	}
@@ -165,6 +168,7 @@ func (h *WorkflowsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	slug := chi.URLParam(r, "id")
 	if err := h.writable.Delete(r.Context(), teamID, slug); err != nil {
+		slog.Error("failed to delete workflow", "error", err, "team_id", teamID, "slug", slug)
 		writeJSONError(w, http.StatusInternalServerError, "failed to delete workflow")
 		return
 	}
@@ -204,6 +208,7 @@ func (h *WorkflowsHandler) Fork(w http.ResponseWriter, r *http.Request) {
 	forked.Slug = slug + "-fork"
 
 	if err := h.writable.Save(r.Context(), teamID, &forked); err != nil {
+		slog.Error("failed to fork workflow", "error", err, "team_id", teamID, "slug", slug)
 		writeJSONError(w, http.StatusInternalServerError, "failed to fork workflow")
 		return
 	}

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 	"text/template"
 	"time"
@@ -42,6 +43,7 @@ func (h *ReportsHandler) List(w http.ResponseWriter, r *http.Request) {
 		 ORDER BY r.completed_at DESC LIMIT 50`,
 		teamID, string(model.RunStatusComplete))
 	if err != nil {
+		slog.Error("failed to list reports", "error", err, "team_id", teamID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to list reports")
 		return
 	}
@@ -73,6 +75,7 @@ func (h *ReportsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	err := h.db.SelectContext(r.Context(), &steps,
 		`SELECT * FROM step_runs WHERE run_id = $1 ORDER BY created_at`, runID)
 	if err != nil {
+		slog.Error("failed to get report steps", "error", err, "run_id", runID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to get report")
 		return
 	}
@@ -106,6 +109,7 @@ func (h *ReportsHandler) Export(w http.ResponseWriter, r *http.Request) {
 	var steps []model.StepRun
 	if err := h.db.SelectContext(r.Context(), &steps,
 		`SELECT * FROM step_runs WHERE run_id=$1 ORDER BY created_at`, runID); err != nil {
+		slog.Error("failed to get export steps", "error", err, "run_id", runID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to get steps")
 		return
 	}
@@ -160,6 +164,7 @@ func (h *ReportsHandler) Artifacts(w http.ResponseWriter, r *http.Request) {
 		 WHERE s.run_id = $1
 		 ORDER BY a.created_at`, runID)
 	if err != nil {
+		slog.Error("failed to list artifacts", "error", err, "run_id", runID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to list artifacts")
 		return
 	}
