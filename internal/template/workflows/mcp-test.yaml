@@ -1,0 +1,153 @@
+version: 1
+id: mcp-test
+title: MCP Sidecar Test
+description: Diagnostic workflow — verifies MCP sidecar provisioning, all 7 backend API endpoints, and optionally Claude Code MCP discovery.
+tags:
+  - test
+  - diagnostic
+  - mcp
+parameters:
+  - name: include_agent_step
+    type: string
+    required: false
+    default: "false"
+    description: "Set to 'true' to run the optional Claude Code agent step (costs AI tokens)"
+steps:
+  - id: verify_mcp_endpoints
+    title: Verify MCP sidecar and API endpoints
+    sandbox_group: mcp-test
+    mode: report
+    execution:
+      agent: shell
+      prompt: |
+        set -euo pipefail
+
+        # ── Load MCP env ──
+        . /etc/profile.d/fleetlift-mcp.sh 2>/dev/null || true
+
+        if [ -z "${FLEETLIFT_MCP_PORT:-}" ]; then
+          echo "FAIL: FLEETLIFT_MCP_PORT not set — ProvisionSandbox did not inject port"
+          exit 1
+        fi
+        if [ -z "${FLEETLIFT_MCP_TOKEN:-}" ]; then
+          echo "FAIL: FLEETLIFT_MCP_TOKEN not set — ProvisionSandbox did not inject token"
+          exit 1
+        fi
+
+        API="http://host.docker.internal:8080/api/mcp"
+        AUTH="Authorization: Bearer $FLEETLIFT_MCP_TOKEN"
+        PASS=0
+        FAIL=0
+
+        check() {
+          local name="$1" expected="$2" actual="$3"
+          if [ "$actual" = "$expected" ]; then
+            echo "PASS: $name (HTTP $actual)"
+            PASS=$((PASS + 1))
+          else
+            echo "FAIL: $name — expected HTTP $expected, got $actual"
+            FAIL=$((FAIL + 1))
+          fi
+        }
+
+        # ── Sidecar health check (retry 5x) ──
+        HEALTHY=false
+        for i in 1 2 3 4 5; do
+          if curl -sf "http://localhost:$FLEETLIFT_MCP_PORT/health" | grep -q ok; then
+            HEALTHY=true
+            break
+          fi
+          sleep 1
+        done
+        if [ "$HEALTHY" = "true" ]; then
+          echo "PASS: sidecar health check"
+          PASS=$((PASS + 1))
+        else
+          echo "FAIL: sidecar health check — not responding after 5s"
+          exit 1
+        fi
+
+        # ── 1. POST /progress (call early while step is active) ──
+        CODE=$(curl -s -o /tmp/r.json -w '%{http_code}' -X POST \
+          -H "$AUTH" -H "Content-Type: application/json" \
+          -d '{"percentage":25,"message":"mcp-test-shell"}' \
+          "$API/progress")
+        check "POST /progress" "200" "$CODE"
+
+        # ── 2. POST /artifacts ──
+        CODE=$(curl -s -o /tmp/r.json -w '%{http_code}' -X POST \
+          -H "$AUTH" -H "Content-Type: application/json" \
+          -d '{"name":"mcp-test-shell.txt","content":"hello from shell"}' \
+          "$API/artifacts")
+        check "POST /artifacts" "201" "$CODE"
+        cat /tmp/r.json | grep -q artifact_id && echo "  artifact_id present" || echo "  WARN: artifact_id missing"
+
+        # ── 3. GET /run ──
+        CODE=$(curl -s -o /tmp/r.json -w '%{http_code}' \
+          -H "$AUTH" "$API/run")
+        check "GET /run" "200" "$CODE"
+        cat /tmp/r.json | grep -q run_id && echo "  run_id present" || echo "  WARN: run_id missing"
+
+        # ── 4. POST /knowledge ──
+        CODE=$(curl -s -o /tmp/r.json -w '%{http_code}' -X POST \
+          -H "$AUTH" -H "Content-Type: application/json" \
+          -d '{"type":"pattern","summary":"mcp-test-learning","details":"integration test item"}' \
+          "$API/knowledge")
+        check "POST /knowledge" "201" "$CODE"
+
+        # ── 5. GET /knowledge/search ──
+        CODE=$(curl -s -o /tmp/r.json -w '%{http_code}' \
+          -H "$AUTH" "$API/knowledge/search?q=mcp-test&max=5")
+        check "GET /knowledge/search" "200" "$CODE"
+
+        # ── 6. GET /knowledge ──
+        CODE=$(curl -s -o /tmp/r.json -w '%{http_code}' \
+          -H "$AUTH" "$API/knowledge?max=5")
+        check "GET /knowledge" "200" "$CODE"
+
+        # ── 7. GET /steps/nonexistent/output (expect 404) ──
+        CODE=$(curl -s -o /tmp/r.json -w '%{http_code}' \
+          -H "$AUTH" "$API/steps/nonexistent/output")
+        check "GET /steps/nonexistent/output" "404" "$CODE"
+
+        # ── Summary ──
+        echo ""
+        echo "Results: $PASS passed, $FAIL failed"
+        if [ "$FAIL" -gt 0 ]; then
+          exit 1
+        fi
+        echo "mcp-endpoints: ALL PASSED"
+
+  - id: agent_uses_mcp
+    title: Agent uses MCP tools
+    depends_on:
+      - verify_mcp_endpoints
+    sandbox_group: mcp-test
+    mode: report
+    execution:
+      agent: shell
+      prompt: |
+        set -euo pipefail
+
+        if [ "{{ .Params.include_agent_step }}" != "true" ]; then
+          echo "agent step skipped (include_agent_step != true)"
+          exit 0
+        fi
+
+        # Source MCP env
+        . /etc/profile.d/fleetlift-mcp.sh 2>/dev/null || true
+
+        if [ -z "${FLEETLIFT_MCP_PORT:-}" ]; then
+          echo "FAIL: FLEETLIFT_MCP_PORT not set"
+          exit 1
+        fi
+
+        # Write MCP config for Claude Code discovery
+        mkdir -p /workspace
+        printf '{"mcpServers":{"fleetlift":{"type":"sse","url":"http://localhost:%s/sse"}}}' "$FLEETLIFT_MCP_PORT" > /workspace/.mcp.json
+
+        cd /workspace
+        claude -p "You have MCP tools available from the fleetlift server. Do these in order: (1) Use the progress.update tool to report 75 percent progress with message 'agent-mcp-test'. (2) Use the artifact.create tool to create an artifact named 'mcp-test-agent.txt' with content 'hello from agent mcp'. (3) Print DONE." \
+          --output-format stream-json --dangerously-skip-permissions --max-turns 10 2>&1 || true
+
+        echo "agent-mcp-step-complete"
