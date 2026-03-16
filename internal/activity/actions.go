@@ -67,7 +67,7 @@ func actionNotifySlack(ctx context.Context, config map[string]any, _ map[string]
 	channel, _ := config["channel"].(string)
 	message, _ := config["message"].(string)
 	if channel == "" || message == "" {
-		return map[string]any{"status": "skipped", "reason": "missing channel or message"}, nil
+		return nil, fmt.Errorf("slack_notify: missing required config (channel=%q, message=%q)", channel, message)
 	}
 
 	slackActs := NewSlackActivities()

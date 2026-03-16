@@ -23,6 +23,10 @@ parameters:
     type: string
     required: false
     description: "Command to verify deployment health"
+  - name: slack_channel
+    type: string
+    required: false
+    description: "Slack channel for incident notifications"
 steps:
   - id: analyze_logs
     title: Analyze logs
@@ -101,9 +105,12 @@ steps:
     title: Post incident summary
     depends_on:
       - deploy_check
+    condition: '{{ ne .params.slack_channel "" }}'
+    optional: true
     action:
       type: slack_notify
       config:
+        channel: "{{ .Params.slack_channel }}"
         message: |
           Incident response complete for {{ .Params.repo_url }}.
           Root cause: {{ .Steps.analyze_logs.Output.root_cause }}
