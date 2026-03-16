@@ -75,9 +75,9 @@ func (h *MCPHandler) HandleGetRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type stepSummary struct {
-		ID     string           `json:"id"`
-		StepID string           `json:"step_id"`
-		Status model.StepStatus `json:"status"`
+		ID     string           `json:"id" db:"id"`
+		StepID string           `json:"step_id" db:"step_id"`
+		Status model.StepStatus `json:"status" db:"status"`
 	}
 	var steps []stepSummary
 	err = h.db.SelectContext(r.Context(), &steps,
@@ -151,12 +151,15 @@ func (h *MCPHandler) HandleGetKnowledge(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	// Resolve workflow_id from the run.
-	var workflowID string
-	err := h.db.GetContext(r.Context(), &workflowID,
-		`SELECT workflow_id FROM runs WHERE id = $1 AND team_id = $2`, claims.RunID, claims.TeamID)
-	if err != nil {
-		writeMCPErr(w, http.StatusNotFound, "run not found")
+	// Resolve workflow_template UUID from the run's workflow slug.
+	// Builtin templates may not have a workflow_templates row — return empty list in that case.
+	var templateID string
+	_ = h.db.GetContext(r.Context(), &templateID,
+		`SELECT wt.id FROM workflow_templates wt JOIN runs r ON r.workflow_id = wt.slug
+		 WHERE r.id = $1 AND r.team_id = $2`, claims.RunID, claims.TeamID)
+	if templateID == "" {
+		// No DB template — builtin workflow, no knowledge items to return.
+		writeMCPJSON(w, http.StatusOK, map[string]any{"items": []any{}})
 		return
 	}
 
@@ -167,7 +170,7 @@ func (h *MCPHandler) HandleGetKnowledge(w http.ResponseWriter, r *http.Request) 
 		fetchLimit = maxItems * 10 // fetch more to filter from
 	}
 
-	items, err := h.knowledgeStore.ListApprovedByWorkflow(r.Context(), claims.TeamID, workflowID, fetchLimit)
+	items, err := h.knowledgeStore.ListApprovedByWorkflow(r.Context(), claims.TeamID, templateID, fetchLimit)
 	if err != nil {
 		slog.Error("mcp: failed to list knowledge", "error", err)
 		writeMCPErr(w, http.StatusInternalServerError, "failed to list knowledge")
@@ -283,17 +286,16 @@ func (h *MCPHandler) HandleAddLearning(w http.ResponseWriter, r *http.Request) {
 	// Step run ID is optional — agent may add learnings between step transitions.
 	stepRunID, _ := h.activeStepRunID(r.Context(), claims.RunID)
 
-	// Resolve workflow_id from the run.
-	var workflowID string
-	if err := h.db.GetContext(r.Context(), &workflowID,
-		`SELECT workflow_id FROM runs WHERE id = $1 AND team_id = $2`, claims.RunID, claims.TeamID); err != nil {
-		writeMCPErr(w, http.StatusNotFound, "run not found")
-		return
-	}
+	// Resolve workflow_template UUID from the run's workflow slug.
+	// Builtin templates may not have a workflow_templates row, so this is optional.
+	var templateID string
+	_ = h.db.GetContext(r.Context(), &templateID,
+		`SELECT wt.id FROM workflow_templates wt JOIN runs r ON r.workflow_id = wt.slug
+		 WHERE r.id = $1 AND r.team_id = $2`, claims.RunID, claims.TeamID)
 
 	item := model.KnowledgeItem{
 		TeamID:             claims.TeamID,
-		WorkflowTemplateID: workflowID,
+		WorkflowTemplateID: templateID, // empty string if builtin template
 		StepRunID:          stepRunID,
 		Type:               knowledgeType,
 		Summary:            body.Summary,
