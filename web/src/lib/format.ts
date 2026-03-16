@@ -12,7 +12,7 @@ export function formatDuration(ms: number): string {
 
 /** Format USD cost: "$1.23", "<$0.01", or "-" for zero/null */
 export function formatCost(usd?: number | null): string {
-  if (usd == null || usd === 0) return '-'
+  if (usd == null || usd <= 0) return '-'
   if (usd < 0.01) return '<$0.01'
   return `$${usd.toFixed(2)}`
 }

@@ -1,3 +1,7 @@
+-- REFERENCE ONLY — not executed at runtime.
+-- Authoritative schema is in internal/db/migrations/*.up.sql (applied by golang-migrate at startup).
+-- This file reflects migration 001 baseline only; see 002_post_initial.up.sql and 003_cost_tracking.up.sql for subsequent changes.
+
 -- Teams
 CREATE TABLE IF NOT EXISTS teams (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
