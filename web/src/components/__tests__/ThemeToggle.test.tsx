@@ -1,13 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { TooltipProvider } from '@/components/ui/tooltip'
 import { ThemeToggle } from '../ThemeToggle'
 
-function Wrapper({ children }: { children: React.ReactNode }) {
-  return <TooltipProvider>{children}</TooltipProvider>
-}
-
-// Stub useTheme so tests control state directly
 let mockTheme: 'system' | 'light' | 'dark' = 'system'
 const mockSetTheme = vi.fn((next: 'system' | 'light' | 'dark') => { mockTheme = next })
 
@@ -18,7 +12,6 @@ vi.mock('@/hooks/useTheme', () => ({
 beforeEach(() => {
   mockTheme = 'system'
   mockSetTheme.mockClear()
-  // matchMedia stub (required by jsdom)
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
     value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
@@ -26,40 +19,83 @@ beforeEach(() => {
 })
 
 describe('ThemeToggle', () => {
-  it('renders the system icon when theme is "system"', () => {
-    render(<ThemeToggle />, { wrapper: Wrapper })
-    expect(screen.getByTitle('Theme: System')).toBeTruthy()
+  // Trigger label tests — no need to open dropdown
+  it('shows "System" label in trigger when theme is "system"', () => {
+    render(<ThemeToggle />)
+    expect(screen.getByText('System')).toBeTruthy()
   })
 
-  it('renders the light icon when theme is "light"', () => {
+  it('shows "Light" label in trigger when theme is "light"', () => {
     mockTheme = 'light'
-    render(<ThemeToggle />, { wrapper: Wrapper })
-    expect(screen.getByTitle('Theme: Light')).toBeTruthy()
+    render(<ThemeToggle />)
+    expect(screen.getByText('Light')).toBeTruthy()
   })
 
-  it('renders the dark icon when theme is "dark"', () => {
+  it('shows "Dark" label in trigger when theme is "dark"', () => {
     mockTheme = 'dark'
-    render(<ThemeToggle />, { wrapper: Wrapper })
-    expect(screen.getByTitle('Theme: Dark')).toBeTruthy()
+    render(<ThemeToggle />)
+    expect(screen.getByText('Dark')).toBeTruthy()
   })
 
-  it('cycles system → light on click', () => {
-    render(<ThemeToggle />, { wrapper: Wrapper })
-    fireEvent.click(screen.getByRole('button'))
+  // Trigger icon tests — button contains 2 SVGs: theme icon + ChevronUp
+  it('renders theme icon and ChevronUp in trigger when theme is "system"', () => {
+    render(<ThemeToggle />)
+    expect(screen.getByRole('button').querySelectorAll('svg').length).toBe(2)
+  })
+
+  it('renders theme icon and ChevronUp in trigger when theme is "light"', () => {
+    mockTheme = 'light'
+    render(<ThemeToggle />)
+    expect(screen.getByRole('button').querySelectorAll('svg').length).toBe(2)
+  })
+
+  it('renders theme icon and ChevronUp in trigger when theme is "dark"', () => {
+    mockTheme = 'dark'
+    render(<ThemeToggle />)
+    expect(screen.getByRole('button').querySelectorAll('svg').length).toBe(2)
+  })
+
+  // Dropdown item interaction — open menu then click items
+  // Radix DropdownMenu requires full pointer sequence to open in jsdom
+  function openDropdown() {
+    const trigger = screen.getByRole('button')
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: 'mouse', pointerId: 1 })
+    fireEvent.pointerUp(trigger)
+    fireEvent.click(trigger)
+  }
+
+  it('calls setTheme("system") when System item is clicked', () => {
+    render(<ThemeToggle />)
+    openDropdown()
+    fireEvent.click(screen.getByRole('menuitem', { name: /system/i }))
+    expect(mockSetTheme).toHaveBeenCalledWith('system')
+  })
+
+  it('calls setTheme("light") when Light item is clicked', () => {
+    render(<ThemeToggle />)
+    openDropdown()
+    fireEvent.click(screen.getByRole('menuitem', { name: /light/i }))
     expect(mockSetTheme).toHaveBeenCalledWith('light')
   })
 
-  it('cycles light → dark on click', () => {
-    mockTheme = 'light'
-    render(<ThemeToggle />, { wrapper: Wrapper })
-    fireEvent.click(screen.getByRole('button'))
+  it('calls setTheme("dark") when Dark item is clicked', () => {
+    render(<ThemeToggle />)
+    openDropdown()
+    fireEvent.click(screen.getByRole('menuitem', { name: /dark/i }))
     expect(mockSetTheme).toHaveBeenCalledWith('dark')
   })
 
-  it('cycles dark → system on click', () => {
+  it('shows check icon on the active theme item only', () => {
     mockTheme = 'dark'
-    render(<ThemeToggle />, { wrapper: Wrapper })
-    fireEvent.click(screen.getByRole('button'))
-    expect(mockSetTheme).toHaveBeenCalledWith('system')
+    render(<ThemeToggle />)
+    openDropdown()
+    // Active item (Dark) has 2 SVGs: theme icon + Check icon
+    const darkItem = screen.getByRole('menuitem', { name: /dark/i })
+    expect(darkItem.querySelectorAll('svg').length).toBe(2)
+    // Inactive items have 1 SVG: theme icon only
+    const systemItem = screen.getByRole('menuitem', { name: /system/i })
+    expect(systemItem.querySelectorAll('svg').length).toBe(1)
+    const lightItem = screen.getByRole('menuitem', { name: /light/i })
+    expect(lightItem.querySelectorAll('svg').length).toBe(1)
   })
 })

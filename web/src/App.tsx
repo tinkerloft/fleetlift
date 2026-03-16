@@ -13,7 +13,6 @@ import { SystemHealthPage } from './pages/SystemHealth'
 import { CredentialsPage } from './pages/CredentialsPage'
 import { LoginPage } from './pages/Login'
 import { AuthCallbackPage } from './pages/AuthCallback'
-import { TooltipProvider } from '@/components/ui/tooltip'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('token')
@@ -23,30 +22,28 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   return (
-    <TooltipProvider>
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/auth/callback" element={<AuthCallbackPage />} />
-        <Route path="/*" element={
-          <RequireAuth>
-            <Layout>
-              <Routes>
-                <Route path="/" element={<Navigate to="/runs" replace />} />
-                <Route path="/workflows" element={<WorkflowListPage />} />
-                <Route path="/workflows/:id" element={<WorkflowDetailPage />} />
-                <Route path="/runs" element={<RunListPage />} />
-                <Route path="/runs/:id" element={<RunDetailPage />} />
-                <Route path="/inbox" element={<InboxPage />} />
-                <Route path="/reports" element={<ReportListPage />} />
-                <Route path="/reports/:runId" element={<ReportDetailPage />} />
-                <Route path="/knowledge" element={<KnowledgePage />} />
-                <Route path="system" element={<SystemHealthPage />} />
-                <Route path="/settings" element={<CredentialsPage />} />
-              </Routes>
-            </Layout>
-          </RequireAuth>
-        } />
-      </Routes>
-    </TooltipProvider>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/auth/callback" element={<AuthCallbackPage />} />
+      <Route path="/*" element={
+        <RequireAuth>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<Navigate to="/runs" replace />} />
+              <Route path="/workflows" element={<WorkflowListPage />} />
+              <Route path="/workflows/:id" element={<WorkflowDetailPage />} />
+              <Route path="/runs" element={<RunListPage />} />
+              <Route path="/runs/:id" element={<RunDetailPage />} />
+              <Route path="/inbox" element={<InboxPage />} />
+              <Route path="/reports" element={<ReportListPage />} />
+              <Route path="/reports/:runId" element={<ReportDetailPage />} />
+              <Route path="/knowledge" element={<KnowledgePage />} />
+              <Route path="system" element={<SystemHealthPage />} />
+              <Route path="/settings" element={<CredentialsPage />} />
+            </Routes>
+          </Layout>
+        </RequireAuth>
+      } />
+    </Routes>
   )
 }

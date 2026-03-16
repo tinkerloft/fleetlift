@@ -65,6 +65,8 @@ steps:
         5. Missing tests
 
         Provide specific, actionable feedback with file paths and line numbers.
+
+        Save the review report using mcp__fleetlift__artifact__create with name="pr-review" and content_type="text/markdown".
       output:
         schema:
           comments: "array"

@@ -38,6 +38,9 @@ steps:
         {{ .Params.migration_description }}
 
         Identify all affected files, potential breaking changes, and estimated effort.
+
+        Before analyzing, call mcp__fleetlift__memory__search to retrieve any prior knowledge about migration patterns for this repo.
+        Save the impact analysis using mcp__fleetlift__artifact__create with name="migration-analysis" and content_type="text/markdown".
       output:
         schema:
           affected: "boolean"
@@ -64,6 +67,9 @@ steps:
         {{ .Steps.analyze.Output | toJSON }}
 
         Make all necessary code changes to complete the migration.
+
+        Call mcp__fleetlift__progress__update at key milestones during the migration.
+        If you discover any repo-specific patterns or exceptions that couldn't be auto-migrated, record them with mcp__fleetlift__memory__add_learning.
       verifiers: "{{ .Params.verifiers }}"
 
   - id: validate
@@ -83,6 +89,8 @@ steps:
         2. No references to the old pattern remain
         3. Tests pass
         4. Build succeeds
+
+        Save the validation report using mcp__fleetlift__artifact__create with name="migration-validation" and content_type="text/markdown".
 
   - id: review
     title: Review all changes

@@ -42,6 +42,10 @@ steps:
         5. Missing security controls
 
         Provide a structured report with severity levels for each finding.
+
+        Before scanning, call mcp__fleetlift__memory__search with a query relevant to the audit criteria to retrieve any prior knowledge about this repo.
+        Call mcp__fleetlift__progress__update at key milestones during the scan.
+        Save your findings report using mcp__fleetlift__artifact__create with name="scan-findings" and content_type="text/markdown".
       output:
         schema:
           findings: "array"
@@ -66,6 +70,8 @@ steps:
         2. Critical findings requiring immediate action
         3. Per-repo breakdown
         4. Recommended remediation priorities
+
+        Save the final compliance report using mcp__fleetlift__artifact__create with name="compliance-report" and content_type="text/markdown".
     outputs:
       artifacts:
         - path: /workspace/audit-report.json
