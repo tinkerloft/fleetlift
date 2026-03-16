@@ -97,7 +97,7 @@ func main() {
 		Auth:              handlers.NewAuthHandler(database, ghProvider, jwtSecret),
 		Workflows:         handlers.NewWorkflowsHandler(registry),
 		Runs:              handlers.NewRunsHandler(database, temporalClient, registry, nl),
-		Inbox:             handlers.NewInboxHandler(database),
+		Inbox:             handlers.NewInboxHandler(database, temporalClient),
 		Reports:           handlers.NewReportsHandler(database),
 		Credentials:       credHandler,
 		SystemCredentials: sysCredHandler,

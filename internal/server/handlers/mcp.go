@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -397,4 +398,154 @@ func (h *MCPHandler) HandleUpdateProgress(w http.ResponseWriter, r *http.Request
 	}
 
 	writeMCPJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// HandleInboxNotify creates a notification inbox item.
+// POST /api/mcp/inbox/notify
+func (h *MCPHandler) HandleInboxNotify(w http.ResponseWriter, r *http.Request) {
+	claims := mcpClaims(w, r)
+	if claims == nil {
+		return
+	}
+	var req struct {
+		Title   string `json:"title"`
+		Summary string `json:"summary"`
+		Urgency string `json:"urgency"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeMCPErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Title == "" {
+		writeMCPErr(w, http.StatusBadRequest, "title is required")
+		return
+	}
+	if req.Urgency == "" {
+		req.Urgency = "normal"
+	}
+	id := uuid.New().String()
+	var summary *string
+	if req.Summary != "" {
+		summary = &req.Summary
+	}
+	_, err := h.db.ExecContext(r.Context(), `
+		INSERT INTO inbox_items (id, team_id, run_id, kind, title, summary, urgency, created_at)
+		VALUES ($1,$2,$3,'notify',$4,$5,$6,now())`,
+		id, claims.TeamID, claims.RunID, req.Title, summary, req.Urgency,
+	)
+	if err != nil {
+		slog.Error("inbox notify: insert", "err", err)
+		writeMCPErr(w, http.StatusInternalServerError, "failed to create notification")
+		return
+	}
+	writeMCPJSON(w, http.StatusCreated, map[string]string{"inbox_item_id": id})
+}
+
+var checkpointBranchRe = regexp.MustCompile(`^fleetlift/checkpoint/[a-zA-Z0-9_-]+$`)
+
+// HandleInboxRequestInput creates a request_input inbox item and sets the step to awaiting_input.
+// POST /api/mcp/inbox/request_input
+func (h *MCPHandler) HandleInboxRequestInput(w http.ResponseWriter, r *http.Request) {
+	claims := mcpClaims(w, r)
+	if claims == nil {
+		return
+	}
+	var req struct {
+		Question         string   `json:"question"`
+		StateSummary     string   `json:"state_summary"`
+		Options          []string `json:"options"`
+		CheckpointBranch string   `json:"checkpoint_branch"`
+		Urgency          string   `json:"urgency"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeMCPErr(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.Question == "" {
+		writeMCPErr(w, http.StatusBadRequest, "question is required")
+		return
+	}
+	if req.CheckpointBranch != "" && !checkpointBranchRe.MatchString(req.CheckpointBranch) {
+		writeMCPErr(w, http.StatusBadRequest, "invalid checkpoint_branch: must match fleetlift/checkpoint/<alphanumeric-dash-underscore>")
+		return
+	}
+	if req.Urgency == "" {
+		req.Urgency = "normal"
+	}
+
+	// Find the active step_run
+	var stepRunID string
+	err := h.db.QueryRowContext(r.Context(), `
+		SELECT id FROM step_runs
+		WHERE run_id = $1 AND status NOT IN ('complete','failed','skipped','awaiting_input')
+		ORDER BY created_at DESC LIMIT 1`, claims.RunID,
+	).Scan(&stepRunID)
+	if err != nil {
+		slog.Error("inbox request_input: find step_run", "err", err)
+		writeMCPErr(w, http.StatusInternalServerError, "could not find active step")
+		return
+	}
+
+	// Create checkpoint artifact if state_summary provided
+	var artifactID *string
+	if req.StateSummary != "" {
+		aid := uuid.New().String()
+		_, err = h.db.ExecContext(r.Context(), `
+			INSERT INTO artifacts (id, step_run_id, name, path, size_bytes, content_type, storage, data, created_at)
+			VALUES ($1,$2,'agent-checkpoint','/checkpoint.md',$3,'text/markdown','inline',$4,now())`,
+			aid, stepRunID, len(req.StateSummary), req.StateSummary,
+		)
+		if err != nil {
+			slog.Error("inbox request_input: create artifact", "err", err)
+		} else {
+			artifactID = &aid
+		}
+	}
+
+	// Create inbox item
+	var stateSummary *string
+	if req.StateSummary != "" {
+		stateSummary = &req.StateSummary
+	}
+	itemID := uuid.New().String()
+	_, err = h.db.ExecContext(r.Context(), `
+		INSERT INTO inbox_items
+			(id, team_id, run_id, step_run_id, kind, title, summary, question, options, urgency, created_at)
+		VALUES ($1,$2,$3,$4,'request_input',$5,$6,$7,$8,$9,now())`,
+		itemID, claims.TeamID, claims.RunID, stepRunID,
+		req.Question, // title
+		stateSummary,
+		req.Question,
+		pq.StringArray(req.Options),
+		req.Urgency,
+	)
+	if err != nil {
+		slog.Error("inbox request_input: insert item", "err", err)
+		writeMCPErr(w, http.StatusInternalServerError, "failed to create inbox item")
+		return
+	}
+
+	// Mark step as awaiting_input
+	if _, err := h.db.ExecContext(r.Context(),
+		"UPDATE step_runs SET status='awaiting_input' WHERE id=$1", stepRunID,
+	); err != nil {
+		slog.Error("inbox request_input: update step status", "err", err)
+	}
+
+	// Store checkpoint metadata on step_runs
+	if req.CheckpointBranch != "" || artifactID != nil {
+		if _, err := h.db.ExecContext(r.Context(),
+			"UPDATE step_runs SET checkpoint_branch=NULLIF($1,''), checkpoint_artifact_id=$2::uuid WHERE id=$3",
+			req.CheckpointBranch,
+			artifactID,
+			stepRunID,
+		); err != nil {
+			slog.Error("inbox request_input: store checkpoint fields on step_run", "err", err)
+		}
+	}
+
+	writeMCPJSON(w, http.StatusCreated, map[string]string{
+		"inbox_item_id": itemID,
+		"status":        "input_requested",
+	})
 }

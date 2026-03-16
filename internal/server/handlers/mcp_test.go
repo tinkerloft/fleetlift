@@ -437,6 +437,65 @@ func TestHandleGetKnowledge_CrossTeam(t *testing.T) {
 	}
 }
 
+func TestHandleInboxNotify_NilClaims(t *testing.T) {
+	h := NewMCPHandler(nil, nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/mcp/inbox/notify", strings.NewReader(`{}`))
+	w := httptest.NewRecorder()
+	h.HandleInboxNotify(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestHandleInboxNotify_TitleRequired(t *testing.T) {
+	h := NewMCPHandler(nil, nil)
+	body := `{"summary": "something happened"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/mcp/inbox/notify", strings.NewReader(body))
+	ctx := auth.SetMCPClaimsInContext(req.Context(), &auth.MCPClaims{TeamID: "team1", RunID: "run1"})
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.HandleInboxNotify(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleInboxRequestInput_NilClaims(t *testing.T) {
+	h := NewMCPHandler(nil, nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/mcp/inbox/request_input", strings.NewReader(`{}`))
+	w := httptest.NewRecorder()
+	h.HandleInboxRequestInput(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+func TestHandleInboxRequestInput_QuestionRequired(t *testing.T) {
+	h := NewMCPHandler(nil, nil)
+	body := `{"state_summary": "done"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/mcp/inbox/request_input", strings.NewReader(body))
+	ctx := auth.SetMCPClaimsInContext(req.Context(), &auth.MCPClaims{TeamID: "team1", RunID: "run1"})
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.HandleInboxRequestInput(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestHandleInboxRequestInput_InvalidBranch(t *testing.T) {
+	h := NewMCPHandler(nil, nil)
+	body := `{"question":"Q?","checkpoint_branch":"../../etc/passwd"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/mcp/inbox/request_input", strings.NewReader(body))
+	ctx := auth.SetMCPClaimsInContext(req.Context(), &auth.MCPClaims{TeamID: "team1", RunID: "run1"})
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.HandleInboxRequestInput(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleAddLearning_CrossTeam(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
