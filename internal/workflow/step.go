@@ -69,12 +69,15 @@ var (
 	CleanupSandboxActivity      = "CleanupSandbox"
 	CompleteStepRunActivity     = "CompleteStepRun"
 	CreateInboxItemActivity     = "CreateInboxItem"
-	ValidateCredentialsActivity = "ValidateCredentials"
+	ValidateCredentialsActivity        = "ValidateCredentials"
+	CreateContinuationStepRunActivity  = "CreateContinuationStepRun"
+	CleanupCheckpointBranchActivity    = "CleanupCheckpointBranch"
 )
 
 // StepWorkflow orchestrates a single step: provision sandbox, run agent, handle HITL signals, optionally create PR.
 func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, error) {
 	logger := workflow.GetLogger(ctx)
+	respondCh := workflow.GetSignalChannel(ctx, "respond")
 
 	// 1. Provision sandbox (unless reusing from group)
 	var sandboxID string
@@ -124,6 +127,119 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 		).Get(ctx, &output)
 		if err != nil {
 			return nil, err
+		}
+
+		// E3: If ExecuteStep returned awaiting_input, wait for human response
+		// then create a continuation step and re-execute
+		if output != nil && output.Status == model.StepStatusAwaitingInput {
+			logger.Info("step awaiting human input", "step_id", input.StepDef.ID, "inbox_item_id", output.InboxItemID)
+
+			var answer model.InboxAnswer
+			respondCh.Receive(ctx, &answer)
+			logger.Info("received human response", "step_id", input.StepDef.ID, "answer_length", len(answer.Answer))
+
+			// Create continuation step_run record
+			continuationStepID := input.StepDef.ID + "-resume-1"
+			continuationWorkflowID := input.RunID + "-" + continuationStepID
+			var continuationStepRunID string
+
+			contStepAO := workflow.ActivityOptions{
+				StartToCloseTimeout: 30 * time.Second,
+				RetryPolicy:         dbRetry,
+			}
+			err = workflow.ExecuteActivity(
+				workflow.WithActivityOptions(ctx, contStepAO),
+				CreateContinuationStepRunActivity,
+				model.CreateContinuationStepRunInput{
+					RunID:                input.RunID,
+					StepID:               continuationStepID,
+					StepTitle:            input.StepDef.Title + " (resumed)",
+					TemporalWorkflowID:   continuationWorkflowID,
+					ParentStepRunID:      input.StepRunID,
+					CheckpointBranch:     output.CheckpointBranch,
+					CheckpointArtifactID: output.StateArtifactID,
+				},
+			).Get(ctx, &continuationStepRunID)
+			if err != nil {
+				return nil, fmt.Errorf("create continuation step_run: %w", err)
+			}
+
+			// Provision a fresh sandbox for the continuation
+			var continuationSandboxID string
+			contProvAO := workflow.ActivityOptions{
+				StartToCloseTimeout: 5 * time.Minute,
+				RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 3},
+			}
+			continuationInput := input
+			continuationInput.StepRunID = continuationStepRunID
+			continuationInput.SandboxID = "" // force new provision
+
+			err = workflow.ExecuteActivity(
+				workflow.WithActivityOptions(ctx, contProvAO),
+				ProvisionSandboxActivity, continuationInput,
+			).Get(ctx, &continuationSandboxID)
+			if err != nil {
+				return nil, fmt.Errorf("provision continuation sandbox: %w", err)
+			}
+
+			// Re-execute with continuation context
+			var continuationOutput *model.StepOutput
+			contExecAO := workflow.ActivityOptions{
+				StartToCloseTimeout: timeout,
+				HeartbeatTimeout:    2 * time.Minute,
+				RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 2},
+			}
+			err = workflow.ExecuteActivity(
+				workflow.WithActivityOptions(ctx, contExecAO),
+				ExecuteStepActivity, ExecuteStepInput{
+					StepInput:           continuationInput,
+					SandboxID:           continuationSandboxID,
+					Prompt:              prompt, // original prompt; buildContinuationPrompt prepends context in activity
+					ContinuationContext: &model.ContinuationContext{
+						InboxItemID:      output.InboxItemID,
+						Question:         output.Question,
+						HumanAnswer:      answer.Answer,
+						CheckpointBranch: output.CheckpointBranch,
+						StateArtifactID:  output.StateArtifactID,
+					},
+				},
+			).Get(ctx, &continuationOutput)
+
+			// Cleanup continuation sandbox
+			contCleanupAO := workflow.ActivityOptions{
+				StartToCloseTimeout: 2 * time.Minute,
+				RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 3},
+			}
+			_ = workflow.ExecuteActivity(
+				workflow.WithActivityOptions(ctx, contCleanupAO),
+				CleanupSandboxActivity, continuationSandboxID,
+			).Get(ctx, nil)
+
+			// Cleanup checkpoint branch if set
+			if output.CheckpointBranch != "" && len(input.ResolvedOpts.Repos) > 0 {
+				credName := ""
+				if len(input.ResolvedOpts.Credentials) > 0 {
+					credName = input.ResolvedOpts.Credentials[0]
+				}
+				_ = workflow.ExecuteActivity(
+					workflow.WithActivityOptions(ctx, contCleanupAO),
+					CleanupCheckpointBranchActivity, model.CleanupCheckpointInput{
+						RepoURL:        input.ResolvedOpts.Repos[0].URL,
+						Branch:         output.CheckpointBranch,
+						CredentialName: credName,
+						TeamID:         input.TeamID,
+					},
+				).Get(ctx, nil)
+			}
+
+			if err != nil {
+				return nil, fmt.Errorf("continuation step execution: %w", err)
+			}
+
+			// Use continuation result as final output
+			output = continuationOutput
+			// Skip the normal loop — go straight to finalize
+			break
 		}
 
 		// 3. Run verifiers (if configured)
