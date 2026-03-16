@@ -112,6 +112,25 @@ func (a *Activities) CompleteStepRun(ctx context.Context, stepRunID string, stat
 	return nil
 }
 
+// CreateContinuationStepRun inserts a new step_run record for a continuation (resumed) step.
+func (a *Activities) CreateContinuationStepRun(ctx context.Context, input model.CreateContinuationStepRunInput) (string, error) {
+	id := uuid.New().String()
+	_, err := a.DB.ExecContext(ctx, `
+		INSERT INTO step_runs
+			(id, run_id, step_id, step_title, status, temporal_workflow_id,
+			 parent_step_run_id, checkpoint_branch, checkpoint_artifact_id, created_at)
+		VALUES ($1,$2,$3,$4,'pending',$5,$6,$7,$8,now())`,
+		id, input.RunID, input.StepID, input.StepTitle, input.TemporalWorkflowID,
+		input.ParentStepRunID,
+		nullStr(input.CheckpointBranch),
+		nullStr(input.CheckpointArtifactID),
+	)
+	if err != nil {
+		return "", fmt.Errorf("create continuation step_run: %w", err)
+	}
+	return id, nil
+}
+
 // CleanupSandbox kills a sandbox.
 func (a *Activities) CleanupSandbox(ctx context.Context, sandboxID string) error {
 	return a.Sandbox.Kill(ctx, sandboxID)

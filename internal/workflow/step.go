@@ -34,10 +34,11 @@ type ResolvedStepOpts struct {
 
 // ExecuteStepInput is the input to the ExecuteStep activity.
 type ExecuteStepInput struct {
-	StepInput           StepInput `json:"step_input"`
-	SandboxID           string    `json:"sandbox_id"`
-	Prompt              string    `json:"prompt"`
-	ConversationHistory string    `json:"conversation_history,omitempty"`
+	StepInput           StepInput                  `json:"step_input"`
+	SandboxID           string                     `json:"sandbox_id"`
+	Prompt              string                     `json:"prompt"`
+	ConversationHistory string                     `json:"conversation_history,omitempty"`
+	ContinuationContext *model.ContinuationContext  `json:"continuation_context,omitempty"` // E3
 }
 
 // StepSignal represents signals that can be sent to a StepWorkflow.
