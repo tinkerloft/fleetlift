@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/jmoiron/sqlx"
 	"github.com/tinkerloft/fleetlift/internal/auth"
 	"github.com/tinkerloft/fleetlift/internal/knowledge"
 	"github.com/tinkerloft/fleetlift/internal/model"
@@ -389,5 +391,48 @@ func TestHandleGetKnowledge_NilClaims(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", w.Code)
+	}
+}
+
+// TestHandleGetKnowledge_CrossTeam verifies that the workflow_template JOIN is
+// scoped by team_id so that two teams sharing the same workflow slug each resolve
+// their own template UUID — not the other team's.
+//
+// The test uses sqlmock and expects the query to include
+// "wt.team_id = r.team_id" in the JOIN condition. If the handler issues the
+// un-scoped query the mock expectation is not met and the test fails.
+func TestHandleGetKnowledge_CrossTeam(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	sqlxDB := sqlx.NewDb(db, "sqlmock")
+
+	// Expect the team-scoped JOIN. The regex must match what the fixed query sends.
+	// We anchor on the distinctive "AND wt.team_id = r.team_id" fragment.
+	mock.ExpectQuery(`wt\.team_id = r\.team_id`).
+		WithArgs("run-team-a", "team-a").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("template-uuid-a"))
+
+	store := knowledge.NewMemoryStore()
+	h := NewMCPHandler(sqlxDB, store)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/mcp/knowledge", nil)
+	ctx := auth.SetMCPClaimsInContext(req.Context(), &auth.MCPClaims{
+		TeamID: "team-a",
+		RunID:  "run-team-a",
+	})
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.HandleGetKnowledge(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// The sqlmock expectation for the team-scoped query must have been satisfied.
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("cross-team JOIN not scoped by team_id — unmet expectation: %v", err)
 	}
 }

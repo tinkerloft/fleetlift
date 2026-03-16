@@ -155,7 +155,7 @@ func (h *MCPHandler) HandleGetKnowledge(w http.ResponseWriter, r *http.Request) 
 	// Builtin templates may not have a workflow_templates row — return empty list in that case.
 	var templateID string
 	_ = h.db.GetContext(r.Context(), &templateID,
-		`SELECT wt.id FROM workflow_templates wt JOIN runs r ON r.workflow_id = wt.slug
+		`SELECT wt.id FROM workflow_templates wt JOIN runs r ON r.workflow_id = wt.slug AND wt.team_id = r.team_id
 		 WHERE r.id = $1 AND r.team_id = $2`, claims.RunID, claims.TeamID)
 	if templateID == "" {
 		// No DB template — builtin workflow, no knowledge items to return.
@@ -290,7 +290,7 @@ func (h *MCPHandler) HandleAddLearning(w http.ResponseWriter, r *http.Request) {
 	// Builtin templates may not have a workflow_templates row, so this is optional.
 	var templateID string
 	_ = h.db.GetContext(r.Context(), &templateID,
-		`SELECT wt.id FROM workflow_templates wt JOIN runs r ON r.workflow_id = wt.slug
+		`SELECT wt.id FROM workflow_templates wt JOIN runs r ON r.workflow_id = wt.slug AND wt.team_id = r.team_id
 		 WHERE r.id = $1 AND r.team_id = $2`, claims.RunID, claims.TeamID)
 
 	item := model.KnowledgeItem{
