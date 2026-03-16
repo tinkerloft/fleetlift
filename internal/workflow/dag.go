@@ -176,6 +176,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 				}
 				// Build a proper StepInput so ProvisionSandbox gets the right agent/credentials.
 				provisionInput := StepInput{
+					RunID:  input.RunID,
 					TeamID: input.TeamID,
 				}
 				if step.Execution != nil {

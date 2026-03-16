@@ -85,8 +85,16 @@ func (r *ShellRunner) Run(ctx context.Context, sandboxID string, opts RunOpts) (
 		}
 
 		if exitCode != 0 && exitCode != -1 {
+			// Include captured stdout/stderr for debugging.
+			errMsg := fmt.Sprintf("command exited with code %d", exitCode)
+			if stderr := stderrBuf.String(); stderr != "" {
+				errMsg += "\nstderr: " + stderr
+			}
+			if stdout := stdoutBuf.String(); stdout != "" && len(stdout) < 2000 {
+				errMsg += "\nstdout: " + stdout
+			}
 			select {
-			case ch <- Event{Type: "error", Content: fmt.Sprintf("command exited with code %d", exitCode)}:
+			case ch <- Event{Type: "error", Content: errMsg}:
 			case <-ctx.Done():
 			}
 			return
