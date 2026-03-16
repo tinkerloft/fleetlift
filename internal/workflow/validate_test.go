@@ -714,3 +714,104 @@ func TestExtractTemplateRefs_InvalidTemplate(t *testing.T) {
 	assert.Nil(t, paramRefs)
 	assert.Nil(t, stepRefs)
 }
+
+// --- Action config and output ref validation tests ---
+
+func TestValidateWorkflow_ActionConfigMissingRequired(t *testing.T) {
+	def := model.WorkflowDef{
+		Steps: []model.StepDef{
+			{ID: "notify", Action: &model.ActionDef{
+				Type:   "slack_notify",
+				Config: map[string]any{"channel": "#general"},
+				// missing "message"
+			}},
+		},
+	}
+	errs := ValidateWorkflow(def, nil)
+	found := false
+	for _, e := range errs {
+		if e.StepID == "notify" && e.Field == "action.config" && strings.Contains(e.Message, "message") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected missing required config key error, got %v", errs)
+}
+
+func TestValidateWorkflow_ActionConfigUnknownKey(t *testing.T) {
+	def := model.WorkflowDef{
+		Steps: []model.StepDef{
+			{ID: "notify", Action: &model.ActionDef{
+				Type:   "slack_notify",
+				Config: map[string]any{"channel": "#general", "message": "hi", "chanel": "typo"},
+			}},
+		},
+	}
+	errs := ValidateWorkflow(def, nil)
+	found := false
+	for _, e := range errs {
+		if e.StepID == "notify" && strings.Contains(e.Message, "chanel") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected unknown config key error for 'chanel', got %v", errs)
+}
+
+func TestValidateWorkflow_ActionOutputRefValidation(t *testing.T) {
+	def := model.WorkflowDef{
+		Steps: []model.StepDef{
+			{
+				ID: "label",
+				Action: &model.ActionDef{
+					Type: "github_label",
+					Config: map[string]any{
+						"repo_url":     "https://github.com/org/repo",
+						"issue_number": 42,
+						"labels":       []any{"bug"},
+					},
+				},
+			},
+			{
+				ID:        "report",
+				DependsOn: []string{"label"},
+				Execution: &model.ExecutionDef{
+					Agent:  "shell",
+					Prompt: "Labels: {{ .Steps.label.Output.labels }} and {{ .Steps.label.Output.nonexistent }}",
+				},
+			},
+		},
+	}
+	errs := ValidateWorkflow(def, nil)
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Message, "nonexistent") && strings.Contains(e.Message, "github_label") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected error for undeclared action output field 'nonexistent', got %v", errs)
+}
+
+func TestValidateWorkflow_ActionConfigTemplateSkipsType(t *testing.T) {
+	def := model.WorkflowDef{
+		Parameters: []model.ParameterDef{
+			{Name: "issue_number", Type: "int"},
+		},
+		Steps: []model.StepDef{
+			{ID: "label", Action: &model.ActionDef{
+				Type: "github_label",
+				Config: map[string]any{
+					"repo_url":     "https://github.com/org/repo",
+					"issue_number": "{{ .Params.issue_number }}",
+					"labels":       []any{"bug"},
+				},
+			}},
+		},
+	}
+	errs := ValidateWorkflow(def, map[string]any{"issue_number": 42})
+	for _, e := range errs {
+		assert.False(t, strings.Contains(e.Message, "issue_number") && strings.Contains(e.Message, "int"),
+			"template value should skip type check, got %v", e)
+	}
+}

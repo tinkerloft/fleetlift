@@ -31,6 +31,7 @@ type Deps struct {
 	Knowledge         *handlers.KnowledgeHandler
 	MCP               *handlers.MCPHandler
 	DB                *sqlx.DB
+	Actions           *handlers.ActionsHandler
 	TemporalUIURL     string
 }
 
@@ -143,6 +144,9 @@ func NewRouter(deps Deps) (http.Handler, error) {
 		r.Get("/api/knowledge", deps.Knowledge.List)
 		r.Patch("/api/knowledge/{id}", deps.Knowledge.UpdateStatus)
 		r.Delete("/api/knowledge/{id}", deps.Knowledge.Delete)
+
+		// Action types (registry)
+		r.Get("/api/action-types", deps.Actions.List)
 	})
 
 	// Serve embedded React SPA
