@@ -87,7 +87,7 @@ func resultJSON(data map[string]any) *mcp.CallToolResult {
 func (s *Shim) registerTools(srv *server.MCPServer) {
 	// 1. context.get_run
 	srv.AddTool(mcp.NewTool("context.get_run",
-		mcp.WithDescription("Get the current run context including run ID, workflow, parameters, and step statuses"),
+		mcp.WithDescription("Get the current run context. Returns: run_id, workflow name, parameters, current running step, and all steps with their statuses (pending/running/complete/failed). Use this at the start of your work to understand the workflow you are executing and what parameters were provided."),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		result, err := s.call("GET", "/api/mcp/run", nil)
 		if err != nil {
@@ -98,8 +98,8 @@ func (s *Shim) registerTools(srv *server.MCPServer) {
 
 	// 2. context.get_step_output
 	srv.AddTool(mcp.NewTool("context.get_step_output",
-		mcp.WithDescription("Get the output from a completed step in the current workflow run"),
-		mcp.WithString("step_id", mcp.Required(), mcp.Description("The step ID to get output for")),
+		mcp.WithDescription("Get the output and diff from a previously completed step in this workflow run. Use this to access results from upstream steps that your step depends on. Returns the step's stdout/stderr output and any git diff it produced. Only works for steps with status 'complete'."),
+		mcp.WithString("step_id", mcp.Required(), mcp.Description("The step ID (from the workflow template, e.g. 'clone_repo' or 'run_tests') — use context.get_run to see available step IDs and their statuses")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		stepID, err := req.RequireString("step_id")
 		if err != nil {
@@ -114,9 +114,9 @@ func (s *Shim) registerTools(srv *server.MCPServer) {
 
 	// 3. context.get_knowledge
 	srv.AddTool(mcp.NewTool("context.get_knowledge",
-		mcp.WithDescription("Search the team knowledge base for relevant context"),
-		mcp.WithString("query", mcp.Description("Search query")),
-		mcp.WithNumber("max_items", mcp.Description("Maximum number of items to return")),
+		mcp.WithDescription("Get approved knowledge items for the current workflow. Returns items previously captured and approved by the team, scoped to the workflow template this run is based on. Use this to check for known patterns, conventions, or gotchas before making changes."),
+		mcp.WithString("query", mcp.Description("Optional text to filter results by summary or details content")),
+		mcp.WithNumber("max_items", mcp.Description("Maximum items to return (default 10, max 100)")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		params := url.Values{}
 		if q := req.GetString("query", ""); q != "" {
@@ -138,10 +138,10 @@ func (s *Shim) registerTools(srv *server.MCPServer) {
 
 	// 4. artifact.create
 	srv.AddTool(mcp.NewTool("artifact.create",
-		mcp.WithDescription("Create an artifact (file, report, etc.) from this step"),
-		mcp.WithString("name", mcp.Required(), mcp.Description("Artifact name")),
-		mcp.WithString("content", mcp.Required(), mcp.Description("Artifact content")),
-		mcp.WithString("content_type", mcp.Description("MIME type of the content")),
+		mcp.WithDescription("Create a persistent artifact (file, report, analysis, etc.) from this step. The artifact is stored in the platform and visible in the run results UI. Content must be UTF-8 text, max 1MB. Use this for deliverables like reports, diffs, configs — anything the user should see as a discrete output."),
+		mcp.WithString("name", mcp.Required(), mcp.Description("Artifact filename (e.g. 'analysis-report.md', 'config.yaml'). Must not contain '..'")),
+		mcp.WithString("content", mcp.Required(), mcp.Description("UTF-8 text content of the artifact, max 1MB")),
+		mcp.WithString("content_type", mcp.Description("MIME type (default: text/plain). Use text/markdown for reports, application/json for structured data")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		name, err := req.RequireString("name")
 		if err != nil {
@@ -167,12 +167,12 @@ func (s *Shim) registerTools(srv *server.MCPServer) {
 
 	// 5. memory.add_learning
 	srv.AddTool(mcp.NewTool("memory.add_learning",
-		mcp.WithDescription("Record a learning or insight discovered during this step"),
-		mcp.WithString("type", mcp.Required(), mcp.Description("Type of learning (e.g. pattern, convention, pitfall)")),
-		mcp.WithString("summary", mcp.Required(), mcp.Description("Short summary of the learning")),
-		mcp.WithString("details", mcp.Description("Detailed explanation")),
-		mcp.WithNumber("confidence", mcp.Description("Confidence score 0-1")),
-		mcp.WithString("tags", mcp.Description("Comma-separated tags")),
+		mcp.WithDescription("Record a learning or insight discovered during this step. Creates a knowledge item with status 'pending' — it will be reviewed by the team before becoming visible to future runs via context.get_knowledge. Use this to capture patterns, conventions, pitfalls, or important context you discover while working."),
+		mcp.WithString("type", mcp.Required(), mcp.Description("One of: pattern (recurring code pattern), correction (a mistake to avoid), gotcha (surprising behavior), context (background information)")),
+		mcp.WithString("summary", mcp.Required(), mcp.Description("One-line summary of the learning (shown in search results)")),
+		mcp.WithString("details", mcp.Description("Detailed explanation with examples, code snippets, or references")),
+		mcp.WithNumber("confidence", mcp.Description("How confident you are in this learning, 0.0 to 1.0 (default: unset)")),
+		mcp.WithString("tags", mcp.Description("Comma-separated tags for categorization (e.g. 'go,error-handling,testing')")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		typ, err := req.RequireString("type")
 		if err != nil {
@@ -204,10 +204,10 @@ func (s *Shim) registerTools(srv *server.MCPServer) {
 
 	// 6. memory.search
 	srv.AddTool(mcp.NewTool("memory.search",
-		mcp.WithDescription("Search team knowledge and learnings"),
-		mcp.WithString("query", mcp.Description("Search query")),
-		mcp.WithString("tags", mcp.Description("Comma-separated tags to filter by")),
-		mcp.WithNumber("max_items", mcp.Description("Maximum number of items to return")),
+		mcp.WithDescription("Search all approved knowledge items across the team, not limited to the current workflow. Use this to find learnings from other workflows that might be relevant to your current task."),
+		mcp.WithString("query", mcp.Description("Search text matched against summary and details")),
+		mcp.WithString("tags", mcp.Description("Comma-separated tags to filter by (e.g. 'go,testing')")),
+		mcp.WithNumber("max_items", mcp.Description("Maximum items to return (default 10, max 100)")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		params := url.Values{}
 		if q := req.GetString("query", ""); q != "" {
@@ -232,9 +232,9 @@ func (s *Shim) registerTools(srv *server.MCPServer) {
 
 	// 7. progress.update
 	srv.AddTool(mcp.NewTool("progress.update",
-		mcp.WithDescription("Report progress for the current step"),
-		mcp.WithNumber("percentage", mcp.Required(), mcp.Description("Progress percentage 0-100")),
-		mcp.WithString("message", mcp.Description("Progress message")),
+		mcp.WithDescription("Report progress on the current step. Updates the percentage and message shown in the run UI. Call this periodically during long-running steps to keep the user informed. The percentage should reflect meaningful progress milestones, not arbitrary increments."),
+		mcp.WithNumber("percentage", mcp.Required(), mcp.Description("Progress percentage, integer 0-100. Use 0 at start, 100 when complete.")),
+		mcp.WithString("message", mcp.Description("Human-readable progress message (e.g. 'Cloning repository', 'Running 15/30 tests')")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		pct, err := req.RequireFloat("percentage")
 		if err != nil {
