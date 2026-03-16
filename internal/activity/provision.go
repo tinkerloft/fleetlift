@@ -155,7 +155,7 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 		// Uses perl (available in minimal ubuntu:22.04) instead of curl which may not be installed.
 		healthCmd := fmt.Sprintf(
 			`perl -e 'use IO::Socket::INET; use IO::Handle; my $s=IO::Socket::INET->new(PeerAddr=>"localhost:%s",Timeout=>1) or exit 1; print $s "GET /health HTTP/1.0\r\nHost: localhost\r\n\r\n"; my $r=join"",$s->getlines; print $r=~/ok/?"ok":"fail"'`,
-			shellquote.Quote(mcpPort),
+			mcpPort,
 		)
 		healthy := false
 		for i := 0; i < 10; i++ {

@@ -230,6 +230,14 @@ func TestProvisionSandbox_MCPSetup(t *testing.T) {
 		}
 	}
 	assert.True(t, foundTokenExport, "expected profile.d write to include FLEETLIFT_MCP_TOKEN export")
+
+	// Verify health check command has correct port syntax (not shell-quoted inside perl string)
+	for _, cmd := range sb.execCmds {
+		if strings.Contains(cmd, "perl") {
+			assert.Contains(t, cmd, `PeerAddr=>"localhost:8081"`, "port must not be shell-quoted inside perl single-quoted string")
+			assert.NotContains(t, cmd, `localhost:'8081'`, "shellquote must not nest quotes inside perl string")
+		}
+	}
 }
 
 func TestProvisionSandbox_MCPSkippedWhenBinaryMissing(t *testing.T) {
