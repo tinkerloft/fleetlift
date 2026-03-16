@@ -122,6 +122,9 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 				"JWT_SECRET is required when FLEETLIFT_MCP_BINARY_PATH is set",
 				"MISSING_JWT_SECRET", nil)
 		}
+		// IssueMCPToken uses HS256 which accepts any non-empty []byte key.
+		// An error here is defensive — practically unreachable given the
+		// JWT_SECRET check above ensures a non-empty key.
 		mcpToken, err := auth.IssueMCPToken(jwtSecret, input.TeamID, input.RunID)
 		if err != nil {
 			_ = a.Sandbox.Kill(ctx, sandboxID)
