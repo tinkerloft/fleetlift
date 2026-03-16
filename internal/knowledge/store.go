@@ -154,7 +154,7 @@ func (s *DBStore) SearchByTeam(ctx context.Context, teamID, query string, tags [
 		err = s.db.SelectContext(ctx, &items,
 			`SELECT * FROM knowledge_items
 			 WHERE team_id = $1 AND status = 'approved'
-			   AND summary ILIKE '%' || $2 || '%'
+			   AND (summary ILIKE '%' || $2 || '%' OR details ILIKE '%' || $2 || '%')
 			   AND tags @> $3::text[]
 			 ORDER BY confidence DESC LIMIT $4`,
 			teamID, query, pq.StringArray(tags), maxItems)
@@ -162,7 +162,7 @@ func (s *DBStore) SearchByTeam(ctx context.Context, teamID, query string, tags [
 		err = s.db.SelectContext(ctx, &items,
 			`SELECT * FROM knowledge_items
 			 WHERE team_id = $1 AND status = 'approved'
-			   AND summary ILIKE '%' || $2 || '%'
+			   AND (summary ILIKE '%' || $2 || '%' OR details ILIKE '%' || $2 || '%')
 			 ORDER BY confidence DESC LIMIT $3`,
 			teamID, query, maxItems)
 	} else if len(tags) > 0 {
@@ -298,7 +298,7 @@ func (s *MemoryStore) SearchByTeam(_ context.Context, teamID, query string, tags
 		if item.TeamID != teamID || item.Status != model.KnowledgeStatusApproved {
 			continue
 		}
-		if query != "" && !strings.Contains(strings.ToLower(item.Summary), queryLower) {
+		if query != "" && !strings.Contains(strings.ToLower(item.Summary), queryLower) && !strings.Contains(strings.ToLower(item.Details), queryLower) {
 			continue
 		}
 		if len(tags) > 0 && !containsAll(item.Tags, tags) {

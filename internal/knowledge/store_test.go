@@ -135,4 +135,19 @@ func TestMemoryStore_SearchByTeam(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, items, 0)
 	})
+
+	t.Run("search matches details field", func(t *testing.T) {
+		_, _ = store.Save(ctx, model.KnowledgeItem{
+			TeamID:     "team-1",
+			Summary:    "database optimization tip",
+			Details:    "always add React component keys when rendering lists",
+			Tags:       pq.StringArray{"react"},
+			Status:     model.KnowledgeStatusApproved,
+			Confidence: 0.85,
+		})
+		items, err := store.SearchByTeam(ctx, "team-1", "component keys", nil, 10)
+		require.NoError(t, err)
+		assert.Len(t, items, 1)
+		assert.Equal(t, "database optimization tip", items[0].Summary)
+	})
 }
