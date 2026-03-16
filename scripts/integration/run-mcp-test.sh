@@ -39,15 +39,19 @@ else
   exit 1
 fi
 
-# ── Generate JWT ──────────────────────────────────────────────────────────────
-TEAM_ID=$(docker exec fleetlift-postgres-1 psql -U fleetlift -d fleetlift -t -c \
-  "SELECT id FROM teams LIMIT 1" 2>/dev/null | tr -d ' \n')
-USER_ID=$(docker exec fleetlift-postgres-1 psql -U fleetlift -d fleetlift -t -c \
-  "SELECT id FROM users LIMIT 1" 2>/dev/null | tr -d ' \n')
+# ── Resolve team/user IDs ─────────────────────────────────────────────────────
+# Prefer DEV_TEAM_ID/DEV_USER_ID from dev-env.sh (set via local.env or docker exec).
+TEAM_ID="${DEV_TEAM_ID:-}"
+USER_ID="${DEV_USER_ID:-}"
 
 if [[ -z "$TEAM_ID" || -z "$USER_ID" ]]; then
-  echo "ERROR: No team or user found in database."
-  echo "  Ensure the database is seeded with at least one team and user."
+  # Fallback: query DB directly via psql (requires psql on PATH or docker)
+  TEAM_ID=$(psql "$DATABASE_URL" -t -c "SELECT id FROM teams LIMIT 1" 2>/dev/null | tr -d ' \n')
+  USER_ID=$(psql "$DATABASE_URL" -t -c "SELECT id FROM users LIMIT 1" 2>/dev/null | tr -d ' \n')
+fi
+
+if [[ -z "$TEAM_ID" || -z "$USER_ID" ]]; then
+  echo "ERROR: No team or user found. Set DEV_TEAM_ID/DEV_USER_ID or ensure DB is seeded."
   exit 1
 fi
 
@@ -148,7 +152,7 @@ echo "=== DB Verification ==="
 OK=true
 
 # Check step statuses
-STEP_RESULTS=$(docker exec fleetlift-postgres-1 psql -U fleetlift -d fleetlift -t -c "
+STEP_RESULTS=$(psql "$DATABASE_URL" -t -c "
 SELECT json_agg(json_build_object(
   'step_id', step_id,
   'status', status
@@ -162,7 +166,7 @@ for s in steps:
 "
 
 # Check shell step completed
-SHELL_STATUS=$(docker exec fleetlift-postgres-1 psql -U fleetlift -d fleetlift -t -c \
+SHELL_STATUS=$(psql "$DATABASE_URL" -t -c \
   "SELECT status FROM step_runs WHERE run_id = '$RUN_ID' AND step_id = 'verify_mcp_endpoints'" 2>/dev/null | tr -d ' \n')
 if [[ "$SHELL_STATUS" == "complete" ]]; then
   echo "PASS: verify_mcp_endpoints completed"
@@ -172,7 +176,7 @@ else
 fi
 
 # Check artifact was created
-ARTIFACT_COUNT=$(docker exec fleetlift-postgres-1 psql -U fleetlift -d fleetlift -t -c \
+ARTIFACT_COUNT=$(psql "$DATABASE_URL" -t -c \
   "SELECT count(*) FROM artifacts a JOIN step_runs sr ON a.step_run_id = sr.id WHERE sr.run_id = '$RUN_ID' AND a.name = 'mcp-test-shell.txt'" 2>/dev/null | tr -d ' \n')
 if [[ "$ARTIFACT_COUNT" -ge 1 ]]; then
   echo "PASS: artifact 'mcp-test-shell.txt' found"
@@ -182,7 +186,7 @@ else
 fi
 
 # Check progress was written (may be overwritten by final output — accept either)
-PROGRESS=$(docker exec fleetlift-postgres-1 psql -U fleetlift -d fleetlift -t -c \
+PROGRESS=$(psql "$DATABASE_URL" -t -c \
   "SELECT output->'progress'->>'percentage' FROM step_runs WHERE run_id = '$RUN_ID' AND step_id = 'verify_mcp_endpoints'" 2>/dev/null | tr -d ' \n')
 if [[ "$PROGRESS" == "25" ]]; then
   echo "PASS: progress percentage=25 found in step output"
@@ -191,7 +195,7 @@ else
 fi
 
 # Check knowledge item was created
-KNOWLEDGE_COUNT=$(docker exec fleetlift-postgres-1 psql -U fleetlift -d fleetlift -t -c \
+KNOWLEDGE_COUNT=$(psql "$DATABASE_URL" -t -c \
   "SELECT count(*) FROM knowledge_items WHERE team_id = '$TEAM_ID' AND summary = 'mcp-test-learning'" 2>/dev/null | tr -d ' \n')
 if [[ "$KNOWLEDGE_COUNT" -ge 1 ]]; then
   echo "PASS: knowledge item 'mcp-test-learning' found"
@@ -202,7 +206,7 @@ fi
 
 # ── Agent step verification (if enabled) ──────────────────────────────────────
 if [[ "$INCLUDE_AGENT" == "true" ]]; then
-  AGENT_STATUS=$(docker exec fleetlift-postgres-1 psql -U fleetlift -d fleetlift -t -c \
+  AGENT_STATUS=$(psql "$DATABASE_URL" -t -c \
     "SELECT status FROM step_runs WHERE run_id = '$RUN_ID' AND step_id = 'agent_uses_mcp'" 2>/dev/null | tr -d ' \n')
   if [[ "$AGENT_STATUS" == "complete" ]]; then
     echo "PASS: agent_uses_mcp completed"
@@ -211,7 +215,7 @@ if [[ "$INCLUDE_AGENT" == "true" ]]; then
     OK=false
   fi
 
-  AGENT_ARTIFACT=$(docker exec fleetlift-postgres-1 psql -U fleetlift -d fleetlift -t -c \
+  AGENT_ARTIFACT=$(psql "$DATABASE_URL" -t -c \
     "SELECT count(*) FROM artifacts a JOIN step_runs sr ON a.step_run_id = sr.id WHERE sr.run_id = '$RUN_ID' AND a.name = 'mcp-test-agent.txt'" 2>/dev/null | tr -d ' \n')
   if [[ "$AGENT_ARTIFACT" -ge 1 ]]; then
     echo "PASS: agent artifact 'mcp-test-agent.txt' found"
@@ -222,7 +226,7 @@ if [[ "$INCLUDE_AGENT" == "true" ]]; then
 fi
 
 # ── Cleanup test data ─────────────────────────────────────────────────────────
-docker exec fleetlift-postgres-1 psql -U fleetlift -d fleetlift -c \
+psql "$DATABASE_URL" -c \
   "DELETE FROM knowledge_items WHERE summary = 'mcp-test-learning'" 2>/dev/null || true
 
 # ── Final result ──────────────────────────────────────────────────────────────
