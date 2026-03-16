@@ -8,9 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/793c829e-7d01-4a72-980a-85eb4a9926dc" controls width="800"></video>
-</p>
+https://github.com/user-attachments/assets/793c829e-7d01-4a72-980a-85eb4a9926dc"
 
 ---
 
