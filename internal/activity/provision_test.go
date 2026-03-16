@@ -217,6 +217,15 @@ func TestProvisionSandbox_MCPSetup(t *testing.T) {
 			assert.Contains(t, cmd, "FLEETLIFT_MCP_TOKEN=", "token should be in env var")
 		}
 	}
+
+	// Verify profile.d write includes both PORT and TOKEN
+	foundTokenExport := false
+	for _, cmd := range sb.execCmds {
+		if strings.Contains(cmd, "FLEETLIFT_MCP_TOKEN") && strings.Contains(cmd, "profile.d") {
+			foundTokenExport = true
+		}
+	}
+	assert.True(t, foundTokenExport, "expected profile.d write to include FLEETLIFT_MCP_TOKEN export")
 }
 
 func TestProvisionSandbox_MCPSkippedWhenBinaryMissing(t *testing.T) {

@@ -154,11 +154,14 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 			return "", fmt.Errorf("MCP sidecar health check failed after 5s")
 		}
 
-		// Inject MCP port into sandbox env so the agent runner can discover it.
-		if _, _, err := a.Sandbox.Exec(ctx, sandboxID,
-			fmt.Sprintf("echo 'export FLEETLIFT_MCP_PORT=%s' >> /etc/profile.d/fleetlift-mcp.sh", shellquote.Quote(mcpPort)), "/"); err != nil {
+		// Inject MCP port and token into sandbox env so the agent runner and test steps can use them.
+		profileCmd := fmt.Sprintf(
+			"printf 'export FLEETLIFT_MCP_PORT=%s\nexport FLEETLIFT_MCP_TOKEN=%s\n' >> /etc/profile.d/fleetlift-mcp.sh",
+			shellquote.Quote(mcpPort), shellquote.Quote(mcpToken),
+		)
+		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, profileCmd, "/"); err != nil {
 			_ = a.Sandbox.Kill(ctx, sandboxID)
-			return "", fmt.Errorf("persist FLEETLIFT_MCP_PORT in sandbox: %w", err)
+			return "", fmt.Errorf("persist MCP env in sandbox: %w", err)
 		}
 	}
 
