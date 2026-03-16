@@ -21,13 +21,14 @@ steps:
       agent: shell
       prompt: |
         . /etc/profile.d/fleetlift-mcp.sh 2>/dev/null
-        exec perl -e '
+        test -n "$FLEETLIFT_MCP_PORT" || { echo "FAIL: FLEETLIFT_MCP_PORT not set"; exit 1; }
+        test -n "$FLEETLIFT_MCP_TOKEN" || { echo "FAIL: FLEETLIFT_MCP_TOKEN not set"; exit 1; }
+        cat > /tmp/mcp_test.pl << 'PERLEOF'
         use strict; use warnings; use IO::Socket::INET;
-        my $port = $ENV{FLEETLIFT_MCP_PORT} || die "FAIL: FLEETLIFT_MCP_PORT not set\n";
-        my $token = $ENV{FLEETLIFT_MCP_TOKEN} || die "FAIL: FLEETLIFT_MCP_TOKEN not set\n";
+        my $port = $ENV{FLEETLIFT_MCP_PORT};
+        my $token = $ENV{FLEETLIFT_MCP_TOKEN};
         my $api = "host.docker.internal:8080";
         my ($pass,$fail) = (0,0);
-
         sub http_req {
           my ($method,$path,$body) = @_;
           my $s = IO::Socket::INET->new(PeerAddr=>$api,Timeout=>5) or return (0,"connect failed");
@@ -40,14 +41,11 @@ steps:
           $resp =~ /^HTTP\/\S+\s+(\d+)/s or return (0,"no status");
           return ($1, $resp);
         }
-
         sub check {
           my ($name,$expect,$got) = @_;
           if ($got == $expect) { print "PASS: $name (HTTP $got)\n"; $pass++; }
-          else { print "FAIL: $name — expected HTTP $expect, got $got\n"; $fail++; }
+          else { print "FAIL: $name - expected HTTP $expect, got $got\n"; $fail++; }
         }
-
-        # Health check (retry 5x)
         my $healthy = 0;
         for (1..5) {
           my $s = IO::Socket::INET->new(PeerAddr=>"localhost:$port",Timeout=>1);
@@ -55,42 +53,26 @@ steps:
           sleep 1;
         }
         if ($healthy) { print "PASS: sidecar health check\n"; $pass++; }
-        else { die "FAIL: sidecar health check — not responding after 5s\n"; }
-
-        # 1. POST /progress
+        else { die "FAIL: sidecar health check not responding after 5s\n"; }
         my ($c,$r) = http_req("POST","/api/mcp/progress",q({"percentage":25,"message":"mcp-test-shell"}));
         check("POST /progress",200,$c);
-
-        # 2. POST /artifacts
         ($c,$r) = http_req("POST","/api/mcp/artifacts",q({"name":"mcp-test-shell.txt","content":"hello from shell"}));
         check("POST /artifacts",201,$c);
-        print "  artifact_id present\n" if $r =~ /artifact_id/;
-
-        # 3. GET /run
         ($c,$r) = http_req("GET","/api/mcp/run",undef);
         check("GET /run",200,$c);
-        print "  run_id present\n" if $r =~ /run_id/;
-
-        # 4. POST /knowledge
         ($c,$r) = http_req("POST","/api/mcp/knowledge",q({"type":"pattern","summary":"mcp-test-learning","details":"integration test"}));
         check("POST /knowledge",201,$c);
-
-        # 5. GET /knowledge/search
         ($c,$r) = http_req("GET","/api/mcp/knowledge/search?q=mcp-test&max=5",undef);
         check("GET /knowledge/search",200,$c);
-
-        # 6. GET /knowledge
         ($c,$r) = http_req("GET","/api/mcp/knowledge?max=5",undef);
         check("GET /knowledge",200,$c);
-
-        # 7. GET /steps/nonexistent/output (expect 404)
         ($c,$r) = http_req("GET","/api/mcp/steps/nonexistent/output",undef);
         check("GET /steps/nonexistent/output",404,$c);
-
         print "\nResults: $pass passed, $fail failed\n";
         exit 1 if $fail > 0;
         print "mcp-endpoints: ALL PASSED\n";
-        '
+        PERLEOF
+        perl /tmp/mcp_test.pl
 
   - id: agent_uses_mcp
     title: Agent uses MCP tools
