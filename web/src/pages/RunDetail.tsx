@@ -10,6 +10,7 @@ import { StatusBadge } from '@/components/StatusBadge'
 import { Skeleton } from '@/components/Skeleton'
 import { Button } from '@/components/ui/button'
 import { useLiveDuration } from '@/lib/use-live-duration'
+import { formatCost } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { parse as parseYaml } from '@/lib/yaml'
 import type { StepDef, StepRun, WorkflowDef } from '@/api/types'
@@ -132,6 +133,11 @@ export function RunDetailPage() {
             >Temporal ↗</a>
           )}
           {duration && <span className="text-sm text-muted-foreground tabular-nums">{duration}</span>}
+          {run.total_cost_usd != null && run.total_cost_usd > 0 && (
+            <span className="text-sm text-muted-foreground">
+              Cost: {formatCost(run.total_cost_usd)}
+            </span>
+          )}
           <StatusBadge status={run.status} />
           {(run.status === 'running' || run.status === 'awaiting_input') && (
             <Button variant="destructive" size="sm" onClick={handleCancel} disabled={cancelling}>

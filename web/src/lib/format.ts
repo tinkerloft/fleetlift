@@ -10,6 +10,13 @@ export function formatDuration(ms: number): string {
   return `${s}s`
 }
 
+/** Format USD cost: "$1.23", "<$0.01", or "-" for zero/null */
+export function formatCost(usd?: number | null): string {
+  if (usd == null || usd === 0) return '-'
+  if (usd < 0.01) return '<$0.01'
+  return `$${usd.toFixed(2)}`
+}
+
 /** Format ISO timestamp as relative time: "3m ago", "2h ago" */
 export function formatTimeAgo(isoString: string): string {
   const diff = Date.now() - new Date(isoString).getTime()

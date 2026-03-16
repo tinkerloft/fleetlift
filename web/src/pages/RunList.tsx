@@ -6,6 +6,7 @@ import { StatusBadge } from '@/components/StatusBadge'
 import { SkeletonRow } from '@/components/Skeleton'
 import { EmptyState } from '@/components/EmptyState'
 import { useLiveDuration } from '@/lib/use-live-duration'
+import { formatCost } from '@/lib/format'
 import { Activity } from 'lucide-react'
 
 function RunRow({ run }: { run: Run }) {
@@ -25,6 +26,9 @@ function RunRow({ run }: { run: Run }) {
       </td>
       <td className="px-4 py-3 text-muted-foreground tabular-nums">
         {duration ?? '-'}
+      </td>
+      <td className="px-4 py-3 text-muted-foreground tabular-nums">
+        {formatCost(run.total_cost_usd)}
       </td>
       <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
         {run.id.slice(0, 8)}
@@ -58,6 +62,7 @@ export function RunListPage() {
               <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium">Started</th>
               <th className="px-4 py-3 font-medium">Duration</th>
+              <th className="px-4 py-3 font-medium">Cost</th>
               <th className="px-4 py-3 font-medium">ID</th>
             </tr>
           </thead>
@@ -67,7 +72,7 @@ export function RunListPage() {
             ))}
             {data?.items?.length === 0 && (
               <tr>
-                <td colSpan={5} className="p-0">
+                <td colSpan={6} className="p-0">
                   <EmptyState icon={Activity} title="No runs yet" description="Start a workflow to see runs here." action={{ label: 'Browse Workflows', href: '/workflows' }} />
                 </td>
               </tr>
