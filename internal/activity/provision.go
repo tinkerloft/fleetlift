@@ -133,6 +133,11 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 		}
 
 		// Health check — retry for up to 5 seconds, respecting context cancellation.
+		// Uses perl (available in minimal ubuntu:22.04) instead of curl which may not be installed.
+		healthCmd := fmt.Sprintf(
+			`perl -e 'use IO::Socket::INET; use IO::Handle; my $s=IO::Socket::INET->new(PeerAddr=>"localhost:%s",Timeout=>1) or exit 1; print $s "GET /health HTTP/1.0\r\nHost: localhost\r\n\r\n"; my $r=join"",$s->getlines; print $r=~/ok/?"ok":"fail"'`,
+			shellquote.Quote(mcpPort),
+		)
 		healthy := false
 		for i := 0; i < 10; i++ {
 			select {
@@ -141,8 +146,7 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 				return "", fmt.Errorf("context cancelled during MCP health check: %w", ctx.Err())
 			default:
 			}
-			out, _, err := a.Sandbox.Exec(ctx, sandboxID,
-				"curl -sf http://localhost:"+shellquote.Quote(mcpPort)+"/health", "/")
+			out, _, err := a.Sandbox.Exec(ctx, sandboxID, healthCmd, "/")
 			if err == nil && strings.Contains(out, "ok") {
 				healthy = true
 				break

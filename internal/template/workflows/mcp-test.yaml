@@ -22,6 +22,9 @@ steps:
       prompt: |
         set -euo pipefail
 
+        # ── Install curl (not present in minimal ubuntu:22.04) ──
+        apt-get update -qq > /dev/null 2>&1 && apt-get install -y -qq curl > /dev/null 2>&1 || true
+
         # ── Load MCP env ──
         . /etc/profile.d/fleetlift-mcp.sh 2>/dev/null || true
 
