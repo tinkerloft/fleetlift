@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"go.temporal.io/sdk/temporal"
+
 	"github.com/tinkerloft/fleetlift/internal/auth"
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
 	"github.com/tinkerloft/fleetlift/internal/shellquote"
@@ -99,25 +101,33 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 			goarch = "arm64"
 		default:
 			_ = a.Sandbox.Kill(ctx, sandboxID)
-			return "", fmt.Errorf("unsupported sandbox architecture %q", archRaw)
+			return "", temporal.NewNonRetryableApplicationError(
+				fmt.Sprintf("unsupported sandbox architecture %q", archRaw),
+				"UNSUPPORTED_ARCH", nil)
 		}
 		mcpBinaryPath := mcpBinaryPrefix + "-" + goarch
 
 		mcpData, err := os.ReadFile(mcpBinaryPath)
 		if err != nil {
 			_ = a.Sandbox.Kill(ctx, sandboxID)
-			return "", fmt.Errorf("MCP binary not found for arch %q: %s — run: make mcp-sidecar: %w", goarch, mcpBinaryPath, err)
+			return "", temporal.NewNonRetryableApplicationError(
+				fmt.Sprintf("MCP binary not found for arch %q: %s — run: make mcp-sidecar: %v", goarch, mcpBinaryPath, err),
+				"BINARY_NOT_FOUND", err)
 		}
 
 		jwtSecret := []byte(os.Getenv("JWT_SECRET"))
 		if len(jwtSecret) == 0 {
 			_ = a.Sandbox.Kill(ctx, sandboxID)
-			return "", fmt.Errorf("JWT_SECRET is required when FLEETLIFT_MCP_BINARY_PATH is set")
+			return "", temporal.NewNonRetryableApplicationError(
+				"JWT_SECRET is required when FLEETLIFT_MCP_BINARY_PATH is set",
+				"MISSING_JWT_SECRET", nil)
 		}
 		mcpToken, err := auth.IssueMCPToken(jwtSecret, input.TeamID, input.RunID)
 		if err != nil {
 			_ = a.Sandbox.Kill(ctx, sandboxID)
-			return "", fmt.Errorf("issue MCP token: %w", err)
+			return "", temporal.NewNonRetryableApplicationError(
+				fmt.Sprintf("issue MCP token: %v", err),
+				"TOKEN_ISSUE_FAILED", err)
 		}
 
 		if err := a.Sandbox.WriteBytes(ctx, sandboxID, "/usr/local/bin/fleetlift-mcp", mcpData); err != nil {

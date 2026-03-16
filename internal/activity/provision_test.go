@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
 	"github.com/tinkerloft/fleetlift/internal/workflow"
@@ -270,6 +271,9 @@ func TestProvisionSandbox_MCPFailsWhenBinaryUnreadable(t *testing.T) {
 	_, err := a.ProvisionSandbox(context.Background(), input)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "MCP binary not found")
+	var appErr *temporal.ApplicationError
+	require.ErrorAs(t, err, &appErr)
+	assert.True(t, appErr.NonRetryable(), "binary-not-found error must be non-retryable")
 }
 
 func TestProvisionSandbox_MCPFailsWhenJWTSecretEmpty(t *testing.T) {
@@ -287,6 +291,48 @@ func TestProvisionSandbox_MCPFailsWhenJWTSecretEmpty(t *testing.T) {
 	_, err := a.ProvisionSandbox(context.Background(), input)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "JWT_SECRET is required")
+	var appErr *temporal.ApplicationError
+	require.ErrorAs(t, err, &appErr)
+	assert.True(t, appErr.NonRetryable(), "missing JWT_SECRET error must be non-retryable")
+}
+
+// mcpSandboxWithArch is like mcpSandbox but returns a custom arch string from uname -m.
+type mcpSandboxWithArch struct {
+	mcpSandbox
+	arch string
+}
+
+func newMCPSandboxWithArch(arch string) *mcpSandboxWithArch {
+	return &mcpSandboxWithArch{
+		mcpSandbox: mcpSandbox{writtenFiles: make(map[string][]byte)},
+		arch:       arch,
+	}
+}
+
+func (m *mcpSandboxWithArch) Exec(ctx context.Context, sandboxID, cmd, dir string) (string, string, error) {
+	if cmd == "uname -m" {
+		m.execCmds = append(m.execCmds, cmd)
+		return m.arch + "\n", "", nil
+	}
+	return m.mcpSandbox.Exec(ctx, sandboxID, cmd, dir)
+}
+
+func TestProvisionSandbox_MCPFailsOnUnsupportedArch(t *testing.T) {
+	tmpPrefix := t.TempDir() + "/fleetlift-mcp"
+	t.Setenv("FLEETLIFT_MCP_BINARY_PATH", tmpPrefix)
+	t.Setenv("JWT_SECRET", "test-secret-key-32bytes-minimum!")
+
+	a := &Activities{Sandbox: newMCPSandboxWithArch("mips")}
+	input := workflow.StepInput{
+		TeamID:       "team-1",
+		ResolvedOpts: workflow.ResolvedStepOpts{Agent: "claude-code"},
+	}
+	_, err := a.ProvisionSandbox(context.Background(), input)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported sandbox architecture")
+	var appErr *temporal.ApplicationError
+	require.ErrorAs(t, err, &appErr)
+	assert.True(t, appErr.NonRetryable(), "unsupported arch error must be non-retryable")
 }
 
 func TestProvisionSandbox_MCPFailsOnHealthCheckTimeout(t *testing.T) {
