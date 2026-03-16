@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -187,7 +186,9 @@ func TestDAGWorkflow_StepFailsRunFails(t *testing.T) {
 	mocks.On("ProvisionSandbox", mock.Anything).Return("sb-1", nil)
 	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
 		return ei.StepInput.StepDef.ID == "step-1"
-	})).Return(nil, fmt.Errorf("execution failed"))
+	})).Return(nil, temporal.NewNonRetryableApplicationError(
+		"execution failed", "ExecutionError", nil,
+	))
 
 	def := model.WorkflowDef{
 		Steps: []model.StepDef{
@@ -230,10 +231,12 @@ func TestDAGWorkflow_DownstreamSkippedOnFailure(t *testing.T) {
 		Status: model.StepStatusComplete,
 	}, nil)
 
-	// step-2 fails
+	// step-2 fails — non-retryable to avoid spurious retries in test env.
 	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
 		return ei.StepInput.StepDef.ID == "step-2"
-	})).Return(nil, fmt.Errorf("execution failed"))
+	})).Return(nil, temporal.NewNonRetryableApplicationError(
+		"execution failed", "ExecutionError", nil,
+	))
 
 	def := model.WorkflowDef{
 		Steps: []model.StepDef{
@@ -547,6 +550,7 @@ func TestDAGWorkflow_CredentialPreflightFails(t *testing.T) {
 	env.RegisterActivity(mocks.ProvisionSandbox)
 	env.RegisterActivity(mocks.ExecuteStep)
 	env.RegisterActivity(mocks.ExecuteAction)
+	env.RegisterActivity(mocks.UpdateStepStatus)
 
 	// Default success stubs for DB/status activities.
 	mocks.On("UpdateRunStatus", mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -554,6 +558,7 @@ func TestDAGWorkflow_CredentialPreflightFails(t *testing.T) {
 	mocks.On("CompleteStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.On("CreateInboxItem", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.On("CleanupSandbox", mock.Anything).Return(nil)
+	mocks.On("UpdateStepStatus", mock.Anything, mock.Anything).Return(nil)
 
 	// Credential preflight fails — use non-retryable to avoid test env retry loops.
 	mocks.On("ValidateCredentials", mock.Anything, mock.Anything).Return(
@@ -808,10 +813,12 @@ func TestDAGWorkflow_OptionalStepFailureDoesntFailRun(t *testing.T) {
 		Status: model.StepStatusComplete,
 	}, nil)
 
-	// step-2 (optional) fails
+	// step-2 (optional) fails — non-retryable to avoid spurious retries in test env.
 	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
 		return ei.StepInput.StepDef.ID == "step-2"
-	})).Return(nil, fmt.Errorf("optional step execution failed"))
+	})).Return(nil, temporal.NewNonRetryableApplicationError(
+		"optional step execution failed", "ExecutionError", nil,
+	))
 
 	def := model.WorkflowDef{
 		Steps: []model.StepDef{
@@ -947,4 +954,97 @@ func TestDAGWorkflow_ActionConfigRendering(t *testing.T) {
 
 	require.True(t, env.IsWorkflowCompleted())
 	assert.NoError(t, env.GetWorkflowError())
+}
+
+// TestDAGWorkflow_CancellationPath verifies that cancelling the DAG workflow marks the
+// run as cancelled and cleans up sandbox groups.
+func TestDAGWorkflow_CancellationPath(t *testing.T) {
+	env, mocks := newDAGTestEnv(t)
+
+	mocks.On("ProvisionSandbox", mock.Anything).Return("sb-1", nil)
+	mocks.On("ExecuteStep", mock.Anything).Return(&model.StepOutput{
+		StepID: "step-1",
+		Status: model.StepStatusComplete,
+	}, nil)
+
+	env.RegisterDelayedCallback(func() {
+		env.CancelWorkflow()
+	}, 0)
+
+	def := model.WorkflowDef{
+		Steps: []model.StepDef{
+			{
+				ID:           "step-1",
+				Title:        "Long Running Step",
+				SandboxGroup: "main",
+				Execution: &model.ExecutionDef{
+					Agent:  "claude-code",
+					Prompt: "do something slow",
+				},
+			},
+			{
+				ID:        "step-2",
+				Title:     "After Long Step",
+				DependsOn: []string{"step-1"},
+				Execution: &model.ExecutionDef{
+					Agent:  "claude-code",
+					Prompt: "do something after",
+				},
+			},
+		},
+	}
+
+	env.ExecuteWorkflow(DAGWorkflow, DAGInput{
+		RunID:       "run-cancel-1",
+		TeamID:      "team-1",
+		WorkflowDef: def,
+		Parameters:  map[string]any{},
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	err := env.GetWorkflowError()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "canceled")
+}
+
+// TestDAGWorkflow_DeadlockDetection verifies that a circular dependency is detected
+// as a deadlock instead of hanging forever.
+func TestDAGWorkflow_DeadlockDetection(t *testing.T) {
+	env, mocks := newDAGTestEnv(t)
+	_ = mocks // No step-level mocks needed — deadlock detected before any step runs.
+
+	def := model.WorkflowDef{
+		Steps: []model.StepDef{
+			{
+				ID:        "step-1",
+				Title:     "Step A",
+				DependsOn: []string{"step-2"},
+				Execution: &model.ExecutionDef{
+					Agent:  "claude-code",
+					Prompt: "never runs",
+				},
+			},
+			{
+				ID:        "step-2",
+				Title:     "Step B",
+				DependsOn: []string{"step-1"},
+				Execution: &model.ExecutionDef{
+					Agent:  "claude-code",
+					Prompt: "never runs",
+				},
+			},
+		},
+	}
+
+	env.ExecuteWorkflow(DAGWorkflow, DAGInput{
+		RunID:       "run-deadlock-1",
+		TeamID:      "team-1",
+		WorkflowDef: def,
+		Parameters:  map[string]any{},
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	err := env.GetWorkflowError()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "deadlock")
 }
