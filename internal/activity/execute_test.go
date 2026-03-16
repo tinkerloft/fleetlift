@@ -231,3 +231,23 @@ func TestEnforceOutputSchema_Success(t *testing.T) {
 	assert.Equal(t, "ok", out["summary"])
 	assert.Equal(t, "low", out["severity"])
 }
+
+func TestExtractCostFromOutput(t *testing.T) {
+	tests := []struct {
+		name     string
+		raw      map[string]any
+		wantCost float64
+	}{
+		{"cost_usd field", map[string]any{"cost_usd": 0.05, "result": "done"}, 0.05},
+		{"no cost field", map[string]any{"result": "done"}, 0.0},
+		{"zero cost", map[string]any{"cost_usd": 0.0, "result": "done"}, 0.0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractCostUSD(tt.raw)
+			if got != tt.wantCost {
+				t.Errorf("extractCostUSD() = %v, want %v", got, tt.wantCost)
+			}
+		})
+	}
+}
