@@ -258,6 +258,7 @@ func finalizeStep(ctx workflow.Context, logger log.Logger, stepRunID string, out
 		output.Output,
 		output.Diff,
 		output.Error,
+		output.CostUSD,
 	).Get(ctx, nil); err != nil {
 		logger.Error("failed to finalize step run", "step_run_id", stepRunID, "error", err)
 		return fmt.Errorf("finalize step run %s: %w", stepRunID, err)

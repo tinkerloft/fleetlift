@@ -65,7 +65,16 @@ func (a *Activities) UpdateRunStatus(ctx context.Context, runID string, status s
 
 	switch {
 	case isRunTerminal(model.RunStatus(status)):
-		query = `UPDATE runs SET status = $1, completed_at = $2, error_message = NULLIF($3, '') WHERE id = $4`
+		query = `UPDATE runs
+             SET status = $1,
+                 completed_at = $2,
+                 error_message = NULLIF($3, ''),
+                 total_cost_usd = (
+                     SELECT COALESCE(SUM(cost_usd), 0)
+                     FROM step_runs
+                     WHERE run_id = $4
+                 )
+             WHERE id = $4`
 		args = []any{status, now, errorMsg, runID}
 	case status == string(model.RunStatusRunning):
 		query = `UPDATE runs SET status = $1, started_at = COALESCE(started_at, $2), error_message = NULL WHERE id = $3`
@@ -93,8 +102,8 @@ func (a *Activities) CreateInboxItem(ctx context.Context, teamID, runID, stepRun
 	return nil
 }
 
-// CompleteStepRun sets the final status, output, diff, and error for a step run.
-func (a *Activities) CompleteStepRun(ctx context.Context, stepRunID string, status string, output map[string]any, diff string, errorMsg string) error {
+// CompleteStepRun sets the final status, output, diff, error, and cost for a step run.
+func (a *Activities) CompleteStepRun(ctx context.Context, stepRunID string, status string, output map[string]any, diff string, errorMsg string, costUSD float64) error {
 	now := time.Now()
 	_, err := a.DB.ExecContext(ctx,
 		`UPDATE step_runs
@@ -103,9 +112,10 @@ func (a *Activities) CompleteStepRun(ctx context.Context, stepRunID string, stat
 		     diff = NULLIF($3, ''),
 		     error_message = NULLIF($4, ''),
 		     started_at = COALESCE(started_at, $5),
-		     completed_at = $6
+		     completed_at = $6,
+		     cost_usd = NULLIF($8::numeric, 0)
 		 WHERE id = $7`,
-		status, model.JSONMap(output), diff, errorMsg, now, now, stepRunID)
+		status, model.JSONMap(output), diff, errorMsg, now, now, stepRunID, costUSD)
 	if err != nil {
 		return fmt.Errorf("complete step run: %w", err)
 	}
