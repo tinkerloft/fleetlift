@@ -20,10 +20,11 @@ No call sites change — only the `Migrate()` implementation is replaced.
 
 | File | Content |
 |------|---------|
-| `internal/db/migrations/001_initial.up.sql` | Renamed from `001_initial.sql`; existing full schema DDL unchanged |
-| `internal/db/migrations/002_cost_tracking.up.sql` | The two `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` lines currently at the bottom of `schema.sql` |
+| `internal/db/migrations/001_initial.up.sql` | Renamed from `001_initial.sql`; existing full schema DDL unchanged — all `CREATE TABLE IF NOT EXISTS` blocks and their associated indexes (lines 1–180 of `schema.sql`) |
+| `internal/db/migrations/002_post_initial.up.sql` | Incremental DDL added 2026-03-12 and 2026-03-15 — currently lives in `schema.sql` lines 181–232: `temporal_workflow_id` column, 3 indexes, `notify_run_event()` function + 3 triggers, `credentials.team_id` nullability change + 2 partial unique indexes |
+| `internal/db/migrations/003_cost_tracking.up.sql` | The two `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` lines at the very bottom of `schema.sql` (lines 235–236): `step_runs.cost_usd` and `runs.total_cost_usd` |
 
-`schema.sql` retains the `CREATE TABLE` blocks as a human-readable reference but loses the two `ALTER TABLE` lines — they move into `002_cost_tracking.up.sql`. `schema.sql` is no longer executed at runtime.
+`schema.sql` retains all `CREATE TABLE` blocks as a human-readable reference. Lines 181–236 (all incremental DDL) are removed from `schema.sql` since they are now covered by `002_post_initial.up.sql` and `003_cost_tracking.up.sql`. `schema.sql` is no longer executed at runtime.
 
 No down migration files — up-only.
 
@@ -45,6 +46,17 @@ Sub-packages used:
 Replace the existing `schema` embed and `Migrate()` with:
 
 ```go
+import (
+    "embed"
+    "errors"
+    "fmt"
+
+    "github.com/golang-migrate/migrate/v4"
+    "github.com/golang-migrate/migrate/v4/database/postgres"
+    "github.com/golang-migrate/migrate/v4/source/iofs"
+    "github.com/jmoiron/sqlx"
+)
+
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
@@ -70,11 +82,13 @@ func Migrate(db *sqlx.DB) error {
 
 `db.DB` unwraps the `*sql.DB` from `*sqlx.DB` — reuses the existing connection pool, no second connection needed.
 
-The `schema` embed variable and its import are removed.
+The existing `schema` embed variable, its `//go:embed schema.sql` directive, and the `_ "embed"` blank import (if present) are removed and replaced with the `migrationFiles` embed above. The `"errors"` package must be added to imports.
 
 ### `internal/db/schema.sql`
 
-Remove the two `ALTER TABLE` lines at the bottom (they move to `002_cost_tracking.up.sql`). The rest of the file is unchanged and serves as human-readable schema reference only.
+Remove lines 181–236 (all incremental DDL — `temporal_workflow_id`, indexes, triggers, credentials nullability changes, and cost columns). These move into `002_post_initial.up.sql` and `003_cost_tracking.up.sql`. The remaining file (lines 1–180) serves as human-readable schema reference only and is no longer executed at runtime.
+
+Note: the DO block in `002_post_initial.up.sql` (credentials nullability guard) may be simplified to a plain `ALTER TABLE credentials ALTER COLUMN team_id DROP NOT NULL;` since golang-migrate's version tracking provides idempotency — the migration runs exactly once.
 
 ## Error Handling
 
