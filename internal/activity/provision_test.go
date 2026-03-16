@@ -196,8 +196,8 @@ func TestProvisionSandbox_MCPSetup(t *testing.T) {
 	a := &Activities{Sandbox: sb}
 
 	input := workflow.StepInput{
-		TeamID: "team-1",
-		RunID:  "run-1",
+		TeamID:       "team-1",
+		RunID:        "run-1",
 		ResolvedOpts: workflow.ResolvedStepOpts{Agent: "claude-code"},
 	}
 	sandboxID, err := a.ProvisionSandbox(context.Background(), input)
@@ -290,8 +290,8 @@ func TestProvisionSandbox_MCPFailsOnHealthCheckTimeout(t *testing.T) {
 	a := &Activities{Sandbox: sb}
 
 	input := workflow.StepInput{
-		TeamID: "team-1",
-		RunID:  "run-1",
+		TeamID:       "team-1",
+		RunID:        "run-1",
 		ResolvedOpts: workflow.ResolvedStepOpts{Agent: "claude-code"},
 	}
 	_, err := a.ProvisionSandbox(context.Background(), input)
