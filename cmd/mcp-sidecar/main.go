@@ -83,7 +83,7 @@ func resultJSON(data map[string]any) *mcp.CallToolResult {
 	return mcp.NewToolResultText(string(b))
 }
 
-// registerTools registers all 7 MCP tools on the given server.
+// registerTools registers all 9 MCP tools on the given server.
 func (s *Shim) registerTools(srv *server.MCPServer) {
 	// 1. context.get_run
 	srv.AddTool(mcp.NewTool("context.get_run",
@@ -247,6 +247,70 @@ func (s *Shim) registerTools(srv *server.MCPServer) {
 			body["message"] = m
 		}
 		result, err := s.call("POST", "/api/mcp/progress", body)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return resultJSON(result), nil
+	})
+
+	// 8. inbox.notify
+	srv.AddTool(mcp.NewTool("inbox.notify",
+		mcp.WithDescription("Send a notification to the team inbox without blocking execution."),
+		mcp.WithString("title", mcp.Required()),
+		mcp.WithString("summary", mcp.Required()),
+		mcp.WithString("urgency", mcp.Description("low | normal | high; default: normal")),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		title, err := req.RequireString("title")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		summary, err := req.RequireString("summary")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		body := map[string]any{
+			"title":   title,
+			"summary": summary,
+		}
+		if u := req.GetString("urgency", ""); u != "" {
+			body["urgency"] = u
+		}
+		result, err := s.call("POST", "/api/mcp/inbox/notify", body)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return resultJSON(result), nil
+	})
+
+	// 9. inbox.request_input
+	srv.AddTool(mcp.NewTool("inbox.request_input",
+		mcp.WithDescription(
+			"Request human input. This ends the current step. "+
+				"A continuation step will run in a fresh sandbox with the human's answer once they respond. "+
+				"IMPORTANT: Call this as your FINAL action before exiting. Do not continue work after this call.",
+		),
+		mcp.WithString("question", mcp.Required()),
+		mcp.WithString("state_summary", mcp.Description("What you've done so far")),
+		mcp.WithString("urgency", mcp.Description("low | normal | high; default: normal")),
+		mcp.WithString("checkpoint_branch", mcp.Description("Git branch with committed working state")),
+	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		question, err := req.RequireString("question")
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		body := map[string]any{
+			"question": question,
+		}
+		if ss := req.GetString("state_summary", ""); ss != "" {
+			body["state_summary"] = ss
+		}
+		if u := req.GetString("urgency", ""); u != "" {
+			body["urgency"] = u
+		}
+		if cb := req.GetString("checkpoint_branch", ""); cb != "" {
+			body["checkpoint_branch"] = cb
+		}
+		result, err := s.call("POST", "/api/mcp/inbox/request_input", body)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}

@@ -77,7 +77,7 @@ func TestShim_RegisterTools(t *testing.T) {
 	srv := server.NewMCPServer("test", "0.1.0")
 	shim := &Shim{apiURL: "http://localhost:9999", token: "tok", httpClient: http.DefaultClient}
 	shim.registerTools(srv)
-	// Verify all 7 tools are registered by initializing and listing tools
+	// Verify all 9 tools are registered by initializing and listing tools
 	// We can't easily list tools from MCPServer, but we verify no panic and build succeeds
 }
 
@@ -248,6 +248,56 @@ func TestShim_ToolReturnsErrorOnBackendFailure(t *testing.T) {
 	result := callTool(t, srv, "context.get_run", nil)
 	assert.NotNil(t, result)
 	assert.True(t, result.IsError)
+}
+
+func TestShim_InboxNotifyToolHandler(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "POST", r.Method)
+		assert.Equal(t, "/api/mcp/inbox/notify", r.URL.Path)
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		assert.Equal(t, "Build complete", body["title"])
+		assert.Equal(t, "All tests passed", body["summary"])
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"inbox_item_id": "item-1"})
+	}))
+	defer backend.Close()
+
+	shim := &Shim{apiURL: backend.URL, token: "test-token", httpClient: http.DefaultClient}
+	srv := server.NewMCPServer("test", "0.1.0")
+	shim.registerTools(srv)
+
+	result := callTool(t, srv, "inbox.notify", map[string]any{
+		"title":   "Build complete",
+		"summary": "All tests passed",
+	})
+	assert.NotNil(t, result)
+	assert.False(t, result.IsError)
+}
+
+func TestShim_InboxRequestInputToolHandler(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "POST", r.Method)
+		assert.Equal(t, "/api/mcp/inbox/request_input", r.URL.Path)
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		assert.Equal(t, "Fix or skip flaky tests?", body["question"])
+		assert.Equal(t, "Refactor done, 3 flaky tests remain", body["state_summary"])
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"inbox_item_id": "item-2", "status": "input_requested"})
+	}))
+	defer backend.Close()
+
+	shim := &Shim{apiURL: backend.URL, token: "test-token", httpClient: http.DefaultClient}
+	srv := server.NewMCPServer("test", "0.1.0")
+	shim.registerTools(srv)
+
+	result := callTool(t, srv, "inbox.request_input", map[string]any{
+		"question":      "Fix or skip flaky tests?",
+		"state_summary": "Refactor done, 3 flaky tests remain",
+	})
+	assert.NotNil(t, result)
+	assert.False(t, result.IsError)
 }
 
 // callTool invokes a tool on the MCPServer by constructing an MCP JSON-RPC request.
