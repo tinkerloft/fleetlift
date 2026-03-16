@@ -27,10 +27,9 @@ func (r *ShellRunner) Name() string                  { return "shell" }
 func (r *ShellRunner) SandboxEnv() map[string]string { return nil }
 
 func (r *ShellRunner) Run(ctx context.Context, sandboxID string, opts RunOpts) (<-chan Event, error) {
-	// Wrap the user command to capture the exit code via a sentinel line.
-	// Use /bin/sh (full path) because the sandbox execd may not have /usr/bin in PATH.
-	inner := opts.Prompt + "; echo " + exitCodeSentinel + "$?"
-	cmd := "/bin/sh -c " + shellquote.Quote(inner)
+	// Append exit code sentinel. OpenSandbox's execd already runs commands via
+	// bash -c, so we pass the prompt directly — no extra /bin/sh -c wrapper needed.
+	cmd := opts.Prompt + "\necho " + exitCodeSentinel + "$?"
 
 	ch := make(chan Event, 64)
 	go func() {
