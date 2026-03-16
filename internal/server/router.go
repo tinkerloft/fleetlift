@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/jmoiron/sqlx"
 
 	"github.com/tinkerloft/fleetlift/internal/auth"
 	"github.com/tinkerloft/fleetlift/internal/server/handlers"
@@ -28,6 +29,8 @@ type Deps struct {
 	Credentials       *handlers.CredentialsHandler
 	SystemCredentials *handlers.SystemCredentialsHandler
 	Knowledge         *handlers.KnowledgeHandler
+	MCP               *handlers.MCPHandler
+	DB                *sqlx.DB
 	Actions           *handlers.ActionsHandler
 	TemporalUIURL     string
 }
@@ -69,6 +72,18 @@ func NewRouter(deps Deps) (http.Handler, error) {
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"temporal_ui_url": temporalUIURL,
 		})
+	})
+
+	// MCP API (separate auth — run-scoped JWT, not user JWT)
+	r.Route("/api/mcp", func(r chi.Router) {
+		r.Use(auth.MCPAuth(deps.JWTSecret, deps.DB))
+		r.Get("/run", deps.MCP.HandleGetRun)
+		r.Get("/steps/{stepID}/output", deps.MCP.HandleGetStepOutput)
+		r.Get("/knowledge", deps.MCP.HandleGetKnowledge)
+		r.Post("/artifacts", deps.MCP.HandleCreateArtifact)
+		r.Post("/knowledge", deps.MCP.HandleAddLearning)
+		r.Get("/knowledge/search", deps.MCP.HandleSearchKnowledge)
+		r.Post("/progress", deps.MCP.HandleUpdateProgress)
 	})
 
 	// Authenticated API

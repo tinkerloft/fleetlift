@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -66,4 +67,87 @@ func TestStore_ListApprovedByWorkflow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, results, 1)
 	assert.Equal(t, "a", results[0].Summary)
+}
+
+func TestMemoryStore_SearchByTeam(t *testing.T) {
+	store := knowledge.NewMemoryStore()
+	ctx := context.Background()
+
+	_, _ = store.Save(ctx, model.KnowledgeItem{
+		TeamID: "team-1", Summary: "React migration requires babel config",
+		Tags: pq.StringArray{"react", "migration"}, Status: model.KnowledgeStatusApproved, Confidence: 0.9,
+	})
+	_, _ = store.Save(ctx, model.KnowledgeItem{
+		TeamID: "team-1", Summary: "Go tests need -race flag",
+		Tags: pq.StringArray{"go", "testing"}, Status: model.KnowledgeStatusApproved, Confidence: 0.8,
+	})
+	_, _ = store.Save(ctx, model.KnowledgeItem{
+		TeamID: "team-1", Summary: "Pending item about React",
+		Tags: pq.StringArray{"react"}, Status: model.KnowledgeStatusPending, Confidence: 0.7,
+	})
+	_, _ = store.Save(ctx, model.KnowledgeItem{
+		TeamID: "team-2", Summary: "Other team React item",
+		Tags: pq.StringArray{"react"}, Status: model.KnowledgeStatusApproved, Confidence: 0.9,
+	})
+
+	t.Run("search by query", func(t *testing.T) {
+		items, err := store.SearchByTeam(ctx, "team-1", "React", nil, 10)
+		require.NoError(t, err)
+		assert.Len(t, items, 1)
+		assert.Equal(t, "React migration requires babel config", items[0].Summary)
+	})
+
+	t.Run("search by tags", func(t *testing.T) {
+		items, err := store.SearchByTeam(ctx, "team-1", "", []string{"go"}, 10)
+		require.NoError(t, err)
+		assert.Len(t, items, 1)
+		assert.Equal(t, "Go tests need -race flag", items[0].Summary)
+	})
+
+	t.Run("max_items", func(t *testing.T) {
+		items, err := store.SearchByTeam(ctx, "team-1", "", nil, 1)
+		require.NoError(t, err)
+		assert.Len(t, items, 1)
+	})
+
+	t.Run("team isolation", func(t *testing.T) {
+		items, err := store.SearchByTeam(ctx, "team-2", "React", nil, 10)
+		require.NoError(t, err)
+		assert.Len(t, items, 1)
+		assert.Equal(t, "Other team React item", items[0].Summary)
+	})
+
+	t.Run("default maxItems when zero", func(t *testing.T) {
+		items, err := store.SearchByTeam(ctx, "team-1", "", nil, 0)
+		require.NoError(t, err)
+		assert.Len(t, items, 2) // both approved team-1 items
+	})
+
+	t.Run("query and tags combined", func(t *testing.T) {
+		items, err := store.SearchByTeam(ctx, "team-1", "React", []string{"migration"}, 10)
+		require.NoError(t, err)
+		assert.Len(t, items, 1)
+		assert.Equal(t, "React migration requires babel config", items[0].Summary)
+	})
+
+	t.Run("no results for non-matching query and tags", func(t *testing.T) {
+		items, err := store.SearchByTeam(ctx, "team-1", "React", []string{"go"}, 10)
+		require.NoError(t, err)
+		assert.Len(t, items, 0)
+	})
+
+	t.Run("search matches details field", func(t *testing.T) {
+		_, _ = store.Save(ctx, model.KnowledgeItem{
+			TeamID:     "team-1",
+			Summary:    "database optimization tip",
+			Details:    "always add React component keys when rendering lists",
+			Tags:       pq.StringArray{"react"},
+			Status:     model.KnowledgeStatusApproved,
+			Confidence: 0.85,
+		})
+		items, err := store.SearchByTeam(ctx, "team-1", "component keys", nil, 10)
+		require.NoError(t, err)
+		assert.Len(t, items, 1)
+		assert.Equal(t, "database optimization tip", items[0].Summary)
+	})
 }

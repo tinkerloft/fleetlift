@@ -116,6 +116,15 @@ func ValidateConfig() []ConfigIssue {
 		})
 	}
 
+	// JWT secret — required when MCP sidecar is enabled
+	if os.Getenv("JWT_SECRET") == "" && os.Getenv("FLEETLIFT_MCP_BINARY_PATH") != "" {
+		issues = append(issues, ConfigIssue{
+			Name:        "JWT_SECRET",
+			Description: "Required for MCP sidecar token signing (FLEETLIFT_MCP_BINARY_PATH is set)",
+			Required:    true,
+		})
+	}
+
 	return issues
 }
 

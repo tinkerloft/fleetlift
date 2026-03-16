@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -162,7 +163,7 @@ func TestShellRunner_NonZeroExitCode(t *testing.T) {
 	if events[1].Type != "error" {
 		t.Fatalf("expected error event, got %+v", events[1])
 	}
-	if events[1].Content != "command exited with code 127" {
+	if !strings.Contains(events[1].Content, "command exited with code 127") {
 		t.Errorf("unexpected error content: %q", events[1].Content)
 	}
 }

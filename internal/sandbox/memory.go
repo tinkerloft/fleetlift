@@ -36,6 +36,12 @@ func (m *MemoryClient) WriteFile(_ context.Context, _, path, content string) err
 	return nil
 }
 
+func (m *MemoryClient) WriteBytes(_ context.Context, _, path string, data []byte) error {
+	m.files[path] = make([]byte, len(data))
+	copy(m.files[path], data)
+	return nil
+}
+
 func (m *MemoryClient) ReadFile(_ context.Context, _, path string) (string, error) {
 	data, ok := m.files[path]
 	if !ok {

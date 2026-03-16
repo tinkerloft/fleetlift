@@ -25,7 +25,8 @@ func (n *noopSandbox) ExecStream(_ context.Context, _, _, _ string, _ func(strin
 func (n *noopSandbox) Exec(_ context.Context, _, _, _ string) (string, string, error) {
 	return "", "", nil
 }
-func (n *noopSandbox) WriteFile(_ context.Context, _, _, _ string) error { return nil }
+func (n *noopSandbox) WriteFile(_ context.Context, _, _, _ string) error         { return nil }
+func (n *noopSandbox) WriteBytes(_ context.Context, _, _ string, _ []byte) error { return nil }
 func (n *noopSandbox) ReadFile(_ context.Context, _, _ string) (string, error) {
 	return "", nil
 }

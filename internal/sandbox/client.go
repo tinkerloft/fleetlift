@@ -8,6 +8,7 @@ type Client interface {
 	ExecStream(ctx context.Context, id, cmd, workDir string, onLine func(string)) error
 	Exec(ctx context.Context, id, cmd, workDir string) (stdout, stderr string, err error)
 	WriteFile(ctx context.Context, id, path, content string) error
+	WriteBytes(ctx context.Context, id, path string, data []byte) error
 	ReadFile(ctx context.Context, id, path string) (string, error)
 	ReadBytes(ctx context.Context, id, path string) ([]byte, error)
 	Kill(ctx context.Context, id string) error
