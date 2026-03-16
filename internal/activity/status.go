@@ -74,8 +74,8 @@ func (a *Activities) UpdateRunStatus(ctx context.Context, runID string, status s
                      FROM step_runs
                      WHERE run_id = $4
                  )
-             WHERE id = $4`
-		args = []any{status, now, errorMsg, runID}
+             WHERE id = $5`
+		args = []any{status, now, errorMsg, runID, runID}
 	case status == string(model.RunStatusRunning):
 		query = `UPDATE runs SET status = $1, started_at = COALESCE(started_at, $2), error_message = NULL WHERE id = $3`
 		args = []any{status, now, runID}
@@ -113,7 +113,7 @@ func (a *Activities) CompleteStepRun(ctx context.Context, stepRunID string, stat
 		     error_message = NULLIF($4, ''),
 		     started_at = COALESCE(started_at, $5),
 		     completed_at = $6,
-		     cost_usd = NULLIF($8::numeric, 0)
+		     cost_usd = $8
 		 WHERE id = $7`,
 		status, model.JSONMap(output), diff, errorMsg, now, now, stepRunID, costUSD)
 	if err != nil {
