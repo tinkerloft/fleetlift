@@ -178,8 +178,9 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 		}
 
 		// Inject MCP port and token into sandbox env so the agent runner and test steps can use them.
+		// Use separate echo commands to avoid nested single-quote issues with shellquote.
 		profileCmd := fmt.Sprintf(
-			"printf 'export FLEETLIFT_MCP_PORT=%s\nexport FLEETLIFT_MCP_TOKEN=%s\n' >> /etc/profile.d/fleetlift-mcp.sh",
+			"echo export FLEETLIFT_MCP_PORT=%s >> /etc/profile.d/fleetlift-mcp.sh && echo export FLEETLIFT_MCP_TOKEN=%s >> /etc/profile.d/fleetlift-mcp.sh",
 			shellquote.Quote(mcpPort), shellquote.Quote(mcpToken),
 		)
 		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, profileCmd, "/"); err != nil {
