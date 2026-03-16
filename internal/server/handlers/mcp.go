@@ -301,7 +301,7 @@ func (h *MCPHandler) HandleAddLearning(w http.ResponseWriter, r *http.Request) {
 		Summary:            body.Summary,
 		Details:            body.Details,
 		Source:             model.KnowledgeSourceAutoCaptured,
-		Tags:               pq.StringArray(body.Tags),
+		Tags:               pq.StringArray(append([]string{}, body.Tags...)),
 		Confidence:         body.Confidence,
 		Status:             model.KnowledgeStatusPending,
 	}
