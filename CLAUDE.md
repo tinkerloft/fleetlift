@@ -142,4 +142,5 @@ Beyond general unit tests, these specific areas **must** have tests before merge
 | `GITHUB_CLIENT_SECRET` | OAuth app client secret | — |
 | `GIT_USER_EMAIL` | Git commit identity for agent | `claude-agent@noreply.localhost` |
 | `GIT_USER_NAME` | Git commit identity for agent | `Claude Code Agent` |
+| `FLEETLIFT_MCP_BINARY_PATH` | MCP sidecar binary path prefix (arch suffix appended at runtime, e.g. `-amd64`) | — |
 | `FLEETLIFT_API_URL` | CLI base URL | `http://localhost:8080` |

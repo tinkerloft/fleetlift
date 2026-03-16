@@ -170,6 +170,10 @@ func (m *mcpSandbox) Exec(_ context.Context, _, cmd, _ string) (string, string, 
 	if m.failExec != "" && strings.Contains(cmd, m.failExec) {
 		return "", "", fmt.Errorf("exec failed: %s", m.failExec)
 	}
+	// Architecture detection
+	if cmd == "uname -m" {
+		return "x86_64\n", "", nil
+	}
 	// Health check returns "ok"
 	if strings.Contains(cmd, "/health") {
 		return `{"status":"ok"}`, "", nil
@@ -185,11 +189,11 @@ func (m *mcpSandbox) WriteBytes(_ context.Context, _, path string, data []byte) 
 func (m *mcpSandbox) Kill(_ context.Context, _ string) error { return nil }
 
 func TestProvisionSandbox_MCPSetup(t *testing.T) {
-	// Create a temp file to act as the MCP binary.
-	tmpFile := t.TempDir() + "/fleetlift-mcp"
-	require.NoError(t, os.WriteFile(tmpFile, []byte("fake-binary"), 0o755))
+	// Create a temp file to act as the MCP binary (arch-suffixed).
+	tmpPrefix := t.TempDir() + "/fleetlift-mcp"
+	require.NoError(t, os.WriteFile(tmpPrefix+"-amd64", []byte("fake-binary"), 0o755))
 
-	t.Setenv("FLEETLIFT_MCP_BINARY_PATH", tmpFile)
+	t.Setenv("FLEETLIFT_MCP_BINARY_PATH", tmpPrefix)
 	t.Setenv("JWT_SECRET", "test-secret-key-32bytes-minimum!")
 
 	sb := newMCPSandbox()
@@ -250,24 +254,24 @@ func TestProvisionSandbox_MCPSkippedWhenBinaryMissing(t *testing.T) {
 func TestProvisionSandbox_MCPFailsWhenBinaryUnreadable(t *testing.T) {
 	t.Setenv("FLEETLIFT_MCP_BINARY_PATH", "/nonexistent/path/fleetlift-mcp")
 
-	a := &Activities{Sandbox: &noopSandbox{}}
+	a := &Activities{Sandbox: newMCPSandbox()}
 	input := workflow.StepInput{
 		TeamID:       "team-1",
 		ResolvedOpts: workflow.ResolvedStepOpts{Agent: "claude-code"},
 	}
 	_, err := a.ProvisionSandbox(context.Background(), input)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "read MCP binary")
+	assert.Contains(t, err.Error(), "MCP binary not found")
 }
 
 func TestProvisionSandbox_MCPFailsWhenJWTSecretEmpty(t *testing.T) {
-	tmpFile := t.TempDir() + "/fleetlift-mcp"
-	require.NoError(t, os.WriteFile(tmpFile, []byte("fake"), 0o755))
+	tmpPrefix := t.TempDir() + "/fleetlift-mcp"
+	require.NoError(t, os.WriteFile(tmpPrefix+"-amd64", []byte("fake"), 0o755))
 
-	t.Setenv("FLEETLIFT_MCP_BINARY_PATH", tmpFile)
+	t.Setenv("FLEETLIFT_MCP_BINARY_PATH", tmpPrefix)
 	t.Setenv("JWT_SECRET", "")
 
-	a := &Activities{Sandbox: &noopSandbox{}}
+	a := &Activities{Sandbox: newMCPSandbox()}
 	input := workflow.StepInput{
 		TeamID:       "team-1",
 		ResolvedOpts: workflow.ResolvedStepOpts{Agent: "claude-code"},
@@ -278,10 +282,10 @@ func TestProvisionSandbox_MCPFailsWhenJWTSecretEmpty(t *testing.T) {
 }
 
 func TestProvisionSandbox_MCPFailsOnHealthCheckTimeout(t *testing.T) {
-	tmpFile := t.TempDir() + "/fleetlift-mcp"
-	require.NoError(t, os.WriteFile(tmpFile, []byte("fake"), 0o755))
+	tmpPrefix := t.TempDir() + "/fleetlift-mcp"
+	require.NoError(t, os.WriteFile(tmpPrefix+"-amd64", []byte("fake"), 0o755))
 
-	t.Setenv("FLEETLIFT_MCP_BINARY_PATH", tmpFile)
+	t.Setenv("FLEETLIFT_MCP_BINARY_PATH", tmpPrefix)
 	t.Setenv("JWT_SECRET", "test-secret-key-32bytes-minimum!")
 
 	// Sandbox that never returns "ok" for health checks.

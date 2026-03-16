@@ -83,11 +83,30 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 	}
 
 	// MCP sidecar setup (optional — skip if binary path not configured)
-	if mcpBinaryPath := os.Getenv("FLEETLIFT_MCP_BINARY_PATH"); mcpBinaryPath != "" {
+	if mcpBinaryPrefix := os.Getenv("FLEETLIFT_MCP_BINARY_PATH"); mcpBinaryPrefix != "" {
+		// Detect sandbox architecture to select the correct binary.
+		archOut, _, err := a.Sandbox.Exec(ctx, sandboxID, "uname -m", "/")
+		if err != nil {
+			_ = a.Sandbox.Kill(ctx, sandboxID)
+			return "", fmt.Errorf("detect sandbox architecture: %w", err)
+		}
+		archRaw := strings.TrimSpace(archOut)
+		var goarch string
+		switch archRaw {
+		case "x86_64":
+			goarch = "amd64"
+		case "aarch64":
+			goarch = "arm64"
+		default:
+			_ = a.Sandbox.Kill(ctx, sandboxID)
+			return "", fmt.Errorf("unsupported sandbox architecture %q", archRaw)
+		}
+		mcpBinaryPath := mcpBinaryPrefix + "-" + goarch
+
 		mcpData, err := os.ReadFile(mcpBinaryPath)
 		if err != nil {
 			_ = a.Sandbox.Kill(ctx, sandboxID)
-			return "", fmt.Errorf("read MCP binary %q: %w", mcpBinaryPath, err)
+			return "", fmt.Errorf("MCP binary not found for arch %q: %s — run: make mcp-sidecar: %w", goarch, mcpBinaryPath, err)
 		}
 
 		jwtSecret := []byte(os.Getenv("JWT_SECRET"))

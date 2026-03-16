@@ -15,14 +15,14 @@ if [[ "${1:-}" == "--with-agent" ]]; then
 fi
 
 # ── Check prerequisites ─────────────────────────────────────────────────────
-if [[ ! -f bin/fleetlift-mcp ]]; then
-  echo "ERROR: bin/fleetlift-mcp not found."
+if [[ ! -f bin/fleetlift-mcp-amd64 ]]; then
+  echo "ERROR: bin/fleetlift-mcp-amd64 not found."
   echo "  Run: make mcp-sidecar"
   exit 1
 fi
 
-if ! file bin/fleetlift-mcp | grep -q ELF; then
-  echo "ERROR: bin/fleetlift-mcp is not a Linux ELF binary (sandbox requires linux/amd64)."
+if ! file bin/fleetlift-mcp-amd64 | grep -q ELF; then
+  echo "ERROR: bin/fleetlift-mcp-amd64 is not a Linux ELF binary (sandbox requires linux/amd64)."
   echo "  Run: make mcp-sidecar"
   exit 1
 fi
