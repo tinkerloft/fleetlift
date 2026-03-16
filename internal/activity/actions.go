@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v62/github"
-	"go.temporal.io/sdk/activity"
 	"golang.org/x/oauth2"
 )
 
@@ -34,8 +33,6 @@ func (a *Activities) ExecuteAction(ctx context.Context, stepRunID string, action
 		result, err = actionNotifySlack(ctx, config, credentials)
 	case "github_pr_review":
 		result, err = actionGitHubPostReviewComment(ctx, config, credentials)
-	case "github_assign":
-		result, err = actionGitHubAssignIssue(ctx, config, credentials)
 	case "github_label":
 		result, err = actionGitHubAddLabel(ctx, config, credentials)
 	case "github_comment":
@@ -110,20 +107,6 @@ func actionGitHubPostReviewComment(ctx context.Context, config map[string]any, c
 		reviewID = *review.ID
 	}
 	return map[string]any{"status": "posted", "review_id": reviewID}, nil
-}
-
-func actionGitHubAssignIssue(ctx context.Context, config map[string]any, _ map[string]string) (map[string]any, error) {
-	repoURL, _ := config["repo_url"].(string)
-	issueNumber := toInt(config["issue_number"])
-
-	if repoURL == "" || issueNumber == 0 {
-		return nil, fmt.Errorf("github_assign: missing repo_url or issue_number")
-	}
-
-	// Assignment logic not yet implemented
-	activity.GetLogger(ctx).Info("github_assign: auto-assignment not yet configured",
-		"repo", repoURL, "issue", issueNumber)
-	return map[string]any{"status": "skipped", "reason": "not configured"}, nil
 }
 
 func actionGitHubAddLabel(ctx context.Context, config map[string]any, credentials map[string]string) (map[string]any, error) {

@@ -1,7 +1,7 @@
 # FleetLift Roadmap
 
 **Date:** 2026-03-14
-**Status:** Active (Tier 1 complete, Tier 2 C+D done, H in progress)
+**Status:** Active (Tier 1 complete, Tier 2 C+D+H done — ready for Tier 3)
 
 FleetLift has strong architecture and a working core engine. This roadmap covers what's needed to go from "internal tool" to "production-ready OSS product."
 
@@ -108,8 +108,8 @@ Bounded retries, buffer sizes, and error propagation across the workflow/activit
 | H3 | **Output schema enforcement** — extract agent output into declared schema fields, fail if required fields missing; downstream steps get predictable data | `activity/execute.go`, `workflow/dag.go` | P0 | ✅ |
 | H4 | **Workflow integration test harness** — Temporal test environment + mock sandbox/agent; validate DAG orchestration, template rendering, credential flow, action dispatch for each builtin workflow | `workflow/dag_integration_test.go` (new) | P1 | ✅ |
 | H5 | **Activity/action contract registry** — declared input/output schemas per action type; enables validation at parse time and future UI workflow builder | `model/action_contract.go`, `handlers/actions.go` | P1 | ✅ |
-| H6 | **Template rendering safety** — validate all referenced step IDs and output keys exist before rendering; clear error messages ("step 'revew' does not exist, did you mean 'review'?") | `template/render.go` | P2 | ⬜ |
-| H7 | **Error handling audit** — grep for `return nil` after error conditions, `Warn` used for fatal conditions, `writeJSONError` without logging; enforce fail-loud policy | All handlers, activities | P2 | 🔧 ~40% (PR #28: activity/handler error propagation fixed; remaining: full grep audit across all handlers) |
+| H6 | **Template rendering safety** — validate all referenced step IDs and output keys exist before rendering; clear error messages ("step 'revew' does not exist, did you mean 'review'?") | `template/render.go` | P2 | ✅ (implemented in `workflow/validate.go` `validateTemplateRefs()`) |
+| H7 | **Error handling audit** — grep for `return nil` after error conditions, `Warn` used for fatal conditions, `writeJSONError` without logging; enforce fail-loud policy | All handlers, activities | P2 | ✅ (all handlers log before 500 responses; log.Printf migrated to slog in constants.go and auth.go) |
 
 **H1–H3** are the minimum for "users can compose workflows that work." **H4–H5** prevent regressions and enable self-service. **H6–H7** improve the authoring and debugging experience.
 
@@ -174,7 +174,7 @@ Independent of Track C. Can run in parallel. **D1–D7 completed in PR #22.**
 | D5 | CONTRIBUTING.md | `CONTRIBUTING.md` | Medium | ✅ |
 | D6 | Production deployment guide | `docs/DEPLOYMENT.md` | Medium | ✅ |
 | D7 | Example READMEs | `examples/README.md` | Medium | ✅ |
-| D8 | Demo video (after C1+C2) | YouTube + README embed | High | ⬜ |
+| D8 | Demo video (after C1+C2) | YouTube + README embed | High | ✅ |
 | D9 | Web landing route (optional) | `web/` public route | Low | ⬜ |
 
 ---
@@ -197,10 +197,10 @@ See: [`archive/2026-03-14-mcp-agent-interface.md`](archive/2026-03-14-mcp-agent-
 
 | # | Item | Status |
 |---|------|--------|
-| 1 | Implement GitHub activity stubs (assign, label, PR review) | ⬜ |
-| 2 | Implement Slack notification integration | ⬜ |
+| 1 | Implement GitHub activity stubs (assign, label, PR review) | ✅ (assign removed; PR creation, review comments, labels, issue comments all implemented) |
+| 2 | Implement Slack notification integration | ✅ |
 | 3 | Add artifact collection to more templates (audit, migration) | ⬜ |
-| 4 | Add Prometheus metrics (run counts, step durations, active sandboxes) | ⬜ |
+| 4 | Add Prometheus metrics (run counts, step durations, active sandboxes) | ✅ (activity duration/count, PRs created, sandbox provisioning) |
 | 5 | Notification preferences per-team/user | ⬜ |
 | 6 | Data retention/archival for runs table | ⬜ |
 
@@ -220,20 +220,17 @@ See: [`archive/2026-03-14-mcp-agent-interface.md`](archive/2026-03-14-mcp-agent-
 ## Dependency Graph
 
 ```
-Tier 1 (A, B) ─────────────────────────────────┐
-                                                ▼
-Tier 2: C (Web) ✅                       H1-H3 (Engine Reliability)
-        D (OSS Docs) ✅ (D1-D7)                │
-                                                ▼
-                                         H4-H5 (Testing + Contracts)
-                                                │
-Tier 3: E1 ──▶ E2 ──▶ E3 ◀── requires H3       │
-        F (parallel, benefits from H5)          │
-        G (after E+F)                           ▼
-                                         H6-H7 (Polish, ongoing)
+Tier 1 (A, B) ✅
+Tier 2: C (Web) ✅
+        D (OSS Docs) ✅
+        H (Engine Reliability) ✅ — H1-H7 all complete
+
+Tier 3: E1 ──▶ E2 ──▶ E3   ← next
+        F (parallel with E, benefits from H5)
+        G (after E+F)
 ```
 
-**Critical path:** H1–H3 must complete before Tier 3 feature work. Every new workflow template or action type added without validation and contracts will compound the debugging burden.
+**Critical path cleared:** H1–H7 complete. Tier 3 work can begin.
 
 ---
 

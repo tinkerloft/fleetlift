@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -68,6 +69,7 @@ func (h *KnowledgeHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := h.store.UpdateStatus(r.Context(), id, teamID, status); err != nil {
+		slog.Error("failed to update knowledge item", "error", err, "id", id, "team_id", teamID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to update knowledge item")
 		return
 	}
@@ -86,6 +88,7 @@ func (h *KnowledgeHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	id := chi.URLParam(r, "id")
 	if err := h.store.Delete(r.Context(), id, teamID); err != nil {
+		slog.Error("failed to delete knowledge item", "error", err, "id", id, "team_id", teamID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to delete knowledge item")
 		return
 	}

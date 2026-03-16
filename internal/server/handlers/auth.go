@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
-	"log"
 	"log/slog"
 	"net/http"
 	"time"
@@ -66,7 +65,7 @@ func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Reques
 
 	identity, err := h.provider.Exchange(r.Context(), code)
 	if err != nil {
-		log.Printf("oauth exchange error: %v", err)
+		slog.Error("oauth exchange error", "error", err)
 		writeJSONError(w, http.StatusInternalServerError, "oauth exchange failed")
 		return
 	}
@@ -105,7 +104,7 @@ func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Reques
 			ON CONFLICT DO NOTHING`,
 			identity.Name, slug, userID,
 		); err != nil {
-			log.Printf("auto-provision team error: %v", err)
+			slog.Error("auto-provision team error", "error", err, "user_id", userID)
 		}
 	}
 

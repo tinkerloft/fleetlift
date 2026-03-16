@@ -26,7 +26,6 @@ func TestActionRegistry_Types(t *testing.T) {
 	types := r.Types()
 	assert.Contains(t, types, "slack_notify")
 	assert.Contains(t, types, "github_pr_review")
-	assert.Contains(t, types, "github_assign")
 	assert.Contains(t, types, "github_label")
 	assert.Contains(t, types, "github_comment")
 	assert.Contains(t, types, "create_pr")

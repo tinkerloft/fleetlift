@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -87,6 +88,7 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		mustMarshal(req.Parameters), string(model.RunStatusPending),
 		temporalID, claims.UserID)
 	if err != nil {
+		slog.Error("failed to create run record", "error", err, "team_id", teamID, "workflow_id", req.WorkflowID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to create run")
 		return
 	}
@@ -103,6 +105,7 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Parameters:         req.Parameters,
 	})
 	if err != nil {
+		slog.Error("failed to start workflow", "error", err, "team_id", teamID, "run_id", runID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to start workflow")
 		return
 	}
@@ -129,6 +132,7 @@ func (h *RunsHandler) List(w http.ResponseWriter, r *http.Request) {
 	err := h.db.SelectContext(r.Context(), &runs,
 		`SELECT * FROM runs WHERE team_id = $1 ORDER BY created_at DESC LIMIT 50`, teamID)
 	if err != nil {
+		slog.Error("failed to list runs", "error", err, "team_id", teamID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to list runs")
 		return
 	}
@@ -203,6 +207,7 @@ func (h *RunsHandler) Logs(w http.ResponseWriter, r *http.Request) {
 		 JOIN step_runs s ON l.step_run_id = s.id
 		 WHERE s.run_id = $1 ORDER BY l.seq`, runID)
 	if err != nil {
+		slog.Error("failed to get run logs", "error", err, "run_id", runID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to get logs")
 		return
 	}
@@ -234,6 +239,7 @@ func (h *RunsHandler) Diff(w http.ResponseWriter, r *http.Request) {
 	err := h.db.SelectContext(r.Context(), &diffs,
 		`SELECT step_id, diff FROM step_runs WHERE run_id = $1 AND diff IS NOT NULL AND diff != ''`, runID)
 	if err != nil {
+		slog.Error("failed to get run diffs", "error", err, "run_id", runID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to get diffs")
 		return
 	}
@@ -265,6 +271,7 @@ func (h *RunsHandler) Output(w http.ResponseWriter, r *http.Request) {
 	err := h.db.SelectContext(r.Context(), &outputs,
 		`SELECT step_id, output FROM step_runs WHERE run_id = $1 AND output IS NOT NULL`, runID)
 	if err != nil {
+		slog.Error("failed to get run outputs", "error", err, "run_id", runID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to get outputs")
 		return
 	}
@@ -503,6 +510,7 @@ func (h *RunsHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	// Cancel the parent DAGWorkflow via Temporal's CancelWorkflow API.
 	// This propagates cancellation to all child workflows and activities.
 	if err := h.temporal.CancelWorkflow(r.Context(), run.TemporalID, ""); err != nil {
+		slog.Error("failed to cancel workflow", "error", err, "run_id", runID, "temporal_id", run.TemporalID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to cancel workflow")
 		return
 	}
@@ -551,6 +559,7 @@ func (h *RunsHandler) signalRun(w http.ResponseWriter, r *http.Request, signalNa
 		}
 		err = h.temporal.SignalWorkflow(r.Context(), parentTemporalID, "", signalName, payload)
 		if err != nil {
+			slog.Error("failed to signal parent workflow", "error", err, "run_id", runID, "signal", signalName)
 			writeJSONError(w, http.StatusInternalServerError, "failed to signal workflow")
 			return
 		}
@@ -561,6 +570,7 @@ func (h *RunsHandler) signalRun(w http.ResponseWriter, r *http.Request, signalNa
 	// Signal the specific child StepWorkflow using its stored workflow ID.
 	err = h.temporal.SignalWorkflow(r.Context(), temporalWFID, "", signalName, payload)
 	if err != nil {
+		slog.Error("failed to signal step workflow", "error", err, "run_id", runID, "signal", signalName, "temporal_wf_id", temporalWFID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to signal workflow")
 		return
 	}

@@ -60,21 +60,10 @@ steps:
           - "severity:{{ .Steps.analyze.Output.severity }}"
           - "component:{{ .Steps.analyze.Output.component }}"
 
-  - id: assign
-    title: Auto-assign
-    depends_on:
-      - classify
-    action:
-      type: github_assign
-      config:
-        repo_url: "{{ .Params.repo_url }}"
-        issue_number: "{{ .Params.issue_number }}"
-        component: "{{ .Steps.analyze.Output.component }}"
-
   - id: comment
     title: Post triage comment
     depends_on:
-      - assign
+      - classify
     action:
       type: github_comment
       config:

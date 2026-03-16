@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"regexp"
 
@@ -78,6 +79,7 @@ func (h *CredentialsHandler) List(w http.ResponseWriter, r *http.Request) {
 		`SELECT name, created_at, updated_at FROM credentials WHERE team_id = $1 ORDER BY name`,
 		teamID)
 	if err != nil {
+		slog.Error("failed to list credentials", "error", err, "team_id", teamID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to list credentials")
 		return
 	}
@@ -120,6 +122,7 @@ func (h *CredentialsHandler) Set(w http.ResponseWriter, r *http.Request) {
 
 	encrypted, err := flcrypto.EncryptAESGCM(h.encryptionKey, req.Value)
 	if err != nil {
+		slog.Error("credential encryption failed", "error", err, "team_id", teamID)
 		writeJSONError(w, http.StatusInternalServerError, "encryption failed")
 		return
 	}
@@ -131,6 +134,7 @@ func (h *CredentialsHandler) Set(w http.ResponseWriter, r *http.Request) {
 		 DO UPDATE SET value_enc = $3, updated_at = now()`,
 		teamID, req.Name, encrypted)
 	if err != nil {
+		slog.Error("failed to save credential", "error", err, "team_id", teamID, "name", req.Name)
 		writeJSONError(w, http.StatusInternalServerError, "failed to save credential")
 		return
 	}
@@ -156,12 +160,14 @@ func (h *CredentialsHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		`DELETE FROM credentials WHERE team_id = $1 AND name = $2`,
 		teamID, name)
 	if err != nil {
+		slog.Error("failed to delete credential", "error", err, "team_id", teamID, "name", name)
 		writeJSONError(w, http.StatusInternalServerError, "failed to delete credential")
 		return
 	}
 
 	rows, err := result.RowsAffected()
 	if err != nil {
+		slog.Error("failed to check credential deletion result", "error", err, "team_id", teamID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to check deletion result")
 		return
 	}
