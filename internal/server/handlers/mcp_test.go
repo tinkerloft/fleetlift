@@ -436,3 +436,47 @@ func TestHandleGetKnowledge_CrossTeam(t *testing.T) {
 		t.Errorf("cross-team JOIN not scoped by team_id — unmet expectation: %v", err)
 	}
 }
+
+func TestHandleAddLearning_CrossTeam(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	sqlxDB := sqlx.NewDb(db, "sqlmock")
+
+	// activeStepRunID query fires first (returns no row — that's fine).
+	mock.ExpectQuery(`SELECT id FROM step_runs`).
+		WithArgs("run-team-a").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
+
+	// Expect the team-scoped JOIN for template resolution.
+	mock.ExpectQuery(`wt\.team_id = r\.team_id`).
+		WithArgs("run-team-a", "team-a").
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("template-uuid-a"))
+
+	store := knowledge.NewMemoryStore()
+	h := NewMCPHandler(sqlxDB, store)
+
+	body, _ := json.Marshal(map[string]string{
+		"type":    "pattern",
+		"summary": "test learning",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/mcp/knowledge", bytes.NewReader(body))
+	ctx := auth.SetMCPClaimsInContext(req.Context(), &auth.MCPClaims{
+		TeamID: "team-a",
+		RunID:  "run-team-a",
+	})
+	req = req.WithContext(ctx)
+	w := httptest.NewRecorder()
+	h.HandleAddLearning(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// The sqlmock expectation for the team-scoped query must have been satisfied.
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("cross-team JOIN not scoped by team_id — unmet expectation: %v", err)
+	}
+}
