@@ -71,6 +71,7 @@ docker/fleetlift-agent
 # Built binaries (root-level)
 /server
 /worker
+/mcp-sidecar
 
 # Git worktrees
 .worktrees/
