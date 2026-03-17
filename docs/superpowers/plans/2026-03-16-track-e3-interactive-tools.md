@@ -1,6 +1,6 @@
 # Track E3: MCP Interactive Tools Implementation Plan
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add `inbox.notify` and `inbox.request_input` MCP tools that let agents send notifications and request human input mid-execution, with the latter suspending the step and resuming in a fresh continuation step.
 
@@ -19,7 +19,7 @@
 **Files:**
 - Modify: `internal/db/schema.sql`
 
-- [ ] **Step 1: Add new columns to `inbox_items`**
+- [x] **Step 1: Add new columns to `inbox_items`**
 
 Append to the **bottom** of `internal/db/schema.sql` (follow the existing `ALTER TABLE` pattern — do NOT modify the `CREATE TABLE` blocks, which would break idempotency for existing databases):
 
@@ -44,7 +44,7 @@ EXCEPTION WHEN others THEN NULL;
 END $$;
 ```
 
-- [ ] **Step 2: Add new columns to `step_runs`**
+- [x] **Step 2: Add new columns to `step_runs`**
 
 Append to the bottom of `internal/db/schema.sql`:
 
@@ -55,14 +55,14 @@ ALTER TABLE step_runs ADD COLUMN IF NOT EXISTS checkpoint_branch      TEXT;
 ALTER TABLE step_runs ADD COLUMN IF NOT EXISTS checkpoint_artifact_id UUID REFERENCES artifacts(id);
 ```
 
-- [ ] **Step 3: Add index for continuation step lookup**
+- [x] **Step 3: Add index for continuation step lookup**
 
 ```sql
 CREATE INDEX IF NOT EXISTS step_runs_parent
     ON step_runs(parent_step_run_id) WHERE parent_step_run_id IS NOT NULL;
 ```
 
-- [ ] **Step 4: Verify schema compiles**
+- [x] **Step 4: Verify schema compiles**
 
 ```bash
 psql $DATABASE_URL -c "\i internal/db/schema.sql" 2>&1 | grep -E "ERROR|WARNING" || echo "OK"
@@ -79,7 +79,7 @@ Expected: no errors (or "already exists" if re-running against live DB — that'
 - Modify: `internal/model/step.go` (or wherever `StepOutput` is defined)
 - Create: `internal/model/continuation.go`
 
-- [ ] **Step 1: Extend `InboxItem` struct in `internal/model/inbox.go`**
+- [x] **Step 1: Extend `InboxItem` struct in `internal/model/inbox.go`**
 
 Add new fields to `InboxItem`:
 
@@ -105,7 +105,7 @@ type InboxItem struct {
 
 Ensure `github.com/lib/pq` is imported for `pq.StringArray`.
 
-- [ ] **Step 2: Extend `StepOutput` to carry awaiting_input metadata**
+- [x] **Step 2: Extend `StepOutput` to carry awaiting_input metadata**
 
 Find `StepOutput` in `internal/model/` and add fields used when `Status == "awaiting_input"`:
 
@@ -117,7 +117,7 @@ CheckpointBranch string `json:"checkpoint_branch,omitempty"`
 StateArtifactID  string `json:"state_artifact_id,omitempty"`
 ```
 
-- [ ] **Step 3: Create `internal/model/continuation.go`**
+- [x] **Step 3: Create `internal/model/continuation.go`**
 
 ```go
 package model
@@ -157,7 +157,7 @@ type CreateContinuationStepRunInput struct {
 }
 ```
 
-- [ ] **Step 4: Build to verify**
+- [x] **Step 4: Build to verify**
 
 ```bash
 go build ./internal/model/...
@@ -165,7 +165,7 @@ go build ./internal/model/...
 
 Expected: no errors.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/db/schema.sql internal/model/
@@ -183,7 +183,7 @@ git commit -m "feat(e3): data model — inbox_items/step_runs columns + continua
 - Modify: `internal/activity/provision.go`
 - Create: `internal/activity/provision_test.go` (add test for new activity)
 
-- [ ] **Step 1: Add constants to `internal/activity/constants.go`**
+- [x] **Step 1: Add constants to `internal/activity/constants.go`**
 
 ```go
 const (
@@ -193,7 +193,7 @@ const (
 )
 ```
 
-- [ ] **Step 2: Write failing test for `CleanupCheckpointBranch`**
+- [x] **Step 2: Write failing test for `CleanupCheckpointBranch`**
 
 In `internal/activity/provision_test.go` (create if not exists), add:
 
@@ -214,7 +214,7 @@ func TestCleanupCheckpointBranch_BranchNotExist(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run test to confirm it fails**
+- [x] **Step 3: Run test to confirm it fails**
 
 ```bash
 go test ./internal/activity/... -run TestCleanupCheckpointBranch -v
@@ -222,7 +222,7 @@ go test ./internal/activity/... -run TestCleanupCheckpointBranch -v
 
 Expected: FAIL (method not defined yet).
 
-- [ ] **Step 4: Implement `CleanupCheckpointBranch` in `internal/activity/provision.go`**
+- [x] **Step 4: Implement `CleanupCheckpointBranch` in `internal/activity/provision.go`**
 
 ```go
 // CleanupCheckpointBranch deletes a fleetlift checkpoint branch from the remote.
@@ -273,7 +273,7 @@ func injectGitToken(repoURL, token string) (string, error) {
 }
 ```
 
-- [ ] **Step 5: Run test**
+- [x] **Step 5: Run test**
 
 ```bash
 go test ./internal/activity/... -run TestCleanupCheckpointBranch -v
@@ -281,7 +281,7 @@ go test ./internal/activity/... -run TestCleanupCheckpointBranch -v
 
 Expected: PASS (the test now hits the credential error path as designed).
 
-- [ ] **Step 6: Build**
+- [x] **Step 6: Build**
 
 ```bash
 go build ./internal/activity/...
@@ -295,7 +295,7 @@ go build ./internal/activity/...
 - Modify: `internal/activity/status.go`
 - Modify: `internal/activity/status_test.go`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 In `internal/activity/status_test.go`, add:
 
@@ -324,7 +324,7 @@ func TestCreateContinuationStepRun(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to confirm failure**
+- [x] **Step 2: Run to confirm failure**
 
 ```bash
 go test ./internal/activity/... -run TestCreateContinuationStepRun -v
@@ -332,7 +332,7 @@ go test ./internal/activity/... -run TestCreateContinuationStepRun -v
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `CreateContinuationStepRun` in `internal/activity/status.go`**
+- [x] **Step 3: Implement `CreateContinuationStepRun` in `internal/activity/status.go`**
 
 ```go
 func (a *Activities) CreateContinuationStepRun(ctx context.Context, input model.CreateContinuationStepRunInput) (string, error) {
@@ -357,7 +357,7 @@ func (a *Activities) CreateContinuationStepRun(ctx context.Context, input model.
 
 (Use existing `nullableString` helper if present, or `sql.NullString{String: s, Valid: s != ""}`)
 
-- [ ] **Step 4: Run test**
+- [x] **Step 4: Run test**
 
 ```bash
 go test ./internal/activity/... -run TestCreateContinuationStepRun -v
@@ -375,7 +375,7 @@ Expected: PASS.
 
 The key changes: (a) `ExecuteStepInput` gains `ContinuationContext *model.ContinuationContext`; (b) if `ContinuationContext.CheckpointBranch` is set, checkout that branch after cloning; (c) after agent exits, query the `step_run` status — if `awaiting_input`, populate `StepOutput` with inbox metadata.
 
-- [ ] **Step 1: Add `ContinuationContext` to `ExecuteStepInput`**
+- [x] **Step 1: Add `ContinuationContext` to `ExecuteStepInput`**
 
 `ExecuteStepInput` is defined in `internal/workflow/step.go` (not execute.go). Add the field there:
 
@@ -389,7 +389,7 @@ type ExecuteStepInput struct {
 }
 ```
 
-- [ ] **Step 2: Write failing test for checkpoint branch checkout**
+- [x] **Step 2: Write failing test for checkpoint branch checkout**
 
 In `internal/activity/execute_test.go`:
 
@@ -411,7 +411,7 @@ func TestExecuteStep_CheckpointBranchInjectedIntoPrompt(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run to confirm failure**
+- [x] **Step 3: Run to confirm failure**
 
 ```bash
 go test ./internal/activity/... -run TestExecuteStep_CheckpointBranch -v
@@ -419,7 +419,7 @@ go test ./internal/activity/... -run TestExecuteStep_CheckpointBranch -v
 
 Expected: FAIL (`buildContinuationPrompt` undefined).
 
-- [ ] **Step 4: Add `buildContinuationPrompt` and checkpoint branch checkout**
+- [x] **Step 4: Add `buildContinuationPrompt` and checkpoint branch checkout**
 
 Add to `internal/activity/execute.go`:
 
@@ -476,7 +476,7 @@ if input.ContinuationContext != nil {
 }
 ```
 
-- [ ] **Step 5: Detect `awaiting_input` after agent exits**
+- [x] **Step 5: Detect `awaiting_input` after agent exits**
 
 Ensure `"database/sql"` is imported in `internal/activity/execute.go` (add to import block if not present).
 
@@ -519,7 +519,7 @@ if output.Status == "" || output.Status == "running" {
 }
 ```
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 ```bash
 go test ./internal/activity/... -run TestExecuteStep -v
@@ -527,13 +527,13 @@ go test ./internal/activity/... -run TestExecuteStep -v
 
 Expected: all PASS.
 
-- [ ] **Step 7: Build**
+- [x] **Step 7: Build**
 
 ```bash
 go build ./internal/activity/...
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add internal/activity/
@@ -550,7 +550,7 @@ git commit -m "feat(e3): activities — CleanupCheckpointBranch, CreateContinuat
 - Modify: `internal/server/handlers/mcp.go`
 - Modify: `internal/server/handlers/mcp_test.go`
 
-- [ ] **Step 1: Write failing test for `HandleInboxNotify`**
+- [x] **Step 1: Write failing test for `HandleInboxNotify`**
 
 In `internal/server/handlers/mcp_test.go`:
 
@@ -581,7 +581,7 @@ func TestHandleMCPInboxNotify(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to confirm failure**
+- [x] **Step 2: Run to confirm failure**
 
 ```bash
 go test ./internal/server/handlers/... -run TestHandleMCPInboxNotify -v
@@ -589,7 +589,7 @@ go test ./internal/server/handlers/... -run TestHandleMCPInboxNotify -v
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement `HandleInboxNotify`**
+- [x] **Step 3: Implement `HandleInboxNotify`**
 
 Add to `internal/server/handlers/mcp.go`:
 
@@ -634,7 +634,7 @@ func (h *MCPHandler) HandleInboxNotify(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-- [ ] **Step 4: Write failing test for `HandleInboxRequestInput`**
+- [x] **Step 4: Write failing test for `HandleInboxRequestInput`**
 
 ```go
 func TestHandleMCPInboxRequestInput(t *testing.T) {
@@ -680,7 +680,7 @@ func TestHandleMCPInboxRequestInput_InvalidBranch(t *testing.T) {
 }
 ```
 
-- [ ] **Step 5: Run to confirm failure**
+- [x] **Step 5: Run to confirm failure**
 
 ```bash
 go test ./internal/server/handlers/... -run TestHandleMCPInboxRequestInput -v
@@ -688,7 +688,7 @@ go test ./internal/server/handlers/... -run TestHandleMCPInboxRequestInput -v
 
 Expected: FAIL.
 
-- [ ] **Step 6: Implement `HandleInboxRequestInput`**
+- [x] **Step 6: Implement `HandleInboxRequestInput`**
 
 ```go
 var checkpointBranchRe = regexp.MustCompile(`^fleetlift/checkpoint/[a-zA-Z0-9_-]+$`)
@@ -799,7 +799,7 @@ func (h *MCPHandler) HandleInboxRequestInput(w http.ResponseWriter, r *http.Requ
 }
 ```
 
-- [ ] **Step 7: Run tests**
+- [x] **Step 7: Run tests**
 
 ```bash
 go test ./internal/server/handlers/... -run "TestHandleMCPInbox" -v
@@ -817,7 +817,7 @@ Expected: all PASS.
 
 The `Respond` handler validates the inbox item, stores the answer, and sends a Temporal `respond` signal to the waiting `StepWorkflow`.
 
-- [ ] **Step 1: Add Temporal client to `InboxHandler`**
+- [x] **Step 1: Add Temporal client to `InboxHandler`**
 
 In `internal/server/handlers/inbox.go`, extend the handler struct:
 
@@ -838,7 +838,7 @@ Update the instantiation in `cmd/server/main.go`:
 Inbox: handlers.NewInboxHandler(database, temporalClient),
 ```
 
-- [ ] **Step 2: Write failing test for `Respond`**
+- [x] **Step 2: Write failing test for `Respond`**
 
 In `internal/server/handlers/inbox_test.go`:
 
@@ -883,7 +883,7 @@ func TestInboxRespond_AlreadyAnswered(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run to confirm failure**
+- [x] **Step 3: Run to confirm failure**
 
 ```bash
 go test ./internal/server/handlers/... -run TestInboxRespond -v
@@ -891,7 +891,7 @@ go test ./internal/server/handlers/... -run TestInboxRespond -v
 
 Expected: FAIL.
 
-- [ ] **Step 4: Implement `Respond` handler**
+- [x] **Step 4: Implement `Respond` handler**
 
 ```go
 func (h *InboxHandler) Respond(w http.ResponseWriter, r *http.Request) {
@@ -963,7 +963,7 @@ func (h *InboxHandler) Respond(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```bash
 go test ./internal/server/handlers/... -run "TestInboxRespond" -v
@@ -978,7 +978,7 @@ Expected: all PASS.
 **Files:**
 - Modify: `internal/server/router.go`
 
-- [ ] **Step 1: Add new MCP routes**
+- [x] **Step 1: Add new MCP routes**
 
 In the `/api/mcp` route group in `internal/server/router.go`:
 
@@ -987,7 +987,7 @@ r.Post("/inbox/notify", deps.MCP.HandleInboxNotify)
 r.Post("/inbox/request_input", deps.MCP.HandleInboxRequestInput)
 ```
 
-- [ ] **Step 2: Add inbox respond route**
+- [x] **Step 2: Add inbox respond route**
 
 In the authenticated route group:
 
@@ -995,7 +995,7 @@ In the authenticated route group:
 r.Post("/api/inbox/{id}/respond", deps.Inbox.Respond)
 ```
 
-- [ ] **Step 3: Build server**
+- [x] **Step 3: Build server**
 
 ```bash
 go build ./cmd/server/...
@@ -1003,7 +1003,7 @@ go build ./cmd/server/...
 
 Expected: no errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add internal/server/
@@ -1027,7 +1027,7 @@ This is the most complex task. The `StepWorkflow` must:
 4. Use the continuation result as the final output
 5. After continuation completes (success or failure): call `CleanupCheckpointBranch` if needed
 
-- [ ] **Step 1: Write failing test for HITL await/resume cycle**
+- [x] **Step 1: Write failing test for HITL await/resume cycle**
 
 In `internal/workflow/step_test.go`, add a test using `go.temporal.io/sdk/testsuite`:
 
@@ -1085,7 +1085,7 @@ func TestStepWorkflow_AwaitResumeCycle(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to confirm failure**
+- [x] **Step 2: Run to confirm failure**
 
 ```bash
 go test ./internal/workflow/... -run TestStepWorkflow_AwaitResumeCycle -v
@@ -1093,7 +1093,7 @@ go test ./internal/workflow/... -run TestStepWorkflow_AwaitResumeCycle -v
 
 Expected: FAIL.
 
-- [ ] **Step 3: Add `respond` signal channel to StepWorkflow**
+- [x] **Step 3: Add `respond` signal channel to StepWorkflow**
 
 Near the top of `StepWorkflow` in `internal/workflow/step.go`, after the existing signal channels are set up via `workflow.GetSignalChannel`, add:
 
@@ -1101,7 +1101,7 @@ Near the top of `StepWorkflow` in `internal/workflow/step.go`, after the existin
 respondCh := workflow.GetSignalChannel(ctx, "respond")
 ```
 
-- [ ] **Step 4: Add await/resume logic after ExecuteStep returns**
+- [x] **Step 4: Add await/resume logic after ExecuteStep returns**
 
 After the call to `ExecuteStepActivity` and before sandbox cleanup, insert:
 
@@ -1213,7 +1213,7 @@ if stepOutput != nil && stepOutput.Status == "awaiting_input" {
 
 Note: `input` here refers to `StepInput` (not `ExecuteStepInput`). The `StepWorkflow` receives `StepInput` directly. `execInput` is the `ExecuteStepInput` that was assembled to call `ExecuteStepActivity` — reference it for the `Prompt` field.
 
-- [ ] **Step 5: Add new activity name constants to `step.go` local variable block**
+- [x] **Step 5: Add new activity name constants to `step.go` local variable block**
 
 In `internal/workflow/step.go`, find the block where activity name constants are aliased (e.g. `ProvisionSandboxActivity`, `ExecuteStepActivity`, etc.) and add:
 
@@ -1224,11 +1224,11 @@ CleanupCheckpointBranchActivity    = activity.ActivityCleanupCheckpointBranch
 
 These constants are defined in `internal/activity/constants.go` (added in Task 3). The aliases here follow the existing pattern in `step.go`.
 
-- [ ] **Step 6: Register in `cmd/worker/main.go`**
+- [x] **Step 6: Register in `cmd/worker/main.go`**
 
 The new activities (`CleanupCheckpointBranch`, `CreateContinuationStepRun`) are methods on the `Activities` struct, so `w.RegisterActivity(acts)` already covers them. No additional registration needed — but add constants to `internal/activity/constants.go` to confirm (done in Task 3).
 
-- [ ] **Step 7: Run test**
+- [x] **Step 7: Run test**
 
 ```bash
 go test ./internal/workflow/... -run TestStepWorkflow_AwaitResumeCycle -v
@@ -1236,7 +1236,7 @@ go test ./internal/workflow/... -run TestStepWorkflow_AwaitResumeCycle -v
 
 Expected: PASS.
 
-- [ ] **Step 8: Run all workflow tests**
+- [x] **Step 8: Run all workflow tests**
 
 ```bash
 go test ./internal/workflow/... -v
@@ -1244,13 +1244,13 @@ go test ./internal/workflow/... -v
 
 Expected: all PASS.
 
-- [ ] **Step 9: Build worker**
+- [x] **Step 9: Build worker**
 
 ```bash
 go build ./cmd/worker/...
 ```
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add internal/workflow/ cmd/worker/
@@ -1267,7 +1267,7 @@ git commit -m "feat(e3): StepWorkflow await/resume cycle — respond signal + co
 - Modify: `cmd/mcp-sidecar/main.go`
 - Modify: `cmd/mcp-sidecar/main_test.go`
 
-- [ ] **Step 1: Write failing test for tool registration**
+- [x] **Step 1: Write failing test for tool registration**
 
 In `cmd/mcp-sidecar/main_test.go`:
 
@@ -1279,7 +1279,7 @@ func TestSidecarRegistersInboxTools(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to confirm failure**
+- [x] **Step 2: Run to confirm failure**
 
 ```bash
 go test ./cmd/mcp-sidecar/... -run TestSidecarRegistersInboxTools -v
@@ -1287,7 +1287,7 @@ go test ./cmd/mcp-sidecar/... -run TestSidecarRegistersInboxTools -v
 
 Expected: FAIL.
 
-- [ ] **Step 3: Register `inbox.notify`**
+- [x] **Step 3: Register `inbox.notify`**
 
 In `cmd/mcp-sidecar/main.go`, tools are registered as methods on the `Shim` struct (`s`). Add inside the `registerTools` function (or wherever other tools are registered), following the existing pattern:
 
@@ -1310,7 +1310,7 @@ srv.AddTool(mcp.NewTool("inbox.notify",
 })
 ```
 
-- [ ] **Step 4: Register `inbox.request_input`**
+- [x] **Step 4: Register `inbox.request_input`**
 
 ```go
 srv.AddTool(mcp.NewTool("inbox.request_input",
@@ -1339,7 +1339,7 @@ srv.AddTool(mcp.NewTool("inbox.request_input",
 })
 ```
 
-- [ ] **Step 5: Run test**
+- [x] **Step 5: Run test**
 
 ```bash
 go test ./cmd/mcp-sidecar/... -run TestSidecarRegistersInboxTools -v
@@ -1347,7 +1347,7 @@ go test ./cmd/mcp-sidecar/... -run TestSidecarRegistersInboxTools -v
 
 Expected: PASS.
 
-- [ ] **Step 6: Build sidecar (both arches)**
+- [x] **Step 6: Build sidecar (both arches)**
 
 ```bash
 make mcp-sidecar
@@ -1355,7 +1355,7 @@ make mcp-sidecar
 
 Expected: `bin/fleetlift-mcp-amd64` and `bin/fleetlift-mcp-arm64` produced.
 
-- [ ] **Step 7: Run full test suite**
+- [x] **Step 7: Run full test suite**
 
 ```bash
 go test ./...
@@ -1363,7 +1363,7 @@ go test ./...
 
 Expected: all PASS.
 
-- [ ] **Step 8: Run linter**
+- [x] **Step 8: Run linter**
 
 ```bash
 make lint
@@ -1371,7 +1371,7 @@ make lint
 
 Expected: no lint errors.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add cmd/mcp-sidecar/
@@ -1390,7 +1390,7 @@ git commit -m "feat(e3): MCP sidecar — inbox.notify and inbox.request_input to
 - Create: `web/src/components/InboxRequestInput.tsx`
 - Create: `web/src/components/InboxRequestInput.test.tsx`
 
-- [ ] **Step 1: Add `respondToInbox` to API client**
+- [x] **Step 1: Add `respondToInbox` to API client**
 
 In `web/src/api/client.ts` (or equivalent):
 
@@ -1408,7 +1408,7 @@ export async function respondToInbox(itemId: string, answer: string): Promise<vo
 }
 ```
 
-- [ ] **Step 2: Write failing test for `InboxRequestInput` component**
+- [x] **Step 2: Write failing test for `InboxRequestInput` component**
 
 In `web/src/components/InboxRequestInput.test.tsx`:
 
@@ -1447,7 +1447,7 @@ test('renders free-text input when no options', () => {
 })
 ```
 
-- [ ] **Step 3: Run to confirm failure**
+- [x] **Step 3: Run to confirm failure**
 
 ```bash
 cd web && npm test -- --testPathPattern=InboxRequestInput --watchAll=false
@@ -1455,7 +1455,7 @@ cd web && npm test -- --testPathPattern=InboxRequestInput --watchAll=false
 
 Expected: FAIL (component not found).
 
-- [ ] **Step 4: Create `web/src/components/InboxRequestInput.tsx`**
+- [x] **Step 4: Create `web/src/components/InboxRequestInput.tsx`**
 
 ```tsx
 import { useState } from 'react'
@@ -1540,7 +1540,7 @@ export function InboxRequestInput({ item, onRespond }: Props) {
 }
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```bash
 cd web && npm test -- --testPathPattern=InboxRequestInput --watchAll=false
@@ -1548,7 +1548,7 @@ cd web && npm test -- --testPathPattern=InboxRequestInput --watchAll=false
 
 Expected: all PASS.
 
-- [ ] **Step 6: Integrate into Inbox page**
+- [x] **Step 6: Integrate into Inbox page**
 
 In `web/src/pages/Inbox.tsx` (or wherever inbox items are listed), update the item renderer to use `InboxRequestInput` for `kind === 'request_input'` items:
 
@@ -1571,7 +1571,7 @@ import { InboxRequestInput } from '../components/InboxRequestInput'
 **Files:**
 - Modify: `web/src/pages/RunDetail.tsx` (or step timeline component)
 
-- [ ] **Step 1: Extend step type to include continuation fields**
+- [x] **Step 1: Extend step type to include continuation fields**
 
 In the TypeScript types file (wherever step types are defined):
 
@@ -1585,7 +1585,7 @@ interface StepRun {
 }
 ```
 
-- [ ] **Step 2: Group continuation steps under their parent in the timeline**
+- [x] **Step 2: Group continuation steps under their parent in the timeline**
 
 In the step timeline rendering logic:
 
@@ -1600,7 +1600,7 @@ steps.filter(s => s.parent_step_run_id).forEach(s => {
 })
 ```
 
-- [ ] **Step 3: Render `awaiting_input` status badge**
+- [x] **Step 3: Render `awaiting_input` status badge**
 
 In the status badge component, add the `awaiting_input` case (alongside the existing ones):
 
@@ -1609,7 +1609,7 @@ case 'awaiting_input':
   return <span className="badge badge-waiting">Waiting for input</span>
 ```
 
-- [ ] **Step 4: Render continuation step indented under parent**
+- [x] **Step 4: Render continuation step indented under parent**
 
 ```tsx
 {rootSteps.map(step => (
@@ -1625,7 +1625,7 @@ case 'awaiting_input':
 ))}
 ```
 
-- [ ] **Step 5: Build frontend**
+- [x] **Step 5: Build frontend**
 
 ```bash
 cd web && npm run build
@@ -1633,7 +1633,7 @@ cd web && npm run build
 
 Expected: no errors.
 
-- [ ] **Step 6: Run all frontend tests**
+- [x] **Step 6: Run all frontend tests**
 
 ```bash
 cd web && npm test -- --watchAll=false
@@ -1641,7 +1641,7 @@ cd web && npm test -- --watchAll=false
 
 Expected: all PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add web/src/
@@ -1652,7 +1652,7 @@ git commit -m "feat(e3): frontend — inbox request_input UI + continuation step
 
 ## Final Verification
 
-- [ ] **Run full test suite**
+- [x] **Run full test suite**
 
 ```bash
 go test ./...
@@ -1660,7 +1660,7 @@ go test ./...
 
 Expected: all PASS.
 
-- [ ] **Run linter**
+- [x] **Run linter**
 
 ```bash
 make lint
@@ -1668,7 +1668,7 @@ make lint
 
 Expected: no errors.
 
-- [ ] **Build all binaries**
+- [x] **Build all binaries**
 
 ```bash
 go build ./... && make mcp-sidecar
@@ -1676,7 +1676,7 @@ go build ./... && make mcp-sidecar
 
 Expected: clean build.
 
-- [ ] **Start integration environment and run MCP test**
+- [x] **Start integration environment and run MCP test**
 
 ```bash
 scripts/integration/start.sh --build
@@ -1685,7 +1685,7 @@ scripts/integration/run-mcp-test.sh
 
 Expected: all checks pass.
 
-- [ ] **Update ROADMAP.md**
+- [x] **Update ROADMAP.md**
 
 Mark E3 as complete:
 
@@ -1693,7 +1693,7 @@ Mark E3 as complete:
 | E3 | Interactive tools | `inbox.request_input`, `inbox.notify` | ✅ |
 ```
 
-- [ ] **Final commit**
+- [x] **Final commit**
 
 ```bash
 git add docs/plans/ROADMAP.md

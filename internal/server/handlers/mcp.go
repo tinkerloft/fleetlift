@@ -423,6 +423,12 @@ func (h *MCPHandler) HandleInboxNotify(w http.ResponseWriter, r *http.Request) {
 	if req.Urgency == "" {
 		req.Urgency = "normal"
 	}
+	switch req.Urgency {
+	case "low", "normal", "high":
+	default:
+		writeMCPErr(w, http.StatusBadRequest, "urgency must be one of: low, normal, high")
+		return
+	}
 	id := uuid.New().String()
 	var summary *string
 	if req.Summary != "" {
@@ -472,6 +478,12 @@ func (h *MCPHandler) HandleInboxRequestInput(w http.ResponseWriter, r *http.Requ
 	if req.Urgency == "" {
 		req.Urgency = "normal"
 	}
+	switch req.Urgency {
+	case "low", "normal", "high":
+	default:
+		writeMCPErr(w, http.StatusBadRequest, "urgency must be one of: low, normal, high")
+		return
+	}
 
 	// Find the active step_run
 	var stepRunID string
@@ -497,9 +509,10 @@ func (h *MCPHandler) HandleInboxRequestInput(w http.ResponseWriter, r *http.Requ
 		)
 		if err != nil {
 			slog.Error("inbox request_input: create artifact", "err", err)
-		} else {
-			artifactID = &aid
+			writeMCPErr(w, http.StatusInternalServerError, "failed to save state summary")
+			return
 		}
+		artifactID = &aid
 	}
 
 	// Create inbox item
@@ -525,14 +538,16 @@ func (h *MCPHandler) HandleInboxRequestInput(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Mark step as awaiting_input
+	// Mark step as awaiting_input — critical for workflow to enter HITL cycle.
 	if _, err := h.db.ExecContext(r.Context(),
 		"UPDATE step_runs SET status='awaiting_input' WHERE id=$1", stepRunID,
 	); err != nil {
 		slog.Error("inbox request_input: update step status", "err", err)
+		writeMCPErr(w, http.StatusInternalServerError, "failed to update step status")
+		return
 	}
 
-	// Store checkpoint metadata on step_runs
+	// Store checkpoint metadata on step_runs — needed for continuation to restore working state.
 	if req.CheckpointBranch != "" || artifactID != nil {
 		if _, err := h.db.ExecContext(r.Context(),
 			"UPDATE step_runs SET checkpoint_branch=NULLIF($1,''), checkpoint_artifact_id=$2::uuid WHERE id=$3",
@@ -541,6 +556,8 @@ func (h *MCPHandler) HandleInboxRequestInput(w http.ResponseWriter, r *http.Requ
 			stepRunID,
 		); err != nil {
 			slog.Error("inbox request_input: store checkpoint fields on step_run", "err", err)
+			writeMCPErr(w, http.StatusInternalServerError, "failed to store checkpoint metadata")
+			return
 		}
 	}
 

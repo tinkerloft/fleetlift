@@ -190,7 +190,7 @@ See: [`archive/2026-03-14-mcp-agent-interface.md`](archive/2026-03-14-mcp-agent-
 |-------|-------|-----------|--------|
 | E1 | Read-only context tools | `context.get_run`, `context.get_step_output`, `context.get_knowledge` | ✅ |
 | E2 | Write tools | `artifact.create`, `memory.add_learning`, `memory.search`, `progress.update` | ✅ |
-| E3 | Interactive tools | `inbox.request_input`, `inbox.notify` | ⬜ |
+| E3 | Interactive tools | `inbox.request_input`, `inbox.notify` | ✅ |
 
 ### Track F: Feature Completion
 
@@ -237,7 +237,7 @@ Tier 2: C (Web) ✅
         D (OSS Docs) ✅
         H (Engine Reliability) ✅ — H1-H7 all complete
 
-Tier 3: E1 ──▶ E2 ──▶ E3   ← next
+Tier 3: E1 ──▶ E2 ──▶ E3 ✅
         F (parallel with E, benefits from H5)
         G (after E+F)
 ```

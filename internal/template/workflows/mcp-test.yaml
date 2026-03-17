@@ -1,7 +1,7 @@
 version: 1
 id: mcp-test
 title: MCP Sidecar Test
-description: Diagnostic workflow — verifies MCP sidecar provisioning, all 7 backend API endpoints, and optionally Claude Code MCP discovery.
+description: Diagnostic workflow — verifies MCP sidecar provisioning, all 9 backend API endpoints, and optionally Claude Code MCP discovery.
 tags:
   - test
   - diagnostic

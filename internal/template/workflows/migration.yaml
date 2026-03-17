@@ -38,6 +38,9 @@ steps:
         {{ .Params.migration_description }}
 
         Identify all affected files, potential breaking changes, and estimated effort.
+
+        If you find critical breaking changes or high-risk impacts, use the inbox.notify tool
+        to alert the team immediately with the scope and severity.
       output:
         schema:
           affected: "boolean"
@@ -64,6 +67,10 @@ steps:
         {{ .Steps.analyze.Output | toJSON }}
 
         Make all necessary code changes to complete the migration.
+
+        If the migration requires a decision about breaking changes (e.g. how to handle deprecated
+        API consumers, backward compatibility strategy), use the inbox.request_input tool to ask
+        the team before proceeding.
       verifiers: "{{ .Params.verifiers }}"
 
   - id: validate

@@ -46,6 +46,9 @@ steps:
         {{ .Params.log_excerpt }}
 
         Trace the error through the code. Identify the root cause and affected components.
+
+        Once you identify the root cause, use the inbox.notify tool to immediately alert the team
+        with the root cause summary — don't wait for the full pipeline to complete.
       output:
         schema:
           root_cause: "string"
@@ -68,6 +71,11 @@ steps:
 
         Describe the exact changes needed. Include which files to modify and what the changes should be.
         Consider the minimal safe fix that addresses the immediate issue.
+
+        If there are multiple valid fix strategies with different risk profiles, use the
+        inbox.request_input tool to let the on-call engineer choose. Provide options describing
+        each approach and its tradeoffs (e.g. "Hotfix: revert the breaking change" vs
+        "Full fix: patch the root cause"). This pauses until the engineer responds.
 
   - id: fix
     title: Apply fix

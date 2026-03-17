@@ -42,6 +42,10 @@ steps:
         5. Missing security controls
 
         Provide a structured report with severity levels for each finding.
+
+        If you discover critical or high-severity vulnerabilities (e.g. exposed secrets, RCE vectors),
+        use the inbox.notify tool immediately with urgency "high" to alert the team — don't wait
+        for the full scan to complete.
       output:
         schema:
           findings: "array"

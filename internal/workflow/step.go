@@ -236,6 +236,12 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 				return nil, fmt.Errorf("continuation step execution: %w", err)
 			}
 
+			// Nested request_input is not supported — fail explicitly rather than
+			// silently colliding on step_id "fix-resume-1" a second time.
+			if continuationOutput != nil && continuationOutput.Status == model.StepStatusAwaitingInput {
+				return nil, fmt.Errorf("nested request_input is not supported: continuation steps cannot request additional human input")
+			}
+
 			// Use continuation result as final output
 			output = continuationOutput
 			// Skip the normal loop — go straight to finalize
