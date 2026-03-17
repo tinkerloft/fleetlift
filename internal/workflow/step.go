@@ -38,7 +38,7 @@ type ExecuteStepInput struct {
 	SandboxID           string                     `json:"sandbox_id"`
 	Prompt              string                     `json:"prompt"`
 	ConversationHistory string                     `json:"conversation_history,omitempty"`
-	ContinuationContext *model.ContinuationContext  `json:"continuation_context,omitempty"` // E3
+	ContinuationContext *model.ContinuationContext `json:"continuation_context,omitempty"` // E3
 }
 
 // StepSignal represents signals that can be sent to a StepWorkflow.
@@ -59,19 +59,19 @@ type SteerPayload struct {
 // Activity function references — these are registered in the worker and resolved at runtime.
 // They are declared as variables so tests can substitute them.
 var (
-	ProvisionSandboxActivity    = "ProvisionSandbox"
-	ExecuteStepActivity         = "ExecuteStep"
-	VerifyStepActivity          = "VerifyStep"
-	UpdateStepStatusActivity    = "UpdateStepStatus"
-	UpdateRunStatusActivity     = "UpdateRunStatus"
-	CreateStepRunActivity       = "CreateStepRun"
-	CreatePRActivity            = "CreatePullRequest"
-	CleanupSandboxActivity      = "CleanupSandbox"
-	CompleteStepRunActivity     = "CompleteStepRun"
-	CreateInboxItemActivity     = "CreateInboxItem"
-	ValidateCredentialsActivity        = "ValidateCredentials"
-	CreateContinuationStepRunActivity  = "CreateContinuationStepRun"
-	CleanupCheckpointBranchActivity    = "CleanupCheckpointBranch"
+	ProvisionSandboxActivity          = "ProvisionSandbox"
+	ExecuteStepActivity               = "ExecuteStep"
+	VerifyStepActivity                = "VerifyStep"
+	UpdateStepStatusActivity          = "UpdateStepStatus"
+	UpdateRunStatusActivity           = "UpdateRunStatus"
+	CreateStepRunActivity             = "CreateStepRun"
+	CreatePRActivity                  = "CreatePullRequest"
+	CleanupSandboxActivity            = "CleanupSandbox"
+	CompleteStepRunActivity           = "CompleteStepRun"
+	CreateInboxItemActivity           = "CreateInboxItem"
+	ValidateCredentialsActivity       = "ValidateCredentials"
+	CreateContinuationStepRunActivity = "CreateContinuationStepRun"
+	CleanupCheckpointBranchActivity   = "CleanupCheckpointBranch"
 )
 
 // StepWorkflow orchestrates a single step: provision sandbox, run agent, handle HITL signals, optionally create PR.
@@ -192,9 +192,9 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 			err = workflow.ExecuteActivity(
 				workflow.WithActivityOptions(ctx, contExecAO),
 				ExecuteStepActivity, ExecuteStepInput{
-					StepInput:           continuationInput,
-					SandboxID:           continuationSandboxID,
-					Prompt:              prompt, // original prompt; buildContinuationPrompt prepends context in activity
+					StepInput: continuationInput,
+					SandboxID: continuationSandboxID,
+					Prompt:    prompt, // original prompt; buildContinuationPrompt prepends context in activity
 					ContinuationContext: &model.ContinuationContext{
 						InboxItemID:      output.InboxItemID,
 						Question:         output.Question,

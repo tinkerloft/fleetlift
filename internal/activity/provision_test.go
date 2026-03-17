@@ -361,8 +361,8 @@ func TestProvisionSandbox_MCPFailsOnHealthCheckTimeout(t *testing.T) {
 // gitCredSandbox records WriteFile and Exec calls for git credential assertions.
 type gitCredSandbox struct {
 	noopSandbox
-	execCmds      []string
-	writtenFiles  map[string]string
+	execCmds     []string
+	writtenFiles map[string]string
 }
 
 func newGitCredSandbox() *gitCredSandbox {
