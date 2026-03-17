@@ -40,8 +40,10 @@ steps:
 
         Provide a clear analysis of the root cause, affected files, and proposed fix approach.
 
+        Before analyzing, call mcp__fleetlift__memory__search to retrieve any prior knowledge about this repo or similar bugs.
+        Save your root cause analysis using mcp__fleetlift__artifact__create with name="root-cause-analysis" and content_type="text/markdown".
         If you discover the bug is ambiguous (multiple possible causes) or you need clarification
-        from the team, use the inbox.request_input tool to ask before proceeding.
+        from the team, use the mcp__fleetlift__inbox__request_input tool to ask before proceeding.
 
   - id: fix
     title: Apply fix
@@ -63,8 +65,10 @@ steps:
 
         Make the minimal code changes needed to fix this bug. Run tests to verify.
 
+        Call mcp__fleetlift__progress__update at key milestones (applying fix, running tests).
+        If you discover any repo-specific gotchas or patterns, record them with mcp__fleetlift__memory__add_learning.
         If the fix has multiple valid approaches (e.g. different performance/complexity tradeoffs),
-        use the inbox.request_input tool to let the team choose. Provide clear options describing
+        use the mcp__fleetlift__inbox__request_input tool to let the team choose. Provide clear options describing
         each approach. This will pause execution until the team responds, then you'll resume with
         their answer in a fresh sandbox with your changes preserved.
       verifiers: "{{ .Params.verifiers }}"

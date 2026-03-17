@@ -43,8 +43,11 @@ steps:
 
         Provide a structured report with severity levels for each finding.
 
+        Before scanning, call mcp__fleetlift__memory__search with a query relevant to the audit criteria to retrieve any prior knowledge about this repo.
+        Call mcp__fleetlift__progress__update at key milestones during the scan.
+        Save your findings report using mcp__fleetlift__artifact__create with name="scan-findings" and content_type="text/markdown".
         If you discover critical or high-severity vulnerabilities (e.g. exposed secrets, RCE vectors),
-        use the inbox.notify tool immediately with urgency "high" to alert the team — don't wait
+        use the mcp__fleetlift__inbox__notify tool immediately with urgency "high" to alert the team — don't wait
         for the full scan to complete.
       output:
         schema:
@@ -70,6 +73,8 @@ steps:
         2. Critical findings requiring immediate action
         3. Per-repo breakdown
         4. Recommended remediation priorities
+
+        Save the final compliance report using mcp__fleetlift__artifact__create with name="compliance-report" and content_type="text/markdown".
     outputs:
       artifacts:
         - path: /workspace/audit-report.json
