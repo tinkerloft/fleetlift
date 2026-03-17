@@ -67,10 +67,12 @@ func NewRouter(deps Deps) (http.Handler, error) {
 
 	// Public config (no auth required)
 	temporalUIURL := deps.TemporalUIURL
+	devNoAuth := os.Getenv("DEV_NO_AUTH") == "1"
 	r.Get("/api/config", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"temporal_ui_url": temporalUIURL,
+			"dev_no_auth":     devNoAuth,
 		})
 	})
 
