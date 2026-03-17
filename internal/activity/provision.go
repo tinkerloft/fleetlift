@@ -87,6 +87,22 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 		return "", fmt.Errorf("create workspace: %w", err)
 	}
 
+	// Configure git credentials if GITHUB_TOKEN was injected.
+	// git does not read GITHUB_TOKEN automatically for HTTPS auth. Configure an inline
+	// credential helper that reads it from the env — no file write required, so it
+	// works regardless of which user the container runs as.
+	// Skipped silently if git is not installed in the sandbox image (e.g. ubuntu:22.04
+	// shell agent — those sandboxes can't clone repos anyway).
+	if _, ok := env["GITHUB_TOKEN"]; ok {
+		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, "command -v git", "/"); err == nil {
+			gitCredHelper := `git config --global credential.helper '!f() { echo username=x-access-token; echo password=$GITHUB_TOKEN; }; f'`
+			if _, _, err := a.Sandbox.Exec(ctx, sandboxID, gitCredHelper, "/"); err != nil {
+				_ = a.Sandbox.Kill(ctx, sandboxID)
+				return "", fmt.Errorf("configure git credential helper: %w", err)
+			}
+		}
+	}
+
 	// MCP sidecar setup (optional — skip if binary path not configured)
 	if mcpBinaryPrefix := os.Getenv("FLEETLIFT_MCP_BINARY_PATH"); mcpBinaryPrefix != "" {
 		// Detect sandbox architecture to select the correct binary.
