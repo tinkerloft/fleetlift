@@ -197,10 +197,11 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 				errMsg = result
 			}
 			return &model.StepOutput{
-				StepID: stepInput.StepDef.ID,
-				Status: model.StepStatusFailed,
-				Output: lastOutput,
-				Error:  errMsg,
+				StepID:  stepInput.StepDef.ID,
+				Status:  model.StepStatusFailed,
+				Output:  lastOutput,
+				Error:   errMsg,
+				CostUSD: extractCostUSD(lastOutput),
 			}, nil
 		}
 	}
@@ -209,10 +210,11 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 	if exitCode, ok := lastOutput["exit_code"]; ok {
 		if code, isNum := exitCode.(float64); isNum && code != 0 {
 			return &model.StepOutput{
-				StepID: stepInput.StepDef.ID,
-				Status: model.StepStatusFailed,
-				Output: lastOutput,
-				Error:  fmt.Sprintf("command exited with code %d", int(code)),
+				StepID:  stepInput.StepDef.ID,
+				Status:  model.StepStatusFailed,
+				Output:  lastOutput,
+				Error:   fmt.Sprintf("command exited with code %d", int(code)),
+				CostUSD: extractCostUSD(lastOutput),
 			}, nil
 		}
 	}
@@ -240,10 +242,11 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 		enforced, err := enforceOutputSchema(lastOutput, stepInput.StepDef.Execution.Output.Schema)
 		if err != nil {
 			return &model.StepOutput{
-				StepID: stepInput.StepDef.ID,
-				Status: model.StepStatusFailed,
-				Output: structured,
-				Error:  err.Error(),
+				StepID:  stepInput.StepDef.ID,
+				Status:  model.StepStatusFailed,
+				Output:  structured,
+				Error:   err.Error(),
+				CostUSD: extractCostUSD(lastOutput),
 			}, nil
 		}
 		structured = enforced

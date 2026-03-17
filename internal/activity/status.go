@@ -70,7 +70,7 @@ func (a *Activities) UpdateRunStatus(ctx context.Context, runID string, status s
                  completed_at = $2,
                  error_message = NULLIF($3, ''),
                  total_cost_usd = (
-                     SELECT COALESCE(SUM(cost_usd), 0)
+                     SELECT SUM(cost_usd)
                      FROM step_runs
                      WHERE run_id = $4
                  )
@@ -113,7 +113,7 @@ func (a *Activities) CompleteStepRun(ctx context.Context, stepRunID string, stat
 		     error_message = NULLIF($4, ''),
 		     started_at = COALESCE(started_at, $5),
 		     completed_at = $6,
-		     cost_usd = $8
+		     cost_usd = NULLIF($8::numeric, 0)
 		 WHERE id = $7`,
 		status, model.JSONMap(output), diff, errorMsg, now, now, stepRunID, costUSD)
 	if err != nil {
