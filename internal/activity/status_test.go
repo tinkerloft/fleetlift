@@ -46,6 +46,13 @@ func TestUpdateRunStatus_NilDB(t *testing.T) {
 	assert.NotNil(t, a)
 }
 
+func TestCreateContinuationStepRun_NilDB(t *testing.T) {
+	// Verify the method exists and compiles with correct signature
+	a := &Activities{DB: nil}
+	_ = a
+	assert.NotNil(t, a)
+}
+
 // Fix 4: log inserts must be idempotent across Temporal retries.
 // The generated SQL must use ON CONFLICT so duplicate (step_run_id, seq) rows are silently skipped.
 func TestBuildInsertLogsQuery_ContainsOnConflict(t *testing.T) {

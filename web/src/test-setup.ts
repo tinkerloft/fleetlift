@@ -18,3 +18,5 @@ Object.defineProperty(window, 'localStorage', {
   value: makeLocalStorage(),
   writable: true,
 })
+
+import '@testing-library/jest-dom'

@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 
 	"github.com/tinkerloft/fleetlift/internal/model"
 )
@@ -23,6 +24,7 @@ type Store interface {
 	ListApprovedByWorkflow(ctx context.Context, teamID, workflowTemplateID string, maxItems int) ([]model.KnowledgeItem, error)
 	UpdateStatus(ctx context.Context, id, teamID string, status model.KnowledgeStatus) error
 	Delete(ctx context.Context, id, teamID string) error
+	SearchByTeam(ctx context.Context, teamID, query string, tags []string, maxItems int) ([]model.KnowledgeItem, error)
 }
 
 // DBStore is the production PostgreSQL-backed Store.
@@ -142,6 +144,44 @@ func (s *DBStore) Delete(ctx context.Context, id, teamID string) error {
 	return err
 }
 
+func (s *DBStore) SearchByTeam(ctx context.Context, teamID, query string, tags []string, maxItems int) ([]model.KnowledgeItem, error) {
+	if maxItems <= 0 {
+		maxItems = 10
+	}
+	var items []model.KnowledgeItem
+	var err error
+	if query != "" && len(tags) > 0 {
+		err = s.db.SelectContext(ctx, &items,
+			`SELECT * FROM knowledge_items
+			 WHERE team_id = $1 AND status = 'approved'
+			   AND (summary ILIKE '%' || $2 || '%' OR details ILIKE '%' || $2 || '%')
+			   AND tags @> $3::text[]
+			 ORDER BY confidence DESC LIMIT $4`,
+			teamID, query, pq.StringArray(tags), maxItems)
+	} else if query != "" {
+		err = s.db.SelectContext(ctx, &items,
+			`SELECT * FROM knowledge_items
+			 WHERE team_id = $1 AND status = 'approved'
+			   AND (summary ILIKE '%' || $2 || '%' OR details ILIKE '%' || $2 || '%')
+			 ORDER BY confidence DESC LIMIT $3`,
+			teamID, query, maxItems)
+	} else if len(tags) > 0 {
+		err = s.db.SelectContext(ctx, &items,
+			`SELECT * FROM knowledge_items
+			 WHERE team_id = $1 AND status = 'approved'
+			   AND tags @> $2::text[]
+			 ORDER BY confidence DESC LIMIT $3`,
+			teamID, pq.StringArray(tags), maxItems)
+	} else {
+		err = s.db.SelectContext(ctx, &items,
+			`SELECT * FROM knowledge_items
+			 WHERE team_id = $1 AND status = 'approved'
+			 ORDER BY confidence DESC LIMIT $2`,
+			teamID, maxItems)
+	}
+	return items, err
+}
+
 func nullStr(s string) any {
 	if s == "" {
 		return nil
@@ -244,6 +284,46 @@ func (s *MemoryStore) Delete(_ context.Context, id, teamID string) error {
 		}
 	}
 	return nil
+}
+
+func (s *MemoryStore) SearchByTeam(_ context.Context, teamID, query string, tags []string, maxItems int) ([]model.KnowledgeItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if maxItems <= 0 {
+		maxItems = 10
+	}
+	queryLower := strings.ToLower(query)
+	var out []model.KnowledgeItem
+	for _, item := range s.items {
+		if item.TeamID != teamID || item.Status != model.KnowledgeStatusApproved {
+			continue
+		}
+		if query != "" && !strings.Contains(strings.ToLower(item.Summary), queryLower) && !strings.Contains(strings.ToLower(item.Details), queryLower) {
+			continue
+		}
+		if len(tags) > 0 && !containsAll(item.Tags, tags) {
+			continue
+		}
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Confidence > out[j].Confidence })
+	if len(out) > maxItems {
+		out = out[:maxItems]
+	}
+	return out, nil
+}
+
+func containsAll(haystack []string, needles []string) bool {
+	set := make(map[string]bool, len(haystack))
+	for _, h := range haystack {
+		set[h] = true
+	}
+	for _, n := range needles {
+		if !set[n] {
+			return false
+		}
+	}
+	return true
 }
 
 // FormatEnrichmentBlock formats approved knowledge items as a prompt context block.

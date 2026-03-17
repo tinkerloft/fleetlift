@@ -7,10 +7,11 @@ import (
 )
 
 func TestParseClaudeEvent_Result(t *testing.T) {
-	line := `{"type":"result","cost":0.05,"duration":12.3}`
+	line := `{"type":"result","subtype":"success","cost_usd":0.05,"session_id":"abc"}`
 	ev := parseClaudeEvent(line)
 	assert.Equal(t, "complete", ev.Type)
 	assert.Equal(t, "result", ev.Output["type"])
+	assert.Equal(t, 0.05, ev.Output["cost_usd"])
 }
 
 func TestParseClaudeEvent_NeedsInput(t *testing.T) {

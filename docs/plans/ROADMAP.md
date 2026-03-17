@@ -188,9 +188,9 @@ See: [`archive/2026-03-14-mcp-agent-interface.md`](archive/2026-03-14-mcp-agent-
 
 | Phase | Scope | Key Tools | Status |
 |-------|-------|-----------|--------|
-| E1 | Read-only context tools | `context.get_run`, `context.get_step_output`, `context.get_knowledge` | ⬜ |
-| E2 | Write tools | `artifact.create`, `memory.add_learning`, `memory.search`, `progress.update` | ⬜ |
-| E3 | Interactive tools | `inbox.request_input`, `inbox.notify` | ⬜ |
+| E1 | Read-only context tools | `context.get_run`, `context.get_step_output`, `context.get_knowledge` | ✅ |
+| E2 | Write tools | `artifact.create`, `memory.add_learning`, `memory.search`, `progress.update` | ✅ |
+| E3 | Interactive tools | `inbox.request_input`, `inbox.notify` | ✅ |
 
 ### Track F: Feature Completion
 
@@ -221,11 +221,10 @@ See: [`archive/2026-03-14-mcp-agent-interface.md`](archive/2026-03-14-mcp-agent-
 |---|------|--------|
 | 1 | Notification preferences per-team/user | ⬜ |
 | 2 | Data retention/archival for runs table | ⬜ |
-| 3 | Run duration column in runs list | ⬜ |
+| 3 | Run duration column in runs list | ✅ |
 | 4 | Run detail as sequential step view (spinner on active step) | ⬜ |
-| 5 | Run cost tracking — aggregate `total_cost_usd` across steps, new DB column, display in runs list and run detail | ⬜ |
-| 6 | Dark mode toggle | ⬜ |
-| 7 | Visual polish (general UI improvements) | ⬜ |
+| 5 | Run cost tracking — aggregate `total_cost_usd` across steps, new DB column, display in runs list and run detail | ✅ |
+| 6 | Dark mode toggle | ✅ |
 
 ---
 
@@ -237,7 +236,7 @@ Tier 2: C (Web) ✅
         D (OSS Docs) ✅
         H (Engine Reliability) ✅ — H1-H7 all complete
 
-Tier 3: E1 ──▶ E2 ──▶ E3   ← next
+Tier 3: E1 ──▶ E2 ──▶ E3 ✅
         F (parallel with E, benefits from H5)
         G (after E+F)
 ```

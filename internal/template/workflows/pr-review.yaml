@@ -67,6 +67,9 @@ steps:
         Provide specific, actionable feedback with file paths and line numbers.
 
         Save the review report using mcp__fleetlift__artifact__create with name="pr-review" and content_type="text/markdown".
+        If the PR has changes that are unclear or you need author clarification to complete
+        the review (e.g. ambiguous intent, missing context for a design decision), use the
+        inbox.request_input tool to ask the team. This pauses the review until they respond.
       output:
         schema:
           comments: "array"

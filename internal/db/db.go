@@ -2,17 +2,21 @@ package db
 
 import (
 	"context"
-	_ "embed"
+	"embed"
+	"errors"
 	"fmt"
 	"os"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 )
 
-//go:embed schema.sql
-var schema string
+//go:embed migrations/*.sql
+var migrationFiles embed.FS
 
 func Connect(ctx context.Context) (*sqlx.DB, error) {
 	dsn := os.Getenv("DATABASE_URL")
@@ -31,6 +35,20 @@ func Connect(ctx context.Context) (*sqlx.DB, error) {
 }
 
 func Migrate(db *sqlx.DB) error {
-	_, err := db.Exec(schema)
-	return err
+	src, err := iofs.New(migrationFiles, "migrations")
+	if err != nil {
+		return fmt.Errorf("open migrations: %w", err)
+	}
+	driver, err := postgres.WithInstance(db.DB, &postgres.Config{})
+	if err != nil {
+		return fmt.Errorf("migration driver: %w", err)
+	}
+	m, err := migrate.NewWithInstance("iofs", src, "postgres", driver)
+	if err != nil {
+		return fmt.Errorf("init migrate: %w", err)
+	}
+	if err := m.Up(); err != nil && !errors.Is(err, migrate.ErrNoChange) {
+		return fmt.Errorf("migrate up: %w", err)
+	}
+	return nil
 }

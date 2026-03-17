@@ -16,6 +16,23 @@ import (
 	"github.com/tinkerloft/fleetlift/internal/workflow"
 )
 
+var checkpointBranchRe = regexp.MustCompile(`^fleetlift/checkpoint/[a-zA-Z0-9_-]+$`)
+
+// buildContinuationPrompt prepends the original prompt with continuation context.
+func buildContinuationPrompt(originalPrompt string, cc *model.ContinuationContext) string {
+	if cc == nil {
+		return originalPrompt
+	}
+	header := fmt.Sprintf(
+		"[CONTINUATION CONTEXT]\nPrevious step asked: %q\nHuman answered: %q\n\n"+
+			"Your working state has been preserved. If a checkpoint branch was provided, "+
+			"your working directory already contains your previous changes.\n"+
+			"[END CONTINUATION CONTEXT]\n\n",
+		cc.Question, cc.HumanAnswer,
+	)
+	return header + originalPrompt
+}
+
 // ExecuteStep is the core long-running activity. It:
 // 1. Clones all repos into the sandbox
 // 2. Runs the agent with streaming output
@@ -127,6 +144,25 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 		}
 	}
 
+	// After cloning, checkout checkpoint branch if this is a continuation step
+	if input.ContinuationContext != nil && input.ContinuationContext.CheckpointBranch != "" {
+		branch := input.ContinuationContext.CheckpointBranch
+		if !checkpointBranchRe.MatchString(branch) {
+			return nil, fmt.Errorf("invalid checkpoint branch name: %q", branch)
+		}
+		for _, repo := range stepInput.ResolvedOpts.Repos {
+			repoDir := "/workspace/" + repoName(repo)
+			checkoutCmd := fmt.Sprintf("cd %s && git fetch origin %s && git checkout %s",
+				shellquote.Quote(repoDir),
+				shellquote.Quote(branch),
+				shellquote.Quote(branch),
+			)
+			if _, _, err := sb.Exec(ctx, input.SandboxID, checkoutCmd, "/"); err != nil {
+				return nil, fmt.Errorf("checkout checkpoint branch %q: %w", branch, err)
+			}
+		}
+	}
+
 	// 2. Run agent with streaming output
 	activity.RecordHeartbeat(ctx, "running agent")
 	a.updateStepStatus(ctx, stepInput.StepRunID, model.StepStatusRunning)
@@ -134,6 +170,11 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 	runner, ok := a.AgentRunners[stepInput.ResolvedOpts.Agent]
 	if !ok {
 		return nil, fmt.Errorf("unknown agent: %s", stepInput.ResolvedOpts.Agent)
+	}
+
+	// Apply continuation context to prompt if present
+	if input.ContinuationContext != nil {
+		input.Prompt = buildContinuationPrompt(input.Prompt, input.ContinuationContext)
 	}
 
 	prompt := input.Prompt
@@ -180,6 +221,39 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 	}
 	buf.flush(ctx)
 
+	// Check if MCP handler set status to awaiting_input during this execution
+	if a.DB != nil {
+		var dbStatus string
+		if err := a.DB.QueryRowContext(ctx,
+			"SELECT status FROM step_runs WHERE id = $1",
+			stepInput.StepRunID,
+		).Scan(&dbStatus); err == nil && dbStatus == "awaiting_input" {
+			var inboxItemID, question string
+			_ = a.DB.QueryRowContext(ctx,
+				`SELECT id, COALESCE(question,'') FROM inbox_items
+				 WHERE step_run_id = $1 AND kind = 'request_input'
+				 ORDER BY created_at DESC LIMIT 1`,
+				stepInput.StepRunID,
+			).Scan(&inboxItemID, &question)
+
+			var checkpointBranch, stateArtifactID string
+			_ = a.DB.QueryRowContext(ctx,
+				`SELECT COALESCE(checkpoint_branch,''), COALESCE(checkpoint_artifact_id::text,'')
+				 FROM step_runs WHERE id = $1`,
+				stepInput.StepRunID,
+			).Scan(&checkpointBranch, &stateArtifactID)
+
+			return &model.StepOutput{
+				StepID:           stepInput.StepDef.ID,
+				Status:           model.StepStatusAwaitingInput,
+				InboxItemID:      inboxItemID,
+				Question:         question,
+				CheckpointBranch: checkpointBranch,
+				StateArtifactID:  stateArtifactID,
+			}, nil
+		}
+	}
+
 	// If the agent never emitted a completion event, the command failed.
 	if !gotComplete {
 		return &model.StepOutput{
@@ -197,10 +271,11 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 				errMsg = result
 			}
 			return &model.StepOutput{
-				StepID: stepInput.StepDef.ID,
-				Status: model.StepStatusFailed,
-				Output: lastOutput,
-				Error:  errMsg,
+				StepID:  stepInput.StepDef.ID,
+				Status:  model.StepStatusFailed,
+				Output:  lastOutput,
+				Error:   errMsg,
+				CostUSD: extractCostUSD(lastOutput),
 			}, nil
 		}
 	}
@@ -209,10 +284,11 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 	if exitCode, ok := lastOutput["exit_code"]; ok {
 		if code, isNum := exitCode.(float64); isNum && code != 0 {
 			return &model.StepOutput{
-				StepID: stepInput.StepDef.ID,
-				Status: model.StepStatusFailed,
-				Output: lastOutput,
-				Error:  fmt.Sprintf("command exited with code %d", int(code)),
+				StepID:  stepInput.StepDef.ID,
+				Status:  model.StepStatusFailed,
+				Output:  lastOutput,
+				Error:   fmt.Sprintf("command exited with code %d", int(code)),
+				CostUSD: extractCostUSD(lastOutput),
 			}, nil
 		}
 	}
@@ -240,20 +316,22 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 		enforced, err := enforceOutputSchema(lastOutput, stepInput.StepDef.Execution.Output.Schema)
 		if err != nil {
 			return &model.StepOutput{
-				StepID: stepInput.StepDef.ID,
-				Status: model.StepStatusFailed,
-				Output: structured,
-				Error:  err.Error(),
+				StepID:  stepInput.StepDef.ID,
+				Status:  model.StepStatusFailed,
+				Output:  structured,
+				Error:   err.Error(),
+				CostUSD: extractCostUSD(lastOutput),
 			}, nil
 		}
 		structured = enforced
 	}
 
 	return &model.StepOutput{
-		StepID: stepInput.StepDef.ID,
-		Status: model.StepStatusComplete,
-		Output: structured,
-		Diff:   diff,
+		StepID:  stepInput.StepDef.ID,
+		Status:  model.StepStatusComplete,
+		Output:  structured,
+		Diff:    diff,
+		CostUSD: extractCostUSD(lastOutput),
 	}, nil
 }
 
@@ -398,6 +476,15 @@ func filterSchema(parsed map[string]any, schema map[string]any) map[string]any {
 		}
 	}
 	return result
+}
+
+// extractCostUSD reads the agent cost from a Claude Code result event.
+// Claude Code CLI emits cost_usd in the result event.
+func extractCostUSD(raw map[string]any) float64 {
+	if v, ok := raw["cost_usd"].(float64); ok {
+		return v
+	}
+	return 0
 }
 
 // validateOutputSchema checks that all schema fields are present in output with the correct types.

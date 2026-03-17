@@ -101,8 +101,18 @@ func (m *stepMockActivities) VerifyStep(_ context.Context, sandboxID, stepRunID 
 	return args.Error(0)
 }
 
-func (m *stepMockActivities) CompleteStepRun(_ context.Context, stepRunID, status string, output map[string]any, diff, errorMsg string) error {
-	args := m.Called(stepRunID, status, output, diff, errorMsg)
+func (m *stepMockActivities) CompleteStepRun(_ context.Context, stepRunID, status string, output map[string]any, diff, errorMsg string, costUSD float64) error {
+	args := m.Called(stepRunID, status, output, diff, errorMsg, costUSD)
+	return args.Error(0)
+}
+
+func (m *stepMockActivities) CreateContinuationStepRun(_ context.Context, input model.CreateContinuationStepRunInput) (string, error) {
+	args := m.Called(input)
+	return args.String(0), args.Error(1)
+}
+
+func (m *stepMockActivities) CleanupCheckpointBranch(_ context.Context, input model.CleanupCheckpointInput) error {
+	args := m.Called(input)
 	return args.Error(0)
 }
 
@@ -120,6 +130,8 @@ func newStepWorkflowEnv(t *testing.T) (*testsuite.TestWorkflowEnvironment, *step
 	env.RegisterActivity(mocks.CreatePullRequest)
 	env.RegisterActivity(mocks.VerifyStep)
 	env.RegisterActivity(mocks.CompleteStepRun)
+	env.RegisterActivity(mocks.CreateContinuationStepRun)
+	env.RegisterActivity(mocks.CleanupCheckpointBranch)
 	return env, mocks
 }
 
@@ -153,7 +165,7 @@ func TestStepWorkflow_ReusesSandboxID(t *testing.T) {
 	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
 		return ei.SandboxID == "existing-sandbox-abc"
 	})).Return(expectedOutput, nil)
-	mocks.On("CompleteStepRun", "sr-1", "complete", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.On("CompleteStepRun", "sr-1", "complete", mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64")).Return(nil)
 
 	env.ExecuteWorkflow(StepWorkflow, input)
 
@@ -169,7 +181,7 @@ func TestStepWorkflow_ReusesSandboxID(t *testing.T) {
 	// CleanupSandbox must not have been called.
 	mocks.AssertNotCalled(t, "CleanupSandbox", mock.Anything)
 	// CompleteStepRun must have been called with 'complete' status.
-	mocks.AssertCalled(t, "CompleteStepRun", "sr-1", "complete", mock.Anything, mock.Anything, mock.Anything)
+	mocks.AssertCalled(t, "CompleteStepRun", "sr-1", "complete", mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64"))
 }
 
 // TestStepWorkflow_ProvisionAndCleanup verifies that when SandboxID is empty and
@@ -205,7 +217,7 @@ func TestStepWorkflow_ProvisionAndCleanup(t *testing.T) {
 		return ei.SandboxID == "provisioned-sandbox-xyz"
 	})).Return(expectedOutput, nil)
 	mocks.On("CleanupSandbox", "provisioned-sandbox-xyz").Return(nil)
-	mocks.On("CompleteStepRun", "sr-2", "complete", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.On("CompleteStepRun", "sr-2", "complete", mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64")).Return(nil)
 
 	env.ExecuteWorkflow(StepWorkflow, input)
 
@@ -218,7 +230,7 @@ func TestStepWorkflow_ProvisionAndCleanup(t *testing.T) {
 
 	mocks.AssertCalled(t, "ProvisionSandbox", input)
 	mocks.AssertCalled(t, "CleanupSandbox", "provisioned-sandbox-xyz")
-	mocks.AssertCalled(t, "CompleteStepRun", "sr-2", "complete", mock.Anything, mock.Anything, mock.Anything)
+	mocks.AssertCalled(t, "CompleteStepRun", "sr-2", "complete", mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64"))
 }
 
 // TestStepWorkflow_SandboxGroupSkipsCleanup verifies that when SandboxGroup is set
@@ -254,7 +266,7 @@ func TestStepWorkflow_SandboxGroupSkipsCleanup(t *testing.T) {
 	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
 		return ei.SandboxID == "group-sandbox-123"
 	})).Return(expectedOutput, nil)
-	mocks.On("CompleteStepRun", "sr-3", "complete", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.On("CompleteStepRun", "sr-3", "complete", mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64")).Return(nil)
 
 	// CleanupSandbox must NOT be called because SandboxGroup is set.
 
@@ -269,7 +281,7 @@ func TestStepWorkflow_SandboxGroupSkipsCleanup(t *testing.T) {
 
 	mocks.AssertCalled(t, "ProvisionSandbox", input)
 	mocks.AssertNotCalled(t, "CleanupSandbox", mock.Anything)
-	mocks.AssertCalled(t, "CompleteStepRun", "sr-3", "complete", mock.Anything, mock.Anything, mock.Anything)
+	mocks.AssertCalled(t, "CompleteStepRun", "sr-3", "complete", mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64"))
 }
 
 // TestStepWorkflow_ProvisionFailsAfterRetries verifies that when ProvisionSandbox
@@ -336,7 +348,7 @@ func TestStepWorkflow_CreatePRFailureSetsError(t *testing.T) {
 	})).Return(execOutput, nil)
 	mocks.On("CreatePullRequest", "sb-pr-fail", mock.Anything).Return("", assert.AnError)
 	mocks.On("CleanupSandbox", "sb-pr-fail").Return(nil)
-	mocks.On("CompleteStepRun", "sr-pr-fail", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.On("CompleteStepRun", "sr-pr-fail", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64")).Return(nil)
 
 	env.ExecuteWorkflow(StepWorkflow, input)
 
@@ -372,7 +384,7 @@ func TestStepWorkflow_FinalizeFailurePropagates(t *testing.T) {
 		StepID: "analyze",
 		Status: model.StepStatusComplete,
 	}, nil)
-	mocks.On("CompleteStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(fmt.Errorf("db connection lost"))
+	mocks.On("CompleteStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64")).Return(fmt.Errorf("db connection lost"))
 
 	env.ExecuteWorkflow(StepWorkflow, input)
 
@@ -380,4 +392,106 @@ func TestStepWorkflow_FinalizeFailurePropagates(t *testing.T) {
 	err := env.GetWorkflowError()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "finalize step run")
+}
+
+func TestStepWorkflow_AwaitResumeCycle(t *testing.T) {
+	env, mocks := newStepWorkflowEnv(t)
+
+	input := StepInput{
+		RunID:     "run-1",
+		StepRunID: "sr-1",
+		TeamID:    "team-1",
+		StepDef: model.StepDef{
+			ID:             "fix",
+			Title:          "Fix",
+			Mode:           "transform",
+			ApprovalPolicy: "never",
+		},
+		ResolvedOpts: ResolvedStepOpts{
+			Prompt: "Fix the bug",
+			Agent:  "claude-code",
+		},
+		SandboxID: "sb-1", // pre-provisioned
+	}
+
+	// First call returns awaiting_input
+	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
+		return ei.ContinuationContext == nil // first call has no continuation
+	})).Return(&model.StepOutput{
+		StepID:      "fix",
+		Status:      model.StepStatusAwaitingInput,
+		InboxItemID: "inbox-1",
+		Question:    "Fix or skip?",
+	}, nil).Once()
+
+	// Continuation call
+	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
+		if ei.ContinuationContext == nil {
+			return false
+		}
+		return ei.ContinuationContext.HumanAnswer == "Fix tests"
+	})).Return(&model.StepOutput{
+		StepID: "fix",
+		Status: model.StepStatusComplete,
+		Output: map[string]any{"result": "done"},
+	}, nil).Once()
+
+	mocks.On("CreateContinuationStepRun", mock.Anything).Return("cont-sr-1", nil)
+	mocks.On("ProvisionSandbox", mock.Anything).Return("cont-sb-1", nil)
+	mocks.On("CleanupSandbox", "cont-sb-1").Return(nil)
+	mocks.On("CompleteStepRun", mock.Anything, "complete", mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64")).Return(nil)
+
+	// Deliver respond signal after workflow starts
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow("respond", model.InboxAnswer{
+			Answer:    "Fix tests",
+			Responder: "jane@example.com",
+		})
+	}, 0)
+
+	env.ExecuteWorkflow(StepWorkflow, input)
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+
+	var result model.StepOutput
+	require.NoError(t, env.GetWorkflowResult(&result))
+	assert.Equal(t, model.StepStatusComplete, result.Status)
+
+	mocks.AssertCalled(t, "CreateContinuationStepRun", mock.Anything)
+	mocks.AssertCalled(t, "ProvisionSandbox", mock.Anything)
+	mocks.AssertCalled(t, "CleanupSandbox", "cont-sb-1")
+}
+
+func TestStepWorkflow_NoAwaitingInput_WorksNormally(t *testing.T) {
+	env, mocks := newStepWorkflowEnv(t)
+
+	input := StepInput{
+		RunID:     "run-normal",
+		StepRunID: "sr-normal",
+		StepDef: model.StepDef{
+			ID:             "analyze",
+			Mode:           "report",
+			ApprovalPolicy: "never",
+		},
+		ResolvedOpts: ResolvedStepOpts{
+			Prompt: "Analyze",
+			Agent:  "claude-code",
+		},
+		SandboxID: "sb-normal",
+	}
+
+	mocks.On("ExecuteStep", mock.Anything).Return(&model.StepOutput{
+		StepID: "analyze",
+		Status: model.StepStatusComplete,
+	}, nil)
+	mocks.On("CompleteStepRun", mock.Anything, "complete", mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64")).Return(nil)
+
+	env.ExecuteWorkflow(StepWorkflow, input)
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+
+	// CreateContinuationStepRun should NOT be called
+	mocks.AssertNotCalled(t, "CreateContinuationStepRun", mock.Anything)
 }

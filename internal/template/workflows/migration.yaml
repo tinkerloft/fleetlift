@@ -41,6 +41,8 @@ steps:
 
         Before analyzing, call mcp__fleetlift__memory__search to retrieve any prior knowledge about migration patterns for this repo.
         Save the impact analysis using mcp__fleetlift__artifact__create with name="migration-analysis" and content_type="text/markdown".
+        If you find critical breaking changes or high-risk impacts, use the inbox.notify tool
+        to alert the team immediately with the scope and severity.
       output:
         schema:
           affected: "boolean"
@@ -70,6 +72,9 @@ steps:
 
         Call mcp__fleetlift__progress__update at key milestones during the migration.
         If you discover any repo-specific patterns or exceptions that couldn't be auto-migrated, record them with mcp__fleetlift__memory__add_learning.
+        If the migration requires a decision about breaking changes (e.g. how to handle deprecated
+        API consumers, backward compatibility strategy), use the inbox.request_input tool to ask
+        the team before proceeding.
       verifiers: "{{ .Params.verifiers }}"
 
   - id: validate

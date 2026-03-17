@@ -49,6 +49,8 @@ steps:
 
         Call mcp__fleetlift__progress__update as you trace the error.
         Save the root cause analysis using mcp__fleetlift__artifact__create with name="incident-analysis" and content_type="text/markdown".
+        Once you identify the root cause, use the inbox.notify tool to immediately alert the team
+        with the root cause summary — don't wait for the full pipeline to complete.
       output:
         schema:
           root_cause: "string"
@@ -73,6 +75,10 @@ steps:
         Consider the minimal safe fix that addresses the immediate issue.
 
         Save the fix proposal using mcp__fleetlift__artifact__create with name="fix-proposal" and content_type="text/markdown".
+        If there are multiple valid fix strategies with different risk profiles, use the
+        inbox.request_input tool to let the on-call engineer choose. Provide options describing
+        each approach and its tradeoffs (e.g. "Hotfix: revert the breaking change" vs
+        "Full fix: patch the root cause"). This pauses until the engineer responds.
 
   - id: fix
     title: Apply fix

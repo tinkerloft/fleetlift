@@ -35,8 +35,15 @@ func (r *ClaudeCodeRunner) SandboxEnv() map[string]string {
 }
 
 func (r *ClaudeCodeRunner) Run(ctx context.Context, sandboxID string, opts RunOpts) (<-chan Event, error) {
-	cmd := fmt.Sprintf("cd %s && claude -p %s --output-format stream-json --verbose --dangerously-skip-permissions --max-turns %d",
-		shellquote.Quote(opts.WorkDir), shellquote.Quote(opts.Prompt), max(opts.MaxTurns, 20))
+	// If MCP sidecar is available, source profile to pick up FLEETLIFT_MCP_PORT
+	// and write config so Claude discovers it via .mcp.json in the workspace.
+	mcpSetup := `. /etc/profile.d/fleetlift-mcp.sh 2>/dev/null; ` +
+		`if [ -n "$FLEETLIFT_MCP_PORT" ]; then ` +
+		`printf '{"mcpServers":{"fleetlift":{"type":"sse","url":"http://localhost:%s/sse"}}}' "$FLEETLIFT_MCP_PORT" > /workspace/.mcp.json; ` +
+		`fi`
+
+	cmd := fmt.Sprintf("%s && cd %s && claude -p %s --output-format stream-json --verbose --dangerously-skip-permissions --max-turns %d",
+		mcpSetup, shellquote.Quote(opts.WorkDir), shellquote.Quote(opts.Prompt), max(opts.MaxTurns, 20))
 
 	ch := make(chan Event, 64)
 	go func() {

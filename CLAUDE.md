@@ -12,6 +12,7 @@ Use the scripts in `scripts/integration/` to manage the local dev environment:
 - `scripts/integration/logs.sh` — tail worker and server logs
 - `scripts/integration/status.sh` — check if processes are running
 - `scripts/integration/run-sandbox-test.sh` — trigger a sandbox-test workflow run
+- `scripts/integration/run-mcp-test.sh [--with-agent]` — run MCP sidecar integration test
 
 Prerequisites: `docker compose up -d` (Temporal + Postgres) and `docker compose -f docker-compose.opensandbox.yaml up -d` (OpenSandbox) must be running.
 
@@ -102,6 +103,15 @@ Beyond general unit tests, these specific areas **must** have tests before merge
 - Never call `res.json()` without first checking `res.status !== 204` and `res.headers.get('content-length') !== '0'`
 - DELETE endpoints return 204 No Content — callers must not attempt to parse the response body
 
+## Database Migrations
+
+All schema changes **must** be encoded as versioned migration files — never applied manually or via raw SQL in application code.
+
+- Migration files live in `internal/db/migrations/` and follow the pattern `NNN_description.up.sql` (and optionally `.down.sql`)
+- golang-migrate v4 applies them automatically at server and worker startup via `db.Migrate()` in `internal/db/db.go`
+- To add a new migration: create `NNN_description.up.sql` with the next version number, rebuild — no other changes required
+- `internal/db/schema.sql` is a **reference only** (migration 001 baseline); it is not executed at runtime
+
 ## Go + PostgreSQL Type Rules
 
 - `[]string` fields **cannot** scan PostgreSQL `TEXT[]` columns — use `pq.StringArray` (from `github.com/lib/pq`)
@@ -141,4 +151,5 @@ Beyond general unit tests, these specific areas **must** have tests before merge
 | `GITHUB_CLIENT_SECRET` | OAuth app client secret | — |
 | `GIT_USER_EMAIL` | Git commit identity for agent | `claude-agent@noreply.localhost` |
 | `GIT_USER_NAME` | Git commit identity for agent | `Claude Code Agent` |
+| `FLEETLIFT_MCP_BINARY_PATH` | MCP sidecar binary path prefix (arch suffix appended at runtime, e.g. `-amd64`) | — |
 | `FLEETLIFT_API_URL` | CLI base URL | `http://localhost:8080` |

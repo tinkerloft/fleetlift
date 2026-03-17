@@ -25,7 +25,8 @@ func (n *noopSandbox) ExecStream(_ context.Context, _, _, _ string, _ func(strin
 func (n *noopSandbox) Exec(_ context.Context, _, _, _ string) (string, string, error) {
 	return "", "", nil
 }
-func (n *noopSandbox) WriteFile(_ context.Context, _, _, _ string) error { return nil }
+func (n *noopSandbox) WriteFile(_ context.Context, _, _, _ string) error         { return nil }
+func (n *noopSandbox) WriteBytes(_ context.Context, _, _ string, _ []byte) error { return nil }
 func (n *noopSandbox) ReadFile(_ context.Context, _, _ string) (string, error) {
 	return "", nil
 }
@@ -229,4 +230,51 @@ func TestEnforceOutputSchema_Success(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "ok", out["summary"])
 	assert.Equal(t, "low", out["severity"])
+}
+
+func TestBuildContinuationPrompt_Nil(t *testing.T) {
+	result := buildContinuationPrompt("Original prompt", nil)
+	assert.Equal(t, "Original prompt", result)
+}
+
+func TestBuildContinuationPrompt_WithContext(t *testing.T) {
+	cc := &model.ContinuationContext{
+		InboxItemID:      "inbox-1",
+		Question:         "Fix or skip flaky tests?",
+		HumanAnswer:      "Fix flaky tests",
+		CheckpointBranch: "fleetlift/checkpoint/run-1-fix",
+	}
+	result := buildContinuationPrompt("Original prompt text", cc)
+	assert.Contains(t, result, "Fix flaky tests")
+	assert.Contains(t, result, "Fix or skip flaky tests?")
+	assert.Contains(t, result, "Original prompt text")
+	assert.Contains(t, result, "[CONTINUATION CONTEXT]")
+}
+
+func TestCheckpointBranchRegex(t *testing.T) {
+	assert.True(t, checkpointBranchRe.MatchString("fleetlift/checkpoint/run-abc-fix"))
+	assert.True(t, checkpointBranchRe.MatchString("fleetlift/checkpoint/run_123"))
+	assert.False(t, checkpointBranchRe.MatchString("../../etc/passwd"))
+	assert.False(t, checkpointBranchRe.MatchString("main"))
+	assert.False(t, checkpointBranchRe.MatchString("fleetlift/checkpoint/"))
+}
+
+func TestExtractCostFromOutput(t *testing.T) {
+	tests := []struct {
+		name     string
+		raw      map[string]any
+		wantCost float64
+	}{
+		{"cost_usd field", map[string]any{"cost_usd": 0.05, "result": "done"}, 0.05},
+		{"no cost field", map[string]any{"result": "done"}, 0.0},
+		{"zero cost", map[string]any{"cost_usd": 0.0, "result": "done"}, 0.0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractCostUSD(tt.raw)
+			if got != tt.wantCost {
+				t.Errorf("extractCostUSD() = %v, want %v", got, tt.wantCost)
+			}
+		})
+	}
 }

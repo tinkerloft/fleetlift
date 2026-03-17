@@ -27,10 +27,9 @@ func (r *ShellRunner) Name() string                  { return "shell" }
 func (r *ShellRunner) SandboxEnv() map[string]string { return nil }
 
 func (r *ShellRunner) Run(ctx context.Context, sandboxID string, opts RunOpts) (<-chan Event, error) {
-	// Wrap the user command to capture the exit code via a sentinel line.
-	// Use /bin/sh (full path) because the sandbox execd may not have /usr/bin in PATH.
-	inner := opts.Prompt + "; echo " + exitCodeSentinel + "$?"
-	cmd := "/bin/sh -c " + shellquote.Quote(inner)
+	// Append exit code sentinel. OpenSandbox's execd already runs commands via
+	// bash -c, so we pass the prompt directly — no extra /bin/sh -c wrapper needed.
+	cmd := opts.Prompt + "\necho " + exitCodeSentinel + "$?"
 
 	ch := make(chan Event, 64)
 	go func() {
@@ -86,8 +85,16 @@ func (r *ShellRunner) Run(ctx context.Context, sandboxID string, opts RunOpts) (
 		}
 
 		if exitCode != 0 && exitCode != -1 {
+			// Include captured stdout/stderr for debugging.
+			errMsg := fmt.Sprintf("command exited with code %d", exitCode)
+			if stderr := stderrBuf.String(); stderr != "" {
+				errMsg += "\nstderr: " + stderr
+			}
+			if stdout := stdoutBuf.String(); stdout != "" && len(stdout) < 2000 {
+				errMsg += "\nstdout: " + stdout
+			}
 			select {
-			case ch <- Event{Type: "error", Content: fmt.Sprintf("command exited with code %d", exitCode)}:
+			case ch <- Event{Type: "error", Content: errMsg}:
 			case <-ctx.Done():
 			}
 			return

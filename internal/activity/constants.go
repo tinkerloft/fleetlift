@@ -34,6 +34,10 @@ const (
 	ActivityExecuteAction       = "ExecuteAction"
 	ActivityCompleteStepRun     = "CompleteStepRun"
 	ActivityValidateCredentials = "ValidateCredentials"
+
+	// E3: MCP interactive tools
+	ActivityCleanupCheckpointBranch   = "CleanupCheckpointBranch"
+	ActivityCreateContinuationStepRun = "CreateContinuationStepRun"
 )
 
 // Default configuration values (SIMP-004)
@@ -112,6 +116,15 @@ func ValidateConfig() []ConfigIssue {
 		issues = append(issues, ConfigIssue{
 			Name:        "ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN",
 			Description: "Required for Claude Code execution",
+			Required:    true,
+		})
+	}
+
+	// JWT secret — required when MCP sidecar is enabled
+	if os.Getenv("JWT_SECRET") == "" && os.Getenv("FLEETLIFT_MCP_BINARY_PATH") != "" {
+		issues = append(issues, ConfigIssue{
+			Name:        "JWT_SECRET",
+			Description: "Required for MCP sidecar token signing (FLEETLIFT_MCP_BINARY_PATH is set)",
 			Required:    true,
 		})
 	}
