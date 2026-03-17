@@ -106,6 +106,16 @@ func (m *stepMockActivities) CompleteStepRun(_ context.Context, stepRunID, statu
 	return args.Error(0)
 }
 
+func (m *stepMockActivities) CreateContinuationStepRun(_ context.Context, input model.CreateContinuationStepRunInput) (string, error) {
+	args := m.Called(input)
+	return args.String(0), args.Error(1)
+}
+
+func (m *stepMockActivities) CleanupCheckpointBranch(_ context.Context, input model.CleanupCheckpointInput) error {
+	args := m.Called(input)
+	return args.Error(0)
+}
+
 // newStepWorkflowEnv creates a configured Temporal test environment with all
 // StepWorkflow activities registered from the mock struct.
 func newStepWorkflowEnv(t *testing.T) (*testsuite.TestWorkflowEnvironment, *stepMockActivities) {
@@ -120,6 +130,8 @@ func newStepWorkflowEnv(t *testing.T) (*testsuite.TestWorkflowEnvironment, *step
 	env.RegisterActivity(mocks.CreatePullRequest)
 	env.RegisterActivity(mocks.VerifyStep)
 	env.RegisterActivity(mocks.CompleteStepRun)
+	env.RegisterActivity(mocks.CreateContinuationStepRun)
+	env.RegisterActivity(mocks.CleanupCheckpointBranch)
 	return env, mocks
 }
 
@@ -380,4 +392,106 @@ func TestStepWorkflow_FinalizeFailurePropagates(t *testing.T) {
 	err := env.GetWorkflowError()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "finalize step run")
+}
+
+func TestStepWorkflow_AwaitResumeCycle(t *testing.T) {
+	env, mocks := newStepWorkflowEnv(t)
+
+	input := StepInput{
+		RunID:     "run-1",
+		StepRunID: "sr-1",
+		TeamID:    "team-1",
+		StepDef: model.StepDef{
+			ID:             "fix",
+			Title:          "Fix",
+			Mode:           "transform",
+			ApprovalPolicy: "never",
+		},
+		ResolvedOpts: ResolvedStepOpts{
+			Prompt: "Fix the bug",
+			Agent:  "claude-code",
+		},
+		SandboxID: "sb-1", // pre-provisioned
+	}
+
+	// First call returns awaiting_input
+	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
+		return ei.ContinuationContext == nil // first call has no continuation
+	})).Return(&model.StepOutput{
+		StepID:      "fix",
+		Status:      model.StepStatusAwaitingInput,
+		InboxItemID: "inbox-1",
+		Question:    "Fix or skip?",
+	}, nil).Once()
+
+	// Continuation call
+	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
+		if ei.ContinuationContext == nil {
+			return false
+		}
+		return ei.ContinuationContext.HumanAnswer == "Fix tests"
+	})).Return(&model.StepOutput{
+		StepID: "fix",
+		Status: model.StepStatusComplete,
+		Output: map[string]any{"result": "done"},
+	}, nil).Once()
+
+	mocks.On("CreateContinuationStepRun", mock.Anything).Return("cont-sr-1", nil)
+	mocks.On("ProvisionSandbox", mock.Anything).Return("cont-sb-1", nil)
+	mocks.On("CleanupSandbox", "cont-sb-1").Return(nil)
+	mocks.On("CompleteStepRun", mock.Anything, "complete", mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64")).Return(nil)
+
+	// Deliver respond signal after workflow starts
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow("respond", model.InboxAnswer{
+			Answer:    "Fix tests",
+			Responder: "jane@example.com",
+		})
+	}, 0)
+
+	env.ExecuteWorkflow(StepWorkflow, input)
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+
+	var result model.StepOutput
+	require.NoError(t, env.GetWorkflowResult(&result))
+	assert.Equal(t, model.StepStatusComplete, result.Status)
+
+	mocks.AssertCalled(t, "CreateContinuationStepRun", mock.Anything)
+	mocks.AssertCalled(t, "ProvisionSandbox", mock.Anything)
+	mocks.AssertCalled(t, "CleanupSandbox", "cont-sb-1")
+}
+
+func TestStepWorkflow_NoAwaitingInput_WorksNormally(t *testing.T) {
+	env, mocks := newStepWorkflowEnv(t)
+
+	input := StepInput{
+		RunID:     "run-normal",
+		StepRunID: "sr-normal",
+		StepDef: model.StepDef{
+			ID:             "analyze",
+			Mode:           "report",
+			ApprovalPolicy: "never",
+		},
+		ResolvedOpts: ResolvedStepOpts{
+			Prompt: "Analyze",
+			Agent:  "claude-code",
+		},
+		SandboxID: "sb-normal",
+	}
+
+	mocks.On("ExecuteStep", mock.Anything).Return(&model.StepOutput{
+		StepID: "analyze",
+		Status: model.StepStatusComplete,
+	}, nil)
+	mocks.On("CompleteStepRun", mock.Anything, "complete", mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64")).Return(nil)
+
+	env.ExecuteWorkflow(StepWorkflow, input)
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+
+	// CreateContinuationStepRun should NOT be called
+	mocks.AssertNotCalled(t, "CreateContinuationStepRun", mock.Anything)
 }

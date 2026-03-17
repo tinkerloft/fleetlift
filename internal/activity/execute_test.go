@@ -232,6 +232,33 @@ func TestEnforceOutputSchema_Success(t *testing.T) {
 	assert.Equal(t, "low", out["severity"])
 }
 
+func TestBuildContinuationPrompt_Nil(t *testing.T) {
+	result := buildContinuationPrompt("Original prompt", nil)
+	assert.Equal(t, "Original prompt", result)
+}
+
+func TestBuildContinuationPrompt_WithContext(t *testing.T) {
+	cc := &model.ContinuationContext{
+		InboxItemID:      "inbox-1",
+		Question:         "Fix or skip flaky tests?",
+		HumanAnswer:      "Fix flaky tests",
+		CheckpointBranch: "fleetlift/checkpoint/run-1-fix",
+	}
+	result := buildContinuationPrompt("Original prompt text", cc)
+	assert.Contains(t, result, "Fix flaky tests")
+	assert.Contains(t, result, "Fix or skip flaky tests?")
+	assert.Contains(t, result, "Original prompt text")
+	assert.Contains(t, result, "[CONTINUATION CONTEXT]")
+}
+
+func TestCheckpointBranchRegex(t *testing.T) {
+	assert.True(t, checkpointBranchRe.MatchString("fleetlift/checkpoint/run-abc-fix"))
+	assert.True(t, checkpointBranchRe.MatchString("fleetlift/checkpoint/run_123"))
+	assert.False(t, checkpointBranchRe.MatchString("../../etc/passwd"))
+	assert.False(t, checkpointBranchRe.MatchString("main"))
+	assert.False(t, checkpointBranchRe.MatchString("fleetlift/checkpoint/"))
+}
+
 func TestExtractCostFromOutput(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -23,19 +23,37 @@ const DOT_COLOR: Record<string, string> = {
 const PULSING = new Set<StepStatus>(['running', 'cloning', 'verifying'])
 
 export function StepTimeline({ stepRuns, selectedStepId, onSelect }: StepTimelineProps) {
+  // Group continuation steps under their parent
+  const rootSteps = stepRuns.filter(s => !s.parent_step_run_id)
+  const continuationsByParent = new Map<string, StepRun[]>()
+  stepRuns.filter(s => s.parent_step_run_id).forEach(s => {
+    const list = continuationsByParent.get(s.parent_step_run_id!) ?? []
+    list.push(s)
+    continuationsByParent.set(s.parent_step_run_id!, list)
+  })
+
   return (
     <div className="relative pl-7">
       {/* Vertical line */}
       <div className="absolute left-[7px] top-1 bottom-1 w-0.5 bg-border rounded-full" />
 
-      {stepRuns.map((sr) => (
-        <StepTimelineItem key={sr.id} sr={sr} selectedStepId={selectedStepId} onSelect={onSelect} />
+      {rootSteps.map((sr) => (
+        <div key={sr.id}>
+          <StepTimelineItem sr={sr} selectedStepId={selectedStepId} onSelect={onSelect} />
+          {continuationsByParent.get(sr.id)?.map(continuation => (
+            <div key={continuation.id} className="ml-4">
+              <StepTimelineItem sr={continuation} selectedStepId={selectedStepId} onSelect={onSelect} isResume />
+            </div>
+          ))}
+        </div>
       ))}
     </div>
   )
 }
 
-function StepTimelineItem({ sr, selectedStepId, onSelect }: { sr: StepRun; selectedStepId?: string | null; onSelect: (stepId: string) => void }) {
+function StepTimelineItem({ sr, selectedStepId, onSelect, isResume }: {
+  sr: StepRun; selectedStepId?: string | null; onSelect: (stepId: string) => void; isResume?: boolean
+}) {
   const elapsed = useLiveDuration(sr.started_at, sr.completed_at)
 
   return (
@@ -57,6 +75,7 @@ function StepTimelineItem({ sr, selectedStepId, onSelect }: { sr: StepRun; selec
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between">
           <span className="text-[13px] font-medium truncate">
+            {isResume && <span className="text-xs text-amber-400 mr-1">↪</span>}
             {sr.step_title || sr.step_id}
           </span>
           <span className={cn(

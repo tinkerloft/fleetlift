@@ -40,6 +40,9 @@ steps:
 
         Provide a clear analysis of the root cause, affected files, and proposed fix approach.
 
+        If you discover the bug is ambiguous (multiple possible causes) or you need clarification
+        from the team, use the inbox.request_input tool to ask before proceeding.
+
   - id: fix
     title: Apply fix
     depends_on:
@@ -59,6 +62,11 @@ steps:
         {{ .Steps.analyze.Output | toJSON }}
 
         Make the minimal code changes needed to fix this bug. Run tests to verify.
+
+        If the fix has multiple valid approaches (e.g. different performance/complexity tradeoffs),
+        use the inbox.request_input tool to let the team choose. Provide clear options describing
+        each approach. This will pause execution until the team responds, then you'll resume with
+        their answer in a fresh sandbox with your changes preserved.
       verifiers: "{{ .Params.verifiers }}"
 
   - id: self_review
