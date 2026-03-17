@@ -6,17 +6,24 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/charmbracelet/huh"
+	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
 
 	flcrypto "github.com/tinkerloft/fleetlift/internal/crypto"
+	fldb "github.com/tinkerloft/fleetlift/internal/db"
 )
 
 const (
@@ -215,20 +222,16 @@ func ensureFleetliftDB() error {
 	return nil
 }
 
-// applySchema runs the embedded schema.sql against the fleetlift database.
-// schema.sql uses CREATE TABLE IF NOT EXISTS so this is safe to run repeatedly.
-func applySchema(appDSN string) error {
-	schema, err := os.ReadFile("internal/db/schema.sql")
-	if err != nil {
-		return fmt.Errorf("read schema.sql: %w", err)
-	}
-	db, err := sql.Open("postgres", appDSN)
+// runMigrations applies golang-migrate migrations to the fleetlift database.
+// This is the canonical approach — same as the server and worker at startup.
+func runMigrations(appDSN string) error {
+	conn, err := sqlx.Open("postgres", appDSN)
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
-	defer db.Close()
-	if _, err := db.Exec(string(schema)); err != nil {
-		return fmt.Errorf("apply schema: %w", err)
+	defer conn.Close()
+	if err := fldb.Migrate(conn); err != nil {
+		return fmt.Errorf("migrate: %w", err)
 	}
 	return nil
 }
@@ -308,6 +311,256 @@ func seedGitHubToken(dbURL, encKey, token string) error {
 	return nil
 }
 
+// runPreflight runs all checks before any user prompts.
+func runPreflight() error {
+	if _, err := os.Stat("go.mod"); os.IsNotExist(err) {
+		return fmt.Errorf("run init-local from the repository root (go.mod not found in current directory)")
+	}
+	if err := exec.Command("docker", "info").Run(); err != nil {
+		return fmt.Errorf("Docker is not running — start Docker Desktop and re-run")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		return fmt.Errorf("'go' not found — install Go: brew install go")
+	}
+	if _, err := exec.LookPath("npm"); err != nil {
+		return fmt.Errorf("'npm' not found — install Node.js: brew install node")
+	}
+	if _, err := exec.LookPath("temporal"); err != nil {
+		return fmt.Errorf("'temporal' not found — install Temporal CLI: brew install temporal")
+	}
+	return checkPort8080()
+}
+
+// port8080InUse returns true if something is listening on :8080.
+func port8080InUse() bool {
+	conn, err := net.DialTimeout("tcp", "localhost:8080", 500*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+// checkPort8080 handles the port 8080 conflict prompt-and-kill flow.
+func checkPort8080() error {
+	if !port8080InUse() {
+		return nil
+	}
+
+	out, _ := exec.Command("lsof", "-ti", ":8080").Output()
+	var pids []int
+	for _, s := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if pid, err := strconv.Atoi(s); err == nil {
+			pids = append(pids, pid)
+		}
+	}
+
+	title := "Port 8080 is in use — kill the process?"
+	if len(pids) == 1 {
+		title = fmt.Sprintf("Port 8080 is in use by PID %d — kill it?", pids[0])
+	} else if len(pids) > 1 {
+		title = fmt.Sprintf("Port 8080 is in use by PIDs %v — kill them?", pids)
+	}
+
+	var doKill bool
+	if err := huh.NewForm(huh.NewGroup(huh.NewConfirm().Title(title).Value(&doKill))).Run(); err != nil {
+		return err
+	}
+	if !doKill {
+		return fmt.Errorf("free port 8080 and re-run")
+	}
+
+	for _, pid := range pids {
+		if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+			fmt.Printf("Warning: could not signal PID %d: %v\n", pid, err)
+		}
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if !port8080InUse() {
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	var pidStrs []string
+	for _, p := range pids {
+		pidStrs = append(pidStrs, strconv.Itoa(p))
+	}
+	return fmt.Errorf("could not free port 8080 — kill PID %s manually and re-run", strings.Join(pidStrs, ", "))
+}
+
+// isBuildStale returns true when a rebuild is needed: either binaries are
+// missing, or newestSrc is at least as recent as the older binary.
+func isBuildStale(newestSrc, serverMtime, workerMtime time.Time) bool {
+	if serverMtime.IsZero() || workerMtime.IsZero() {
+		return true
+	}
+	olderBin := serverMtime
+	if workerMtime.Before(olderBin) {
+		olderBin = workerMtime
+	}
+	return !olderBin.After(newestSrc)
+}
+
+// buildBinaries runs 'make build' if source files are newer than the binaries.
+// Returns true if a rebuild was performed.
+func buildBinaries() (bool, error) {
+	var newestSrc time.Time
+	if err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			switch info.Name() {
+			case ".git", "node_modules", "vendor", "bin":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		switch {
+		case strings.HasSuffix(path, ".go"),
+			strings.HasPrefix(path, "web/src/"),
+			strings.HasPrefix(path, "internal/db/migrations/"),
+			strings.HasPrefix(path, "internal/template/builtin/"),
+			path == "go.mod",
+			path == "go.sum",
+			path == "Makefile",
+			path == "web/package.json":
+			if info.ModTime().After(newestSrc) {
+				newestSrc = info.ModTime()
+			}
+		}
+		return nil
+	}); err != nil {
+		return false, fmt.Errorf("walk source tree: %w", err)
+	}
+
+	serverInfo, serverErr := os.Stat("bin/fleetlift-server")
+	workerInfo, workerErr := os.Stat("bin/fleetlift-worker")
+
+	var serverMtime, workerMtime time.Time
+	if serverErr == nil {
+		serverMtime = serverInfo.ModTime()
+	}
+	if workerErr == nil {
+		workerMtime = workerInfo.ModTime()
+	}
+
+	if !isBuildStale(newestSrc, serverMtime, workerMtime) {
+		fmt.Println("✓ Binaries up to date (skipping build)")
+		return false, nil
+	}
+
+	fmt.Println("[build] Running make build...")
+	if err := execCmd("make", "build"); err != nil {
+		return false, fmt.Errorf("make build failed: %w", err)
+	}
+	fmt.Println("✓ Binaries built")
+	return true, nil
+}
+
+// dockerServicesRunning returns true if all required Docker services are running.
+func dockerServicesRunning() bool {
+	hasAll := func(out []byte, names ...string) bool {
+		set := make(map[string]bool)
+		for _, s := range strings.Fields(string(out)) {
+			set[s] = true
+		}
+		for _, n := range names {
+			if !set[n] {
+				return false
+			}
+		}
+		return true
+	}
+
+	out1, err := exec.Command("docker", "compose", "ps", "--services", "--filter", "status=running").Output()
+	if err != nil || !hasAll(out1, "temporal", "postgres") {
+		return false
+	}
+	out2, err := exec.Command("docker", "compose", "-f", "docker-compose.opensandbox.yaml", "ps", "--services", "--filter", "status=running").Output()
+	if err != nil {
+		return false
+	}
+	return hasAll(out2, "opensandbox-server")
+}
+
+// tailLogLines returns the last n lines of the file at path.
+// Reads at most 64KB from the end of the file to avoid loading large logs.
+func tailLogLines(path string, n int) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	size, err := f.Seek(0, io.SeekEnd)
+	if err != nil || size == 0 {
+		return ""
+	}
+
+	const maxRead = 64 * 1024
+	start := size - maxRead
+	if start < 0 {
+		start = 0
+	}
+	if _, err := f.Seek(start, io.SeekStart); err != nil {
+		return ""
+	}
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return ""
+	}
+
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
+}
+
+// startAndVerify runs start.sh and confirms the server is healthy.
+func startAndVerify() error {
+	fmt.Println()
+	cmd := exec.Command("scripts/integration/start.sh")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("server failed to start — check the output above")
+	}
+
+	resp, err := http.Get("http://localhost:8080/health") //nolint:noctx
+	if err == nil && resp.StatusCode == http.StatusOK {
+		resp.Body.Close()
+		fmt.Println()
+		fmt.Println("┌─────────────────────────────────────────┐")
+		fmt.Println("│   Fleetlift is running!                 │")
+		fmt.Println("│   http://localhost:8080                 │")
+		fmt.Println("│   Temporal UI: http://localhost:8233    │")
+		fmt.Println("└─────────────────────────────────────────┘")
+		return nil
+	}
+	if resp != nil {
+		resp.Body.Close()
+	}
+
+	if logLines := tailLogLines("/tmp/fleetlift-server.log", 20); logLines != "" {
+		fmt.Println()
+		fmt.Println("Server log (last 20 lines):")
+		fmt.Println(logLines)
+	}
+	fmt.Println()
+	fmt.Println("To see more: scripts/integration/logs.sh")
+	return fmt.Errorf("server not responding at http://localhost:8080/health")
+}
+
 func initLocalCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init-local",
@@ -322,12 +575,12 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 	fmt.Println("╚══════════════════════════════════════╝")
 	fmt.Println()
 
-	// Step 1: Preflight — Docker running?
-	if err := exec.Command("docker", "info").Run(); err != nil {
-		return fmt.Errorf("Docker is not running. Start Docker Desktop and try again")
+	// Step 1: Preflight checks
+	if err := runPreflight(); err != nil {
+		return err
 	}
 
-	// Step 2: Load existing local.env values (if present) to pre-fill prompts
+	// Load existing local.env values (if present) to pre-fill prompts
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -335,6 +588,7 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 	envPath := filepath.Join(home, localEnvPath)
 	existing := parseLocalEnv(envPath)
 
+	// Step 2: Claude authentication
 	var (
 		claudeAuthMethod string
 		anthropicKey     = existing["ANTHROPIC_API_KEY"]
@@ -406,7 +660,6 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 	}
 
 	// Step 3: GitHub token — check DB first, prompt only if not already configured.
-	// cfg is not constructed yet; use defaultAppDSN (package-level const, same value).
 	var tokenAlreadySet bool
 	tokenAlreadySet, err = checkExistingGitHubToken(defaultAppDSN)
 	if err != nil {
@@ -453,7 +706,7 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Step 4: Generate secrets (reuse existing ones to avoid breaking running services)
+	// Generate secrets (reuse existing ones to avoid breaking running services)
 	jwtSecret := existing["JWT_SECRET"]
 	if jwtSecret == "" {
 		jwtSecret = generateHexSecret(32)
@@ -481,8 +734,7 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 		ClaudeOAuthToken:        strings.TrimSpace(oauthToken),
 	}
 
-	// Step 5: Write ~/.fleetlift/local.env
-
+	// Step 4: Write ~/.fleetlift/local.env
 	if _, statErr := os.Stat(envPath); statErr == nil {
 		var overwrite bool
 		overwriteForm := huh.NewForm(
@@ -510,7 +762,7 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 		fmt.Println("✓ Written:", envPath)
 	}
 
-	// Step 6: Patch dev-env.sh
+	// Step 5: Patch scripts/integration/dev-env.sh
 	devEnvScript := "scripts/integration/dev-env.sh"
 	if err := patchDevEnv(devEnvScript); err != nil {
 		fmt.Printf("Warning: could not patch %s: %v\n", devEnvScript, err)
@@ -519,43 +771,52 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 		fmt.Println("✓ Patched:", devEnvScript)
 	}
 
-	// Step 7: Start Docker stacks
-	var startDocker bool
-	dockerForm := huh.NewForm(
-		huh.NewGroup(
-			huh.NewConfirm().
-				Title("Start Docker Compose stacks now? (Temporal + Postgres + OpenSandbox)").
-				Value(&startDocker),
-		),
-	)
-	if err := dockerForm.Run(); err != nil {
+	// Step 6: Build binaries
+	if _, err := buildBinaries(); err != nil {
 		return err
 	}
 
-	if startDocker {
-		fmt.Println("Starting Temporal + Postgres...")
-		if err := execCmd("docker", "compose", "up", "-d"); err != nil {
-			return fmt.Errorf("docker compose up failed: %w", err)
-		}
-		fmt.Println("Starting OpenSandbox...")
-		if err := execCmd("docker", "compose", "-f", "docker-compose.opensandbox.yaml", "up", "-d"); err != nil {
-			return fmt.Errorf("docker compose opensandbox up failed: %w", err)
-		}
+	// Step 7: Start Docker stacks (auto-detect if already running)
+	if dockerServicesRunning() {
+		fmt.Println("✓ Docker services already running (skipping)")
 	} else {
-		var alreadyUp bool
-		alreadyUpForm := huh.NewForm(
+		var startDocker bool
+		dockerForm := huh.NewForm(
 			huh.NewGroup(
 				huh.NewConfirm().
-					Title("Are the Docker stacks already running? Proceed with database setup?").
-					Value(&alreadyUp),
+					Title("Start Docker Compose stacks now? (Temporal + Postgres + OpenSandbox)").
+					Value(&startDocker),
 			),
 		)
-		if err := alreadyUpForm.Run(); err != nil {
+		if err := dockerForm.Run(); err != nil {
 			return err
 		}
-		if !alreadyUp {
-			printManualSteps()
-			return nil
+
+		if startDocker {
+			fmt.Println("Starting Temporal + Postgres...")
+			if err := execCmd("docker", "compose", "up", "-d"); err != nil {
+				return fmt.Errorf("docker compose up failed: %w", err)
+			}
+			fmt.Println("Starting OpenSandbox...")
+			if err := execCmd("docker", "compose", "-f", "docker-compose.opensandbox.yaml", "up", "-d"); err != nil {
+				return fmt.Errorf("docker compose opensandbox up failed: %w", err)
+			}
+		} else {
+			var alreadyUp bool
+			alreadyUpForm := huh.NewForm(
+				huh.NewGroup(
+					huh.NewConfirm().
+						Title("Are the Docker stacks already running? Proceed with database setup?").
+						Value(&alreadyUp),
+				),
+			)
+			if err := alreadyUpForm.Run(); err != nil {
+				return err
+			}
+			if !alreadyUp {
+				printManualSteps()
+				return nil
+			}
 		}
 	}
 
@@ -565,10 +826,10 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("setup database: %w", err)
 	}
 	fmt.Println("✓ Database ready")
-	if err := applySchema(cfg.DatabaseURL); err != nil {
-		return fmt.Errorf("apply schema: %w", err)
+	if err := runMigrations(cfg.DatabaseURL); err != nil {
+		return fmt.Errorf("run migrations: %w", err)
 	}
-	fmt.Println("✓ Schema applied")
+	fmt.Println("✓ Migrations applied")
 	if err := seedDevIdentity(cfg.DatabaseURL); err != nil {
 		return fmt.Errorf("seed dev identity: %w", err)
 	}
@@ -588,21 +849,8 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 	}
 	fmt.Println("✓ Written:", filepath.Join(home, authJSONPath))
 
-	// Step 9: Print next steps
-	fmt.Println()
-	fmt.Println("┌─────────────────────────────────────────┐")
-	fmt.Println("│   Local environment ready!              │")
-	fmt.Println("└─────────────────────────────────────────┘")
-	fmt.Println()
-	fmt.Println("Start the server and worker:")
-	fmt.Println("  scripts/integration/start.sh")
-	fmt.Println()
-	fmt.Println("Tail logs:")
-	fmt.Println("  scripts/integration/logs.sh")
-	fmt.Println()
-	fmt.Println("Temporal UI: http://localhost:8233")
-	fmt.Println("Fleetlift:   http://localhost:8080")
-	return nil
+	// Step 9: Start server + verify
+	return startAndVerify()
 }
 
 func execCmd(name string, args ...string) error {
