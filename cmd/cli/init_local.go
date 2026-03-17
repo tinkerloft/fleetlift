@@ -110,7 +110,7 @@ func parseLocalEnv(path string) map[string]string {
 		return nil
 	}
 	result := make(map[string]string)
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		line = strings.TrimPrefix(line, "export ")
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -535,11 +535,12 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 	if startDocker {
 		fmt.Println("Starting Temporal + Postgres...")
 		if err := execCmd("docker", "compose", "up", "-d"); err != nil {
-			return fmt.Errorf("docker compose up failed: %w", err)
+			fmt.Printf("  Note: docker compose up reported an error: %v\n", err)
+			fmt.Println("  Proceeding — will verify database connectivity below.")
 		}
 		fmt.Println("Starting OpenSandbox...")
 		if err := execCmd("docker", "compose", "-f", "docker-compose.opensandbox.yaml", "up", "-d"); err != nil {
-			return fmt.Errorf("docker compose opensandbox up failed: %w", err)
+			fmt.Printf("  Note: docker compose opensandbox up reported an error: %v\n", err)
 		}
 	} else {
 		var alreadyUp bool

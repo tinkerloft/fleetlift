@@ -1,4 +1,28 @@
+import { useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+
 export function LoginPage() {
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    // In dev mode (DEV_NO_AUTH=1) the server exposes /api/auth/dev-login.
+    // Auto-obtain a token so the user doesn't have to go through GitHub OAuth.
+    fetch('/api/auth/dev-login')
+      .then(res => {
+        if (!res.ok) return
+        return res.json()
+      })
+      .then((data: { token?: string } | undefined) => {
+        if (data?.token) {
+          localStorage.setItem('token', data.token)
+          navigate('/', { replace: true })
+        }
+      })
+      .catch(() => {
+        // Not in dev mode — fall through to GitHub login UI
+      })
+  }, [navigate])
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
       <div className="flex flex-col items-center gap-6 rounded-xl border bg-card p-10 shadow-sm">
