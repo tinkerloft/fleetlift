@@ -23,8 +23,7 @@ Workflows declare an `agent_profile` that installs plugins, skills, and MCPs int
 - Spec: `docs/superpowers/specs/2026-03-17-agent-profile-design.md`
 - Plan: `docs/superpowers/plans/2026-03-17-agent-profiles.md`
 
-### CLI `init-local` Improvements
+### User prompt injecting into exisitng workflows
+- Tailoring PR review prompts
 
-Make `fleetlift init-local` fully self-contained — preflight checks (Go, npm, temporal, Docker, port 8080), auto-build binaries, Docker stack auto-detect, auto-start + health verify at the end.
-
-- Spec: `docs/superpowers/specs/2026-03-16-init-local-improvements-design.md`
+### User authoring new workflows

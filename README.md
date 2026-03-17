@@ -213,7 +213,7 @@ For deployment instructions, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 | `GITHUB_CLIENT_ID` | OAuth app client ID | - |
 | `GITHUB_CLIENT_SECRET` | OAuth app client secret | - |
 | `ANTHROPIC_API_KEY` | Claude API key for agent | - |
-| `FLEETLIFT_API_URL` | CLI base URL | `http://localhost:8080` |
+| `FLEETLIFT_SERVER` | CLI base URL | `http://localhost:8080` |
 
 ---
 

@@ -17,9 +17,9 @@ You will also need accounts/keys for:
 
 | Item | Where to get it |
 |------|----------------|
-| **GitHub OAuth app** | [github.com/settings/developers](https://github.com/settings/developers) -- set the callback URL to `http://localhost:8080/api/auth/github/callback` |
-| **Anthropic API key** | [console.anthropic.com](https://console.anthropic.com/) |
-| **OpenSandbox** (optional for first run) | Provides isolated containers for agent execution |
+| **Anthropic API key** *or* **Claude OAuth token** | [console.anthropic.com](https://console.anthropic.com/) — the `init-local` wizard will prompt for this |
+| **OpenSandbox** | Required for agent steps to execute. The `init-local` wizard starts it automatically; or run `docker compose -f docker-compose.opensandbox.yaml up -d` manually |
+| **GitHub OAuth app** *(production only)* | Only needed when `DEV_NO_AUTH` is not set. [github.com/settings/developers](https://github.com/settings/developers) — callback URL: `http://localhost:8080/auth/github/callback` |
 
 ---
 
@@ -32,139 +32,56 @@ cd fleetlift
 
 ---
 
-## 3. Start Infrastructure
+## 3. Run the Setup Wizard
 
-Docker Compose brings up PostgreSQL (used by Temporal) and the Temporal server with its web UI.
+FleetLift ships with an `init-local` command that handles infrastructure, configuration, and database setup in one step.
 
-```bash
-docker compose up -d
-```
-
-Wait for healthy status:
+First, build the CLI:
 
 ```bash
-docker compose ps
+make build
 ```
 
-You should see `temporal`, `temporal-ui`, and `postgres` all running. The Temporal web UI is available at **http://localhost:8233** -- you can use it later to inspect workflow executions directly.
-
-### Optional: Start OpenSandbox
-
-If you want agent steps to run in isolated Docker sandboxes (recommended for production, optional for a first look):
+Then run the wizard:
 
 ```bash
-docker compose -f docker-compose.opensandbox.yaml up -d
+./bin/fleetlift init-local
 ```
 
-This starts the OpenSandbox lifecycle server on port 8090.
+The wizard will:
+1. Prompt for your Anthropic API key or Claude OAuth token
+2. Optionally prompt for a GitHub personal access token (required for workflows that clone or push to private repos)
+3. Write `~/.fleetlift/local.env` with generated secrets and your credentials
+4. Start the Docker Compose stacks (Temporal + PostgreSQL + OpenSandbox)
+5. Create the `fleetlift` database, apply the schema, and seed a dev team
+
+> **Dev mode:** `init-local` sets `DEV_NO_AUTH=1` so you can use the web UI and CLI without a GitHub OAuth app. All requests are authenticated as a local dev user. Disable this for production by removing `DEV_NO_AUTH` from your env.
+
+> **OpenSandbox:** Agent steps require a running OpenSandbox instance. The wizard starts it automatically. If you skip the Docker step, start it manually: `docker compose -f docker-compose.opensandbox.yaml up -d`
 
 ---
 
-## 4. Configure Environment Variables
-
-Create a `.env` file in the project root (it is already in `.gitignore`):
+## 4. Start the Server and Worker
 
 ```bash
-cat > .env << 'EOF'
-# --- Database ---
-DATABASE_URL=postgres://temporal:temporal@localhost:5432/fleetlift
-
-# --- Temporal ---
-TEMPORAL_ADDRESS=localhost:7233
-
-# --- Auth ---
-JWT_SECRET=replace-with-a-random-64-char-string
-GITHUB_CLIENT_ID=your-github-oauth-client-id
-GITHUB_CLIENT_SECRET=your-github-oauth-client-secret
-
-# --- Encryption (generate with: openssl rand -hex 32) ---
-CREDENTIAL_ENCRYPTION_KEY=replace-with-64-hex-chars
-
-# --- Agent ---
-ANTHROPIC_API_KEY=sk-ant-...
-AGENT_IMAGE=claude-code:latest
-
-# --- OpenSandbox (skip if not running OpenSandbox) ---
-# OPENSANDBOX_DOMAIN=http://localhost:8090
-# OPENSANDBOX_API_KEY=your-opensandbox-key
-EOF
+scripts/integration/start.sh
 ```
 
-Generate real values for the secrets:
+This script builds the server and worker binaries (if needed), stops any previous instances, and starts both processes. Logs go to `/tmp/fleetlift-server.log` and `/tmp/fleetlift-worker.log`.
 
 ```bash
-# JWT secret
-openssl rand -hex 32
+# Tail both logs
+scripts/integration/logs.sh
 
-# Credential encryption key (must be exactly 32 bytes = 64 hex characters)
-openssl rand -hex 32
+# Check process status
+scripts/integration/status.sh
 ```
-
-Source the file so both the server and worker pick it up:
-
-```bash
-export $(grep -v '^#' .env | xargs)
-```
-
-> **Tip:** You can also use [direnv](https://direnv.net/) to load `.env` automatically when you `cd` into the project.
 
 ---
 
-## 5. Create the FleetLift Database
+## 5. Build the CLI
 
-The Docker Compose file creates a `temporal` database for Temporal's own use. FleetLift needs its own database in the same PostgreSQL instance:
-
-```bash
-docker compose exec postgres createdb -U temporal fleetlift
-```
-
-The server will automatically apply the schema on first connect -- no manual migration step is needed.
-
----
-
-## 6. Build the Web UI
-
-The React SPA is embedded into the server binary at build time. Build it before starting the server:
-
-```bash
-cd web && npm install && npm run build && cd ..
-```
-
-Or use the Makefile shortcut:
-
-```bash
-make build-web
-```
-
-This compiles the frontend into `web/dist/`, which the server embeds and serves at the root URL.
-
----
-
-## 7. Start the Server and Worker
-
-Open two terminal windows (or use `tmux`/`screen`). Make sure the environment variables are exported in both.
-
-**Terminal 1 -- API server:**
-
-```bash
-go run ./cmd/server
-```
-
-The server starts on **http://localhost:8080**. It serves both the REST API (`/api/...`) and the embedded React SPA.
-
-**Terminal 2 -- Temporal worker:**
-
-```bash
-go run ./cmd/worker
-```
-
-The worker registers the DAG and step workflows plus all activity implementations with Temporal. It will log `Worker started` when ready.
-
----
-
-## 8. Build the CLI
-
-In a third terminal:
+The CLI binary is built by `make build`. To rebuild manually:
 
 ```bash
 go build -o bin/fleetlift ./cmd/cli
@@ -184,23 +101,21 @@ export PATH="$PWD/bin:$PATH"
 
 ---
 
-## 9. Authenticate
+## 6. Open the App
 
-### Via the Web UI
+**Web UI:** Open **http://localhost:8080** in your browser. In dev mode (`DEV_NO_AUTH=1`), you are automatically signed in as the local dev user — no GitHub login required.
 
-Open **http://localhost:8080** in your browser. Click **Sign in with GitHub**. After authorizing the OAuth app you will land on the Runs dashboard.
-
-### Via the CLI
+**CLI:** No login step needed in dev mode. Commands work immediately:
 
 ```bash
-fleetlift auth login
+fleetlift workflow list
 ```
 
-This opens your browser for the same GitHub OAuth flow and stores a token locally.
+> **Production auth:** When running without `DEV_NO_AUTH`, use `fleetlift auth login` to go through GitHub OAuth and store a token in `~/.fleetlift/auth.json`.
 
 ---
 
-## 10. Browse Available Workflows
+## 7. Browse Available Workflows
 
 FleetLift ships with 10 built-in workflow templates. Take a look at what is available.
 
@@ -234,7 +149,7 @@ fleetlift workflow get audit
 
 ---
 
-## 11. Run Your First Workflow
+## 8. Run Your First Workflow
 
 The `audit` template is a great starting point because it is read-only -- the agent inspects repositories without making changes.
 
@@ -259,7 +174,7 @@ You will get back a **run ID** like `run_abc123`.
 
 ---
 
-## 12. Watch Execution
+## 9. Watch Execution
 
 ### CLI -- stream logs
 
@@ -293,7 +208,7 @@ The audit workflow has three steps:
 
 ---
 
-## 13. Interact with Human-in-the-Loop (HITL) Steps
+## 10. Interact with Human-in-the-Loop (HITL) Steps
 
 Some workflows include approval gates where the agent pauses and waits for human review. While the `audit` template does not require approval, other templates like `bug-fix` and `migration` do.
 
@@ -319,7 +234,7 @@ fleetlift run steer <run-id> --prompt "Also check the auth module for SQL inject
 
 ---
 
-## 14. View the Results
+## 11. View the Results
 
 Once the run completes:
 
@@ -339,7 +254,7 @@ Without `-f`, this prints the full log history.
 
 ---
 
-## 15. Next Steps
+## 12. Next Steps
 
 Now that you have a working FleetLift setup, here are some things to explore:
 
@@ -383,11 +298,10 @@ For production use, consider:
 
 | Command | What it does |
 |---------|-------------|
-| `docker compose up -d` | Start Temporal + PostgreSQL |
-| `make build-web` | Build the React frontend |
-| `go run ./cmd/server` | Start API server on :8080 |
-| `go run ./cmd/worker` | Start Temporal worker |
-| `fleetlift auth login` | Authenticate via GitHub |
+| `./bin/fleetlift init-local` | One-time setup: Docker stacks, DB, secrets, credentials |
+| `scripts/integration/start.sh` | Start server + worker |
+| `scripts/integration/logs.sh` | Tail server and worker logs |
+| `scripts/integration/status.sh` | Check if processes are running |
 | `fleetlift workflow list` | List available templates |
 | `fleetlift run start --workflow <id> --param key=value` | Start a run |
 | `fleetlift run logs <id> -f` | Stream run logs |
@@ -403,6 +317,6 @@ If something goes wrong, check [docs/TROUBLESHOOTING.md](TROUBLESHOOTING.md) for
 **Common first-run issues:**
 
 - **"connection refused" on port 7233** -- Temporal is not ready yet. Run `docker compose ps` and wait for the health check to pass.
-- **"relation does not exist"** -- The FleetLift database was not created. Run `docker compose exec postgres createdb -U temporal fleetlift`.
-- **OAuth callback error** -- Make sure your GitHub OAuth app callback URL is set to `http://localhost:8080/api/auth/github/callback`.
+- **"relation does not exist"** -- The database schema hasn't been applied. Re-run `./bin/fleetlift init-local` — it is idempotent and safe to run again.
+- **OAuth callback error** -- Only relevant when `DEV_NO_AUTH` is not set. Ensure your GitHub OAuth app callback URL is `http://localhost:8080/auth/github/callback`.
 - **Worker not picking up runs** -- Ensure the worker is running and connected to the same Temporal address as the server.

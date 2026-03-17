@@ -10,6 +10,7 @@ Fleetlift has four deployed processes and one SPA served from the API server:
 | **Worker** | `cmd/worker` | Temporal worker — registers and executes DAGWorkflow, StepWorkflow, and all activities |
 | **CLI** | `cmd/cli` (binary: `fleetlift`) | Local developer interface — submit runs, inspect status, approve/steer steps |
 | **Web UI** | `web/` (embedded in server) | React 19 SPA; real-time updates via SSE |
+| **MCP sidecar** *(optional)* | `FLEETLIFT_MCP_BINARY_PATH` | Structured tool API between the worker and agent during step execution |
 
 External dependencies:
 
@@ -17,6 +18,7 @@ External dependencies:
 - **PostgreSQL** — persistent state for runs, steps, inbox, reports, credentials
 - **OpenSandbox** — on-demand container sandboxes where agents execute
 - **GitHub** — OAuth provider; PR destination
+- **MCP sidecar** *(optional)* — structured tool interface between worker and agent; enabled by setting `FLEETLIFT_MCP_BINARY_PATH` to the binary prefix (arch suffix appended at runtime)
 
 ---
 
@@ -44,14 +46,17 @@ External dependencies:
                             │  StepWorkflow             │
                             │  Activities (agent, PR,   │
                             │   sandbox, slack, github) │
-                            └──────────────┬────────────┘
-                                           │ REST
-                                           ▼
-                    ┌──────────────────────────────────────┐
-                    │            OpenSandbox               │
-                    │  Ephemeral containers per step       │
-                    │  Claude Code agent runs inside       │
-                    └──────────────────────────────────────┘
+                            └───────┬──────────┬────────┘
+                                    │ REST      │ REST (optional)
+                                    ▼           ▼
+                    ┌───────────────────┐  ┌──────────────────────┐
+                    │   OpenSandbox     │  │    MCP Sidecar       │
+                    │  Ephemeral        │  │  Structured tool API │
+                    │  containers       │  │  for agents          │
+                    │  per step;        │  │  (enabled via        │
+                    │  agent runs       │  │  FLEETLIFT_MCP_      │
+                    │  inside           │  │  BINARY_PATH)        │
+                    └───────────────────┘  └──────────────────────┘
 ```
 
 State storage:
@@ -129,6 +134,20 @@ Worker (StepWorkflow):
   → receives signal → proceeds to PR creation
 ```
 
+### MCP tool calls (agent → worker)
+
+When `FLEETLIFT_MCP_BINARY_PATH` is set, the worker provisions an MCP sidecar alongside each sandbox. The agent calls structured tools through the sidecar, which routes to the server's `/api/mcp/*` endpoints:
+
+```
+Agent (in sandbox) → MCP sidecar → POST /api/mcp/progress
+                                  → POST /api/mcp/artifacts
+                                  → GET  /api/mcp/knowledge
+                                  → POST /api/mcp/inbox/notify
+                                  → POST /api/mcp/inbox/request_input
+```
+
+MCP endpoints use a run-scoped JWT (separate from user JWTs) validated by `auth.MCPAuth`.
+
 ---
 
 ## Multi-tenancy
@@ -173,6 +192,6 @@ The server pushes two event types on `GET /api/runs/{id}/events`:
 | Event type | Payload | When |
 |-----------|---------|------|
 | `log` | `{content: string, stream: "stdout"|"stderr"}` | Each log line from the agent |
-| `status` | `{status: "running"|"waiting_approval"|"complete"|"failed"|"cancelled"}` | On step state change |
+| `status` | `{status: "pending"|"running"|"awaiting_input"|"complete"|"failed"|"cancelled"}` | On step state change |
 
 The CLI's `run logs` command and the web UI both consume this stream. The stream ends when the run reaches a terminal state (`complete`, `failed`, or `cancelled`).
