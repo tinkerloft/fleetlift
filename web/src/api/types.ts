@@ -61,6 +61,7 @@ export interface Run {
   created_at: string
   steps?: StepRun[]
   workflow_yaml?: string
+  total_cost_usd?: number
 }
 
 export interface StepRun {
@@ -81,6 +82,7 @@ export interface StepRun {
   created_at: string
   parent_step_run_id?: string
   checkpoint_branch?: string
+  cost_usd?: number
 }
 
 export interface StepRunLog {

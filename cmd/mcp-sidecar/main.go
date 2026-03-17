@@ -293,6 +293,7 @@ func (s *Shim) registerTools(srv *server.MCPServer) {
 		mcp.WithString("state_summary", mcp.Description("What you've done so far")),
 		mcp.WithString("urgency", mcp.Description("low | normal | high; default: normal")),
 		mcp.WithString("checkpoint_branch", mcp.Description("Git branch with committed working state")),
+		mcp.WithString("options", mcp.Description("Comma-separated predefined choices (e.g. 'Fix,Skip,Defer'). Shown as buttons in the inbox UI.")),
 	), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		question, err := req.RequireString("question")
 		if err != nil {
@@ -309,6 +310,9 @@ func (s *Shim) registerTools(srv *server.MCPServer) {
 		}
 		if cb := req.GetString("checkpoint_branch", ""); cb != "" {
 			body["checkpoint_branch"] = cb
+		}
+		if opts := req.GetString("options", ""); opts != "" {
+			body["options"] = strings.Split(opts, ",")
 		}
 		result, err := s.call("POST", "/api/mcp/inbox/request_input", body)
 		if err != nil {

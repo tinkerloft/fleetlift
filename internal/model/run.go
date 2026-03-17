@@ -25,5 +25,6 @@ type Run struct {
 	StartedAt     *time.Time `db:"started_at" json:"started_at,omitempty"`
 	CompletedAt   *time.Time `db:"completed_at" json:"completed_at,omitempty"`
 	ErrorMessage  *string    `db:"error_message" json:"error_message,omitempty"`
+	TotalCostUSD  *float64   `db:"total_cost_usd" json:"total_cost_usd,omitempty"`
 	CreatedAt     time.Time  `db:"created_at" json:"created_at"`
 }

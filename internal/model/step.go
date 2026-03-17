@@ -16,24 +16,25 @@ const (
 )
 
 type StepRun struct {
-	ID                 string     `db:"id" json:"id"`
-	RunID              string     `db:"run_id" json:"run_id"`
-	StepID             string     `db:"step_id" json:"step_id"`
-	StepTitle          *string    `db:"step_title" json:"step_title,omitempty"`
-	Status             StepStatus `db:"status" json:"status"`
-	SandboxID          *string    `db:"sandbox_id" json:"sandbox_id,omitempty"`
-	SandboxGroup       *string    `db:"sandbox_group" json:"sandbox_group,omitempty"`
-	Output             JSONMap    `db:"output" json:"output,omitempty"`
-	Diff               *string    `db:"diff" json:"diff,omitempty"`
-	PRUrl              *string    `db:"pr_url" json:"pr_url,omitempty"`
-	BranchName         *string    `db:"branch_name" json:"branch_name,omitempty"`
-	ErrorMessage       *string    `db:"error_message" json:"error_message,omitempty"`
+	ID                   string     `db:"id" json:"id"`
+	RunID                string     `db:"run_id" json:"run_id"`
+	StepID               string     `db:"step_id" json:"step_id"`
+	StepTitle            *string    `db:"step_title" json:"step_title,omitempty"`
+	Status               StepStatus `db:"status" json:"status"`
+	SandboxID            *string    `db:"sandbox_id" json:"sandbox_id,omitempty"`
+	SandboxGroup         *string    `db:"sandbox_group" json:"sandbox_group,omitempty"`
+	Output               JSONMap    `db:"output" json:"output,omitempty"`
+	Diff                 *string    `db:"diff" json:"diff,omitempty"`
+	PRUrl                *string    `db:"pr_url" json:"pr_url,omitempty"`
+	BranchName           *string    `db:"branch_name" json:"branch_name,omitempty"`
+	ErrorMessage         *string    `db:"error_message" json:"error_message,omitempty"`
 	TemporalWorkflowID   *string    `db:"temporal_workflow_id" json:"temporal_workflow_id,omitempty"`
 	ParentStepRunID      *string    `db:"parent_step_run_id" json:"parent_step_run_id,omitempty"`
 	CheckpointBranch     *string    `db:"checkpoint_branch" json:"checkpoint_branch,omitempty"`
 	CheckpointArtifactID *string    `db:"checkpoint_artifact_id" json:"checkpoint_artifact_id,omitempty"`
 	StartedAt            *time.Time `db:"started_at" json:"started_at,omitempty"`
 	CompletedAt          *time.Time `db:"completed_at" json:"completed_at,omitempty"`
+	CostUSD              *float64   `db:"cost_usd" json:"cost_usd,omitempty"`
 	CreatedAt            time.Time  `db:"created_at" json:"created_at"`
 }
 
@@ -48,14 +49,15 @@ type StepRunLog struct {
 
 // StepOutput is the in-memory result passed between DAG steps via template resolution.
 type StepOutput struct {
-	StepID           string         `json:"step_id"`
-	Status           StepStatus     `json:"status"`
-	Output           map[string]any `json:"output,omitempty"`
-	Diff             string         `json:"diff,omitempty"`
-	PRUrl            string         `json:"pr_url,omitempty"`
-	BranchName       string         `json:"branch_name,omitempty"`
-	Outputs          []StepOutput   `json:"outputs,omitempty"` // fan-out: per-repo results
-	Error            string         `json:"error,omitempty"`
+	StepID     string         `json:"step_id"`
+	Status     StepStatus     `json:"status"`
+	Output     map[string]any `json:"output,omitempty"`
+	Diff       string         `json:"diff,omitempty"`
+	PRUrl      string         `json:"pr_url,omitempty"`
+	BranchName string         `json:"branch_name,omitempty"`
+	Outputs    []StepOutput   `json:"outputs,omitempty"` // fan-out: per-repo results
+	Error      string         `json:"error,omitempty"`
+	CostUSD    float64        `json:"cost_usd,omitempty"`
 	// Fields used when Status == "awaiting_input"
 	InboxItemID      string `json:"inbox_item_id,omitempty"`
 	Question         string `json:"question,omitempty"`

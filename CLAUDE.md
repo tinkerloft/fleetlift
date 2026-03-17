@@ -103,6 +103,15 @@ Beyond general unit tests, these specific areas **must** have tests before merge
 - Never call `res.json()` without first checking `res.status !== 204` and `res.headers.get('content-length') !== '0'`
 - DELETE endpoints return 204 No Content — callers must not attempt to parse the response body
 
+## Database Migrations
+
+All schema changes **must** be encoded as versioned migration files — never applied manually or via raw SQL in application code.
+
+- Migration files live in `internal/db/migrations/` and follow the pattern `NNN_description.up.sql` (and optionally `.down.sql`)
+- golang-migrate v4 applies them automatically at server and worker startup via `db.Migrate()` in `internal/db/db.go`
+- To add a new migration: create `NNN_description.up.sql` with the next version number, rebuild — no other changes required
+- `internal/db/schema.sql` is a **reference only** (migration 001 baseline); it is not executed at runtime
+
 ## Go + PostgreSQL Type Rules
 
 - `[]string` fields **cannot** scan PostgreSQL `TEXT[]` columns — use `pq.StringArray` (from `github.com/lib/pq`)
