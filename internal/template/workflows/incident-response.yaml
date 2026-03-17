@@ -47,8 +47,8 @@ steps:
 
         Trace the error through the code. Identify the root cause and affected components.
 
-        Call mcp__fleetlift__progress__update as you trace the error.
-        Save the root cause analysis using mcp__fleetlift__artifact__create with name="incident-analysis" and content_type="text/markdown".
+        Call progress.update as you trace the error.
+        Save the root cause analysis using artifact.create with name="incident-analysis" and content_type="text/markdown".
         Once you identify the root cause, use the inbox.notify tool to immediately alert the team
         with the root cause summary — don't wait for the full pipeline to complete.
       output:
@@ -74,7 +74,7 @@ steps:
         Describe the exact changes needed. Include which files to modify and what the changes should be.
         Consider the minimal safe fix that addresses the immediate issue.
 
-        Save the fix proposal using mcp__fleetlift__artifact__create with name="fix-proposal" and content_type="text/markdown".
+        Save the fix proposal using artifact.create with name="fix-proposal" and content_type="text/markdown".
         If there are multiple valid fix strategies with different risk profiles, use the
         inbox.request_input tool to let the on-call engineer choose. Provide options describing
         each approach and its tradeoffs (e.g. "Hotfix: revert the breaking change" vs
@@ -98,8 +98,8 @@ steps:
 
         Make the minimal code changes needed. Run tests to verify the fix.
 
-        Call mcp__fleetlift__progress__update at key milestones (applying changes, running tests).
-        If you discover any repo-specific patterns or gotchas, record them with mcp__fleetlift__memory__add_learning.
+        Call progress.update at key milestones (applying changes, running tests).
+        If you discover any repo-specific patterns or gotchas, record them with memory.add_learning.
 
   - id: deploy_check
     title: Verify deployment readiness

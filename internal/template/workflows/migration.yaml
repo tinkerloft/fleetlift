@@ -39,8 +39,8 @@ steps:
 
         Identify all affected files, potential breaking changes, and estimated effort.
 
-        Before analyzing, call mcp__fleetlift__memory__search to retrieve any prior knowledge about migration patterns for this repo.
-        Save the impact analysis using mcp__fleetlift__artifact__create with name="migration-analysis" and content_type="text/markdown".
+        Before analyzing, call memory.search to retrieve any prior knowledge about migration patterns for this repo.
+        Save the impact analysis using artifact.create with name="migration-analysis" and content_type="text/markdown".
         If you find critical breaking changes or high-risk impacts, use the inbox.notify tool
         to alert the team immediately with the scope and severity.
       output:
@@ -70,8 +70,8 @@ steps:
 
         Make all necessary code changes to complete the migration.
 
-        Call mcp__fleetlift__progress__update at key milestones during the migration.
-        If you discover any repo-specific patterns or exceptions that couldn't be auto-migrated, record them with mcp__fleetlift__memory__add_learning.
+        Call progress.update at key milestones during the migration.
+        If you discover any repo-specific patterns or exceptions that couldn't be auto-migrated, record them with memory.add_learning.
         If the migration requires a decision about breaking changes (e.g. how to handle deprecated
         API consumers, backward compatibility strategy), use the inbox.request_input tool to ask
         the team before proceeding.
@@ -95,7 +95,7 @@ steps:
         3. Tests pass
         4. Build succeeds
 
-        Save the validation report using mcp__fleetlift__artifact__create with name="migration-validation" and content_type="text/markdown".
+        Save the validation report using artifact.create with name="migration-validation" and content_type="text/markdown".
 
   - id: review
     title: Review all changes
