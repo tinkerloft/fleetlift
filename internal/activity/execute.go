@@ -197,10 +197,11 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 				errMsg = result
 			}
 			return &model.StepOutput{
-				StepID: stepInput.StepDef.ID,
-				Status: model.StepStatusFailed,
-				Output: lastOutput,
-				Error:  errMsg,
+				StepID:  stepInput.StepDef.ID,
+				Status:  model.StepStatusFailed,
+				Output:  lastOutput,
+				Error:   errMsg,
+				CostUSD: extractCostUSD(lastOutput),
 			}, nil
 		}
 	}
@@ -209,10 +210,11 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 	if exitCode, ok := lastOutput["exit_code"]; ok {
 		if code, isNum := exitCode.(float64); isNum && code != 0 {
 			return &model.StepOutput{
-				StepID: stepInput.StepDef.ID,
-				Status: model.StepStatusFailed,
-				Output: lastOutput,
-				Error:  fmt.Sprintf("command exited with code %d", int(code)),
+				StepID:  stepInput.StepDef.ID,
+				Status:  model.StepStatusFailed,
+				Output:  lastOutput,
+				Error:   fmt.Sprintf("command exited with code %d", int(code)),
+				CostUSD: extractCostUSD(lastOutput),
 			}, nil
 		}
 	}
@@ -240,20 +242,22 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 		enforced, err := enforceOutputSchema(lastOutput, stepInput.StepDef.Execution.Output.Schema)
 		if err != nil {
 			return &model.StepOutput{
-				StepID: stepInput.StepDef.ID,
-				Status: model.StepStatusFailed,
-				Output: structured,
-				Error:  err.Error(),
+				StepID:  stepInput.StepDef.ID,
+				Status:  model.StepStatusFailed,
+				Output:  structured,
+				Error:   err.Error(),
+				CostUSD: extractCostUSD(lastOutput),
 			}, nil
 		}
 		structured = enforced
 	}
 
 	return &model.StepOutput{
-		StepID: stepInput.StepDef.ID,
-		Status: model.StepStatusComplete,
-		Output: structured,
-		Diff:   diff,
+		StepID:  stepInput.StepDef.ID,
+		Status:  model.StepStatusComplete,
+		Output:  structured,
+		Diff:    diff,
+		CostUSD: extractCostUSD(lastOutput),
 	}, nil
 }
 
@@ -398,6 +402,15 @@ func filterSchema(parsed map[string]any, schema map[string]any) map[string]any {
 		}
 	}
 	return result
+}
+
+// extractCostUSD reads the agent cost from a Claude Code result event.
+// Claude Code CLI emits cost_usd in the result event.
+func extractCostUSD(raw map[string]any) float64 {
+	if v, ok := raw["cost_usd"].(float64); ok {
+		return v
+	}
+	return 0
 }
 
 // validateOutputSchema checks that all schema fields are present in output with the correct types.

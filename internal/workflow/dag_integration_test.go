@@ -33,8 +33,8 @@ func (m *dagMockActivities) CreateStepRun(_ context.Context, runID, stepID, step
 	return args.String(0), args.Error(1)
 }
 
-func (m *dagMockActivities) CompleteStepRun(_ context.Context, stepRunID, status string, output map[string]any, diff, errorMsg string) error {
-	args := m.Called(stepRunID, status, output, diff, errorMsg)
+func (m *dagMockActivities) CompleteStepRun(_ context.Context, stepRunID, status string, output map[string]any, diff, errorMsg string, costUSD float64) error {
+	args := m.Called(stepRunID, status, output, diff, errorMsg, costUSD)
 	return args.Error(0)
 }
 
@@ -109,7 +109,7 @@ func newDAGTestEnv(t *testing.T) (*testsuite.TestWorkflowEnvironment, *dagMockAc
 	// Tests that need to assert specific call arguments can override these.
 	mocks.On("UpdateRunStatus", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.On("CreateStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return("sr-1", nil)
-	mocks.On("CompleteStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.On("CompleteStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64")).Return(nil)
 	mocks.On("CreateInboxItem", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.On("CleanupSandbox", mock.Anything).Return(nil)
 	mocks.On("ValidateCredentials", mock.Anything, mock.Anything).Return(nil)
@@ -555,7 +555,7 @@ func TestDAGWorkflow_CredentialPreflightFails(t *testing.T) {
 	// Default success stubs for DB/status activities.
 	mocks.On("UpdateRunStatus", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.On("CreateStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return("sr-1", nil)
-	mocks.On("CompleteStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.On("CompleteStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64")).Return(nil)
 	mocks.On("CreateInboxItem", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.On("CleanupSandbox", mock.Anything).Return(nil)
 	mocks.On("UpdateStepStatus", mock.Anything, mock.Anything).Return(nil)

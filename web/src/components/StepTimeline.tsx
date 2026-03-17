@@ -1,6 +1,7 @@
 import type { StepRun, StepStatus } from '@/api/types'
 import { cn } from '@/lib/utils'
 import { useLiveDuration } from '@/lib/use-live-duration'
+import { formatCost } from '@/lib/format'
 
 interface StepTimelineProps {
   stepRuns: StepRun[]
@@ -65,9 +66,14 @@ function StepTimelineItem({ sr, selectedStepId, onSelect }: { sr: StepRun; selec
             {elapsed ?? '—'}
           </span>
         </div>
-        <span className="text-[11px] text-muted-foreground">
-          {sr.status.replaceAll('_', ' ')}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-muted-foreground">
+            {sr.status.replaceAll('_', ' ')}
+          </span>
+          {sr.cost_usd != null && sr.cost_usd > 0 && (
+            <span className="text-xs text-muted-foreground">{formatCost(sr.cost_usd)}</span>
+          )}
+        </div>
       </div>
     </button>
   )

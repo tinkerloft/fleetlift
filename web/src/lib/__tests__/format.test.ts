@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatDuration, formatTimeAgo } from '../format'
+import { formatDuration, formatTimeAgo, formatCost } from '../format'
 
 describe('formatDuration', () => {
   it('formats seconds only', () => {
@@ -16,6 +16,21 @@ describe('formatDuration', () => {
   })
   it('returns 0s for negative', () => {
     expect(formatDuration(-1000)).toBe('0s')
+  })
+})
+
+describe('formatCost', () => {
+  it('returns - for undefined, null, or zero', () => {
+    expect(formatCost(undefined)).toBe('-')
+    expect(formatCost(null)).toBe('-')
+    expect(formatCost(0)).toBe('-')
+  })
+  it('returns <$0.01 for tiny amounts', () => {
+    expect(formatCost(0.001)).toBe('<$0.01')
+  })
+  it('formats normal amounts to 2dp', () => {
+    expect(formatCost(0.05)).toBe('$0.05')
+    expect(formatCost(1.234)).toBe('$1.23')
   })
 })
 

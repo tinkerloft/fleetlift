@@ -221,11 +221,10 @@ See: [`archive/2026-03-14-mcp-agent-interface.md`](archive/2026-03-14-mcp-agent-
 |---|------|--------|
 | 1 | Notification preferences per-team/user | ⬜ |
 | 2 | Data retention/archival for runs table | ⬜ |
-| 3 | Run duration column in runs list | ⬜ |
+| 3 | Run duration column in runs list | ✅ |
 | 4 | Run detail as sequential step view (spinner on active step) | ⬜ |
-| 5 | Run cost tracking — aggregate `total_cost_usd` across steps, new DB column, display in runs list and run detail | ⬜ |
-| 6 | Dark mode toggle | ⬜ |
-| 7 | Visual polish (general UI improvements) | ⬜ |
+| 5 | Run cost tracking — aggregate `total_cost_usd` across steps, new DB column, display in runs list and run detail | ✅ |
+| 6 | Dark mode toggle | ✅ |
 
 ---
 

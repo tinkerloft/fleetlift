@@ -1,3 +1,7 @@
+-- REFERENCE ONLY — not executed at runtime.
+-- Authoritative schema is in internal/db/migrations/*.up.sql (applied by golang-migrate at startup).
+-- This file reflects migration 001 baseline only; see 002_post_initial.up.sql and 003_cost_tracking.up.sql for subsequent changes.
+
 -- Teams
 CREATE TABLE IF NOT EXISTS teams (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -176,57 +180,3 @@ CREATE TABLE IF NOT EXISTS knowledge_items (
 );
 CREATE INDEX IF NOT EXISTS knowledge_items_team_status ON knowledge_items(team_id, status);
 CREATE INDEX IF NOT EXISTS knowledge_items_workflow ON knowledge_items(workflow_template_id, status);
-
--- Added 2026-03-12; apply via: psql $DATABASE_URL -f internal/db/schema.sql
-ALTER TABLE step_runs ADD COLUMN IF NOT EXISTS temporal_workflow_id TEXT;
-
--- Added 2026-03-12; apply via: psql $DATABASE_URL -f internal/db/schema.sql
-CREATE INDEX IF NOT EXISTS step_run_logs_stream_cursor
-    ON step_run_logs (step_run_id, id);
-
--- Added 2026-03-12; apply via: psql $DATABASE_URL -f internal/db/schema.sql
-CREATE INDEX IF NOT EXISTS runs_team_created
-    ON runs (team_id, created_at DESC);
-
--- Added 2026-03-12; apply via: psql $DATABASE_URL -f internal/db/schema.sql
-CREATE INDEX IF NOT EXISTS runs_team_completed
-    ON runs (team_id, status, completed_at DESC);
-
--- LISTEN/NOTIFY for SSE streaming (replaces 500ms polling)
--- Added 2026-03-12; apply triggers via: psql $DATABASE_URL -f internal/db/schema.sql
-CREATE OR REPLACE FUNCTION notify_run_event() RETURNS trigger AS $$
-BEGIN
-  IF TG_TABLE_NAME = 'step_run_logs' THEN
-    PERFORM pg_notify('run_events',
-      (SELECT run_id::text FROM step_runs WHERE id = NEW.step_run_id));
-  ELSIF TG_TABLE_NAME = 'step_runs' THEN
-    PERFORM pg_notify('run_events', NEW.run_id::text);
-  ELSIF TG_TABLE_NAME = 'runs' THEN
-    PERFORM pg_notify('run_events', NEW.id::text);
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE TRIGGER step_run_logs_notify
-  AFTER INSERT ON step_run_logs FOR EACH ROW EXECUTE FUNCTION notify_run_event();
-CREATE OR REPLACE TRIGGER step_runs_notify
-  AFTER UPDATE OF status ON step_runs FOR EACH ROW EXECUTE FUNCTION notify_run_event();
-CREATE OR REPLACE TRIGGER runs_notify
-  AFTER UPDATE OF status ON runs FOR EACH ROW EXECUTE FUNCTION notify_run_event();
-
--- Added 2026-03-15: allow system-wide credentials (team_id = NULL)
--- Wrapped in a DO block so re-running schema.sql is idempotent.
-DO $$ BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'credentials' AND column_name = 'team_id' AND is_nullable = 'NO'
-  ) THEN
-    ALTER TABLE credentials ALTER COLUMN team_id DROP NOT NULL;
-  END IF;
-END $$;
-ALTER TABLE credentials DROP CONSTRAINT IF EXISTS credentials_team_id_name_key;
-CREATE UNIQUE INDEX IF NOT EXISTS credentials_team_name_unique
-  ON credentials (team_id, name) WHERE team_id IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS credentials_system_name_unique
-  ON credentials (name) WHERE team_id IS NULL;

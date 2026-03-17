@@ -31,6 +31,7 @@ type StepRun struct {
 	TemporalWorkflowID *string    `db:"temporal_workflow_id" json:"temporal_workflow_id,omitempty"`
 	StartedAt          *time.Time `db:"started_at" json:"started_at,omitempty"`
 	CompletedAt        *time.Time `db:"completed_at" json:"completed_at,omitempty"`
+	CostUSD            *float64   `db:"cost_usd" json:"cost_usd,omitempty"`
 	CreatedAt          time.Time  `db:"created_at" json:"created_at"`
 }
 
@@ -53,4 +54,5 @@ type StepOutput struct {
 	BranchName string         `json:"branch_name,omitempty"`
 	Outputs    []StepOutput   `json:"outputs,omitempty"` // fan-out: per-repo results
 	Error      string         `json:"error,omitempty"`
+	CostUSD    float64        `json:"cost_usd,omitempty"`
 }
