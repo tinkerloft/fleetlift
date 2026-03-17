@@ -93,6 +93,7 @@ export const api = {
   // Inbox
   listInbox: () => get<ListResponse<InboxItem>>('/inbox'),
   markInboxRead: (id: string) => post<{ status: string }>(`/inbox/${id}/read`),
+  respondToInbox: (id: string, answer: string) => post(`/inbox/${id}/respond`, { answer }),
 
   // User
   getMe: () => get<UserProfile>('/me'),

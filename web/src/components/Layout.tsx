@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { UserMenu } from './UserMenu'
+import { ThemeToggle } from './ThemeToggle'
 
 const NAV_ITEMS = [
   { href: '/runs',      label: 'Runs',      icon: Activity },
@@ -88,7 +89,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* Footer */}
-        <div className="border-t px-3 py-3">
+        <div className="border-t px-3 py-3 flex flex-col gap-1">
+          <ThemeToggle />
           <UserMenu />
         </div>
       </aside>

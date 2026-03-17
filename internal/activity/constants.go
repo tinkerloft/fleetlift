@@ -34,6 +34,10 @@ const (
 	ActivityExecuteAction       = "ExecuteAction"
 	ActivityCompleteStepRun     = "CompleteStepRun"
 	ActivityValidateCredentials = "ValidateCredentials"
+
+	// E3: MCP interactive tools
+	ActivityCleanupCheckpointBranch   = "CleanupCheckpointBranch"
+	ActivityCreateContinuationStepRun = "CreateContinuationStepRun"
 )
 
 // Default configuration values (SIMP-004)

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.temporal.io/sdk/temporal"
 
+	"github.com/tinkerloft/fleetlift/internal/model"
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
 	"github.com/tinkerloft/fleetlift/internal/workflow"
 )
@@ -355,4 +356,29 @@ func TestProvisionSandbox_MCPFailsOnHealthCheckTimeout(t *testing.T) {
 	_, err := a.ProvisionSandbox(context.Background(), input)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "health check failed")
+}
+
+func TestCleanupCheckpointBranch_EmptyBranch(t *testing.T) {
+	acts := &Activities{}
+	err := acts.CleanupCheckpointBranch(context.Background(), model.CleanupCheckpointInput{Branch: ""})
+	require.NoError(t, err) // empty branch = no-op
+}
+
+func TestCleanupCheckpointBranch_MissingCredential(t *testing.T) {
+	acts := &Activities{}
+	err := acts.CleanupCheckpointBranch(context.Background(), model.CleanupCheckpointInput{
+		RepoURL:        "https://github.com/example/repo",
+		Branch:         "fleetlift/checkpoint/run-abc-step-fix",
+		CredentialName: "",
+		TeamID:         "team-1",
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "credential")
+}
+
+func TestInjectGitToken(t *testing.T) {
+	result, err := injectGitToken("https://github.com/org/repo.git", "ghp_abc123")
+	require.NoError(t, err)
+	assert.Contains(t, result, "x-access-token:ghp_abc123@github.com")
+	assert.True(t, strings.HasPrefix(result, "https://"))
 }

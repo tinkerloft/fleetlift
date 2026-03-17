@@ -3,7 +3,9 @@ package activity
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
@@ -11,6 +13,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 
 	"github.com/tinkerloft/fleetlift/internal/auth"
+	"github.com/tinkerloft/fleetlift/internal/model"
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
 	"github.com/tinkerloft/fleetlift/internal/shellquote"
 	"github.com/tinkerloft/fleetlift/internal/workflow"
@@ -203,6 +206,48 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 	}
 
 	return sandboxID, nil
+}
+
+// CleanupCheckpointBranch deletes a fleetlift checkpoint branch from the remote.
+// Returns nil if the branch does not exist (idempotent).
+func (a *Activities) CleanupCheckpointBranch(ctx context.Context, input model.CleanupCheckpointInput) error {
+	if input.Branch == "" {
+		return nil
+	}
+	if input.CredentialName == "" {
+		return fmt.Errorf("credential name required to delete checkpoint branch")
+	}
+	creds, err := a.CredStore.GetBatch(ctx, input.TeamID, []string{input.CredentialName})
+	if err != nil {
+		return fmt.Errorf("fetch credential: %w", err)
+	}
+	token, ok := creds[input.CredentialName]
+	if !ok {
+		return fmt.Errorf("credential %q not found", input.CredentialName)
+	}
+	repoWithToken, err := injectGitToken(input.RepoURL, token)
+	if err != nil {
+		return fmt.Errorf("inject token: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, "git", "push", repoWithToken, "--delete", input.Branch)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if strings.Contains(string(out), "remote ref does not exist") ||
+			strings.Contains(string(out), "error: unable to delete") {
+			return nil
+		}
+		return fmt.Errorf("git push --delete: %w: %s", err, out)
+	}
+	return nil
+}
+
+func injectGitToken(repoURL, token string) (string, error) {
+	u, err := url.Parse(repoURL)
+	if err != nil {
+		return "", err
+	}
+	u.User = url.UserPassword("x-access-token", token)
+	return u.String(), nil
 }
 
 func agentImage(agentName string) string {

@@ -86,6 +86,8 @@ func NewRouter(deps Deps) (http.Handler, error) {
 		r.Post("/knowledge", deps.MCP.HandleAddLearning)
 		r.Get("/knowledge/search", deps.MCP.HandleSearchKnowledge)
 		r.Post("/progress", deps.MCP.HandleUpdateProgress)
+		r.Post("/inbox/notify", deps.MCP.HandleInboxNotify)
+		r.Post("/inbox/request_input", deps.MCP.HandleInboxRequestInput)
 	})
 
 	// Authenticated API
@@ -125,6 +127,7 @@ func NewRouter(deps Deps) (http.Handler, error) {
 		// Inbox
 		r.Get("/api/inbox", deps.Inbox.List)
 		r.Post("/api/inbox/{id}/read", deps.Inbox.MarkRead)
+		r.Post("/api/inbox/{id}/respond", deps.Inbox.Respond)
 
 		// Reports
 		r.Get("/api/reports", deps.Reports.List)

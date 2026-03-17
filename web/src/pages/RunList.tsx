@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '@/api/client'
-import { Run } from '@/api/types'
+import type { Run } from '@/api/types'
 import { StatusBadge } from '@/components/StatusBadge'
 import { SkeletonRow } from '@/components/Skeleton'
 import { EmptyState } from '@/components/EmptyState'
