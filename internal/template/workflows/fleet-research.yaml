@@ -53,7 +53,7 @@ steps:
 
         Produce a clear, structured summary highlighting key findings across all repos.
 
-        Save the collated summary using artifact.create with name="research-summary" and content_type="text/markdown".
+        Save the collated summary using mcp__fleetlift__artifact__create with name="research-summary" and content_type="text/markdown".
     outputs:
       artifacts:
         - path: /workspace/summary.json
