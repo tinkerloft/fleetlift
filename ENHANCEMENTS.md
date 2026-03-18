@@ -20,10 +20,12 @@ Manage a code change from start to finish: creation → CI → fixes → handle 
 
 Workflows declare an `agent_profile` that installs plugins, skills, and MCPs into the Claude agent sandbox before execution, with eval-time plugin injection support.
 
-- Spec: `docs/superpowers/specs/2026-03-17-agent-profile-design.md`
-- Plan: `docs/superpowers/plans/2026-03-17-agent-profiles.md`
-
 ### User prompt injecting into exisitng workflows
 - Tailoring PR review prompts
 
 ### User authoring new workflows
+
+## Remove 'mode: [report|transform]' from workflow schema
+
+## PRD for platform improvements
+- docs/plans/2026-03-18-workflow-expressiveness-prd.md
