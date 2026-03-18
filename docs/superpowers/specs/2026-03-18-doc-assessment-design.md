@@ -36,7 +36,7 @@ tags: [documentation, fleet, report, transform]
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `repositories` | json | yes | — | JSON array of `{url, branch?}` objects |
+| `repos` | json | yes | — | JSON array of `{url, branch?}` objects |
 | `mode` | string | no | `"report"` | `"report"` (assess only) or `"fix"` (assess + raise PRs where score below threshold) |
 | `focus` | string | no | `"balanced"` | Scoring emphasis: `"balanced"`, `"accuracy"`, `"completeness"`, `"currency"`, or `"agent-readiness"` |
 | `fix_threshold` | int | no | `3` | Overall weighted score (1-5) below which fix PRs are raised. Only used when `mode=fix` |
@@ -52,9 +52,8 @@ assess (fan-out) → collate
 
 #### Step 1: `assess`
 
-- **Mode:** `transform` (supports both report-only and fix+PR flows)
+- **Mode:** `report`
 - **Fan-out:** Across all repositories, limited by `max_parallel`
-- **Approval policy:** `never` (autonomous)
 - **Execution:** Each sandbox:
   1. Clones the repository
   2. Discovers documentation files: README.md, CLAUDE.md, AGENTS.md, docs/**/*.md, API specs, architecture docs
@@ -71,29 +70,30 @@ assess (fan-out) → collate
      - **Currency** — are docs up to date with recent code changes?
      - **Agent-readiness** — can an AI agent efficiently navigate and work in this repo using the docs?
   7. Computes weighted overall score based on `focus` parameter
-  8. If `mode=fix` AND overall score < `fix_threshold`: fixes issues, commits to branch, creates PR
-- **Pull request config** (used when fixes are applied):
-  - Branch prefix: `docs/fleetlift-assessment-`
-  - Title: `docs: fix documentation issues (Fleetlift assessment)`
-  - Labels: `["documentation", "automated"]`
-  - Draft: `{{ .Params.draft_prs }}` (default: true)
+  8. If `mode=fix` AND overall score < `fix_threshold`: fixes documentation issues, commits to a new branch, and creates a PR using `gh pr create` directly in the sandbox
+- **PR creation (agent-driven):** When fixes are applied, the agent:
+  - Creates branch `docs/fleetlift-assessment-<short-hash>`
+  - Commits all doc fixes
+  - Runs `gh pr create` with title, body summarizing findings, labels `documentation,automated`
+  - Draft vs non-draft controlled by `draft_prs` parameter (injected into prompt)
+  - Records the PR URL in structured output
 - **Output schema:** See Assessment Output Schema below
-- **Artifacts:** Per-repo detailed report (markdown)
+- **Artifacts:** Per-repo detailed report saved via `mcp__fleetlift__artifact__create` with name `"repo-report"` and content type `text/markdown`
 
-**Note:** The step uses `mode: transform` so that the `pull_request` config is available when fixes are applied. When `mode=report` or the score is above threshold, no branch is created and no PR is raised — the step simply produces the assessment report. The prompt instructs the agent to skip git operations when no fixes are needed.
+**Note:** PR creation is handled by the agent via `gh` CLI rather than the platform's `pull_request` step config. This avoids the platform unconditionally attempting PR creation for all fan-out children (including repos where no fixes were needed). The agent only creates PRs when it has actually applied fixes. The `gh` CLI requires a GitHub token — the workflow should specify `credentials: ["GITHUB_TOKEN"]` on this step.
 
 #### Step 2: `collate`
 
 - **Mode:** report
 - **Depends on:** `assess`
-- **Execution:** Receives all per-repo structured outputs, produces fleet-wide summary:
+- **Execution:** Receives all per-repo structured outputs via `{{ .Steps.assess.Outputs | toJSON }}` in the prompt. Produces fleet-wide summary:
   - Score distribution (histogram across 1-5)
   - Ranked list of repos by overall score (worst first)
   - Most common issues across the fleet (e.g., "23 repos have no CLAUDE.md")
   - Breakdown by dimension (which dimension is weakest fleet-wide)
   - List of PRs raised (if fix mode)
-- **Artifacts:** Fleet summary report (markdown)
-- **Inbox:** Creates notification with summary
+- **Artifacts:** Fleet summary report saved via `mcp__fleetlift__artifact__create` with name `"fleet-summary"` and content type `text/markdown`
+- **Inbox:** Creates notification via `mcp__fleetlift__inbox__notify` with summary
 
 ## Assessment Output Schema
 
@@ -175,11 +175,12 @@ The assess step prompt will:
 
 **None required.** This workflow uses existing Fleetlift capabilities:
 - Fan-out across repositories
-- Conditional steps
-- Artifact collection
-- Pull request creation
-- Inbox notifications
+- Artifact collection via MCP
+- Inbox notifications via MCP
 - Structured output schemas
+- Credential injection (GITHUB_TOKEN for `gh` CLI)
+
+**Note:** PR creation uses agent-driven `gh pr create` rather than the platform's `pull_request` step config, because the platform unconditionally attempts PR creation for all fan-out children in `mode: transform` steps. Agent-driven PR creation allows per-repo conditional logic without platform changes. The trade-off is that PR URLs are tracked in the structured output rather than in `step_runs.pr_url`.
 
 ## Implementation Scope
 
