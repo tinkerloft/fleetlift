@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
@@ -256,4 +257,28 @@ func TestValidateAgentProfileBody(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetProfile_DBError_Returns500(t *testing.T) {
+	// Use a bad DSN so queries fail with a real connection error
+	db, err := sqlx.Open("postgres", "postgres://invalid:invalid@localhost:5999/nonexistent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	h := NewProfilesHandler(db)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "some-id")
+	req := httptest.NewRequest(http.MethodGet, "/api/agent-profiles/some-id", nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	req = claimsCtx(req, "team-1")
+	req.Header.Set("X-Team-ID", "team-1")
+
+	w := httptest.NewRecorder()
+	h.GetProfile(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Contains(t, w.Body.String(), "failed to get profile")
 }

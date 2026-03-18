@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -185,8 +187,13 @@ func (h *ProfilesHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, team_id, name, description, body, created_at, updated_at
 		 FROM agent_profiles WHERE id = $1 AND (team_id = $2 OR team_id IS NULL)`,
 		id, teamID).Scan(&p.ID, &p.TeamID, &p.Name, &p.Description, &bodyBytes, &p.CreatedAt, &p.UpdatedAt)
-	if err != nil {
+	if errors.Is(err, sql.ErrNoRows) {
 		writeJSONError(w, http.StatusNotFound, "profile not found")
+		return
+	}
+	if err != nil {
+		slog.Error("failed to get agent profile", "error", err, "id", id)
+		writeJSONError(w, http.StatusInternalServerError, "failed to get profile")
 		return
 	}
 	if err := json.Unmarshal(bodyBytes, &p.Body); err != nil {
