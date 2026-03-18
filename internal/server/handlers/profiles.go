@@ -283,11 +283,22 @@ func (h *ProfilesHandler) DeleteProfile(w http.ResponseWriter, r *http.Request) 
 	}
 
 	id := chi.URLParam(r, "id")
-	_, err := h.db.ExecContext(r.Context(),
+	result, err := h.db.ExecContext(r.Context(),
 		`DELETE FROM agent_profiles WHERE id = $1 AND team_id = $2`, id, teamID)
 	if err != nil {
 		slog.Error("failed to delete agent profile", "error", err, "team_id", teamID, "id", id)
 		writeJSONError(w, http.StatusInternalServerError, "failed to delete profile")
+		return
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		slog.Error("failed to check delete result", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "failed to delete profile")
+		return
+	}
+	if rows == 0 {
+		writeJSONError(w, http.StatusNotFound, "profile not found")
 		return
 	}
 
@@ -393,11 +404,22 @@ func (h *ProfilesHandler) DeleteMarketplace(w http.ResponseWriter, r *http.Reque
 	}
 
 	id := chi.URLParam(r, "id")
-	_, err := h.db.ExecContext(r.Context(),
+	result, err := h.db.ExecContext(r.Context(),
 		`DELETE FROM marketplaces WHERE id = $1 AND team_id = $2`, id, teamID)
 	if err != nil {
 		slog.Error("failed to delete marketplace", "error", err, "team_id", teamID, "id", id)
 		writeJSONError(w, http.StatusInternalServerError, "failed to delete marketplace")
+		return
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		slog.Error("failed to check delete result", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "failed to delete marketplace")
+		return
+	}
+	if rows == 0 {
+		writeJSONError(w, http.StatusNotFound, "marketplace not found")
 		return
 	}
 

@@ -1,16 +1,39 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/tinkerloft/fleetlift/internal/model"
 )
+
+func openTestDB(t *testing.T) *sqlx.DB {
+	t.Helper()
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("requires DB: set DATABASE_URL")
+	}
+	db, err := sqlx.Connect("postgres", dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+func randomSuffix() string {
+	return fmt.Sprintf("%d", os.Getpid())
+}
 
 func TestListAgentProfiles_ReturnsOK(t *testing.T) {
 	// Without a real DB the handler will return an error, but we can verify
@@ -104,6 +127,33 @@ func TestDeleteAgentProfile_Returns204(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
+func TestDeleteAgentProfile_NotFound_Returns404(t *testing.T) {
+	db := openTestDB(t)
+	h := NewProfilesHandler(db)
+
+	teamID := "test-team-delete-profile-" + randomSuffix()
+	nonExistentID := "non-existent-id-" + randomSuffix()
+
+	// Create a team for test isolation
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `INSERT INTO teams (id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING`, teamID, teamID)
+	if err != nil {
+		t.Fatalf("failed to insert team: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(ctx, `DELETE FROM teams WHERE id = $1`, teamID)
+	})
+
+	req := httptest.NewRequest("DELETE", "/api/agent-profiles/"+nonExistentID, nil)
+	req = claimsCtx(req, teamID)
+	req.Header.Set("X-Team-ID", teamID)
+
+	w := httptest.NewRecorder()
+	h.DeleteProfile(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), "profile not found")
+}
+
 func TestCreateMarketplace_MissingName_Returns400(t *testing.T) {
 	h := NewProfilesHandler(nil)
 	body := `{"name":"","repo_url":"https://github.com/x"}`
@@ -144,6 +194,33 @@ func TestCreateMarketplace_NonHTTPS_Returns400(t *testing.T) {
 	h.CreateMarketplace(w, req)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "https://")
+}
+
+func TestDeleteMarketplace_NotFound_Returns404(t *testing.T) {
+	db := openTestDB(t)
+	h := NewProfilesHandler(db)
+
+	teamID := "test-team-delete-marketplace-" + randomSuffix()
+	nonExistentID := "non-existent-id-" + randomSuffix()
+
+	// Create a team for test isolation
+	ctx := context.Background()
+	_, err := db.ExecContext(ctx, `INSERT INTO teams (id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING`, teamID, teamID)
+	if err != nil {
+		t.Fatalf("failed to insert team: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(ctx, `DELETE FROM teams WHERE id = $1`, teamID)
+	})
+
+	req := httptest.NewRequest("DELETE", "/api/marketplaces/"+nonExistentID, nil)
+	req = claimsCtx(req, teamID)
+	req.Header.Set("X-Team-ID", teamID)
+
+	w := httptest.NewRecorder()
+	h.DeleteMarketplace(w, req)
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	assert.Contains(t, w.Body.String(), "marketplace not found")
 }
 
 func TestValidateAgentProfileBody(t *testing.T) {
