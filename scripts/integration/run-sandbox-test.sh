@@ -7,10 +7,8 @@ source "$(dirname "$0")/dev-env.sh"
 cd "$PROJECT_ROOT"
 
 # ── Generate JWT ──────────────────────────────────────────────────────────────
-TEAM_ID=$(docker exec fleetlift-postgres-1 psql -U fleetlift -d fleetlift -t -c \
-  "SELECT id FROM teams LIMIT 1" 2>/dev/null | tr -d ' \n')
-USER_ID=$(docker exec fleetlift-postgres-1 psql -U fleetlift -d fleetlift -t -c \
-  "SELECT id FROM users LIMIT 1" 2>/dev/null | tr -d ' \n')
+TEAM_ID="${DEV_TEAM_ID:-$(fl_sql "SELECT id FROM teams LIMIT 1" | tr -d ' \n')}"
+USER_ID="${DEV_USER_ID:-$(fl_sql "SELECT id FROM users LIMIT 1" | tr -d ' \n')}"
 
 if [[ -z "$TEAM_ID" || -z "$USER_ID" ]]; then
   echo "ERROR: No team or user found in database."
@@ -114,13 +112,7 @@ fi
 echo ""
 echo "=== Results ==="
 
-STEP_RESULTS=$(docker exec fleetlift-postgres-1 psql -U fleetlift -d fleetlift -t -c "
-SELECT json_agg(json_build_object(
-  'step_id', step_id,
-  'status', status,
-  'output', output,
-  'has_completed_at', completed_at IS NOT NULL
-)) FROM step_runs WHERE run_id = '$RUN_ID'" 2>/dev/null | tr -d '\n ')
+STEP_RESULTS=$(fl_sql "SELECT json_agg(json_build_object('step_id', step_id, 'status', status, 'output', output, 'has_completed_at', completed_at IS NOT NULL)) FROM step_runs WHERE run_id = '$RUN_ID'" | tr -d '\n ')
 
 echo "$STEP_RESULTS" | python3 -c "
 import sys, json

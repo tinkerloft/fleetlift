@@ -67,6 +67,7 @@ func main() {
 			"claude-code": agent.NewClaudeCodeRunner(sbClient),
 			"shell":       agent.NewShellRunner(sbClient),
 		},
+		ProfileStore: &activity.DBProfileStore{DB: database},
 	}
 
 	// Create and configure worker

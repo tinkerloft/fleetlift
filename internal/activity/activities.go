@@ -22,4 +22,5 @@ type Activities struct {
 	DB           *sqlx.DB
 	CredStore    CredentialStore
 	AgentRunners map[string]agent.Runner
+	ProfileStore ProfileStore
 }

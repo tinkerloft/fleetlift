@@ -105,6 +105,7 @@ func main() {
 		MCP:               mcpHandler,
 		DB:                database,
 		Actions:           handlers.NewActionsHandler(model.DefaultActionRegistry()),
+		Profiles:          handlers.NewProfilesHandler(database),
 	}
 
 	handler, err := server.NewRouter(deps)

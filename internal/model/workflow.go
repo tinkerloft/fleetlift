@@ -34,7 +34,8 @@ type WorkflowDef struct {
 	Description string         `yaml:"description"`
 	Tags        []string       `yaml:"tags"`
 	Parameters  []ParameterDef `yaml:"parameters"`
-	Steps       []StepDef      `yaml:"steps"`
+	Steps        []StepDef `yaml:"steps"`
+	AgentProfile string    `yaml:"agent_profile,omitempty"`
 }
 
 type ParameterDef struct {
@@ -94,6 +95,7 @@ type ExecutionDef struct {
 	Verifiers   any              `yaml:"verifiers,omitempty"`
 	Credentials []string         `yaml:"credentials,omitempty"`
 	Output      *OutputSchemaDef `yaml:"output,omitempty"`
+	EvalPlugins []string         `yaml:"eval_plugins,omitempty"`
 }
 
 type OutputSchemaDef struct {

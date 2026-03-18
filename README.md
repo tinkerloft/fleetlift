@@ -24,6 +24,7 @@ FleetLift gives you:
 - **Knowledge loop** - agents capture insights during execution. You curate them. Future runs get enriched with approved knowledge, so agents get better over time.
 - **Self-hosted** - your infrastructure, your data, your API keys. No vendor lock-in.
 - **Scales from laptop to production** - run locally with Docker Compose for development; deploy to Kubernetes for enterprise-scale throughput. Same code, same API, no changes required.
+- **Agent profiles** - configure agents with organisation-specific plugins, MCPs, and skills. Profiles are resolved per-run and materialised in the sandbox before the agent starts. Test unreleased plugins via eval injection.
 - **Multiple agents supported** - designed to support multiple coding agents (Claude Code, Gemini, Codex, bring your own)
 
 ## Who is this for?
@@ -102,6 +103,29 @@ Ready-to-use workflows for common platform operations:
 | `pr-review` | AI-assisted code review |
 | `triage` | Issue analysis, classification, labeling |
 | `add-tests` | Generate test coverage for under-tested code |
+
+### Agent Profiles
+Configure agents with plugins and MCPs via reusable profiles. The pre-flight script installs everything in the sandbox before the agent starts:
+
+```yaml
+agent_profile: helm-auditor   # resolved from DB, merged with baseline
+
+steps:
+  - id: diagnose
+    execution:
+      agent: claude-code
+      prompt: /helm-diagnosis   # skill provided by the profile's plugin
+```
+
+Test unreleased plugins by injecting them directly from GitHub:
+
+```yaml
+execution:
+  eval_plugins:
+    - "{{ .Params.plugin_url }}"   # --plugin-dir, no marketplace publish needed
+```
+
+See [docs/AGENT_PROFILES.md](docs/AGENT_PROFILES.md) for the full guide.
 
 ### Web UI
 Real-time DAG visualization, live log streaming, HITL controls, inbox notifications, knowledge management, and structured reports - all in one place.
@@ -221,6 +245,7 @@ For deployment instructions, see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 - [Use Cases](docs/USE_CASES.md) - concrete scenarios and how FleetLift handles them
 - [Comparison](docs/COMPARISON.md) - FleetLift vs Cursor Automations, GitHub Actions, and others
+- [Agent Profiles](docs/AGENT_PROFILES.md) - configure agents with plugins, MCPs, and skills
 - [Workflow Reference](docs/WORKFLOW_REFERENCE.md) - YAML schema for workflow templates
 - [CLI Reference](docs/CLI_REFERENCE.md) - all CLI commands
 - [Architecture](docs/ARCHITECTURE.md) - system design deep-dive

@@ -15,7 +15,7 @@ func TestBuiltinProviderLoadsAll(t *testing.T) {
 	require.NoError(t, err)
 	templates, err := p.List(context.Background(), "")
 	require.NoError(t, err)
-	assert.Len(t, templates, 12)
+	assert.Len(t, templates, 13)
 	slugs := map[string]bool{}
 	for _, tmpl := range templates {
 		slugs[tmpl.Slug] = true
