@@ -116,6 +116,11 @@ func (m *stepMockActivities) CleanupCheckpointBranch(_ context.Context, input mo
 	return args.Error(0)
 }
 
+func (m *stepMockActivities) RunPreflight(_ context.Context, input RunPreflightInput) (RunPreflightOutput, error) {
+	args := m.Called(input)
+	return args.Get(0).(RunPreflightOutput), args.Error(1)
+}
+
 // newStepWorkflowEnv creates a configured Temporal test environment with all
 // StepWorkflow activities registered from the mock struct.
 func newStepWorkflowEnv(t *testing.T) (*testsuite.TestWorkflowEnvironment, *stepMockActivities) {
@@ -132,6 +137,7 @@ func newStepWorkflowEnv(t *testing.T) (*testsuite.TestWorkflowEnvironment, *step
 	env.RegisterActivity(mocks.CompleteStepRun)
 	env.RegisterActivity(mocks.CreateContinuationStepRun)
 	env.RegisterActivity(mocks.CleanupCheckpointBranch)
+	env.RegisterActivity(mocks.RunPreflight)
 	return env, mocks
 }
 
@@ -494,4 +500,93 @@ func TestStepWorkflow_NoAwaitingInput_WorksNormally(t *testing.T) {
 
 	// CreateContinuationStepRun should NOT be called
 	mocks.AssertNotCalled(t, "CreateContinuationStepRun", mock.Anything)
+}
+
+func TestStepWorkflow_RunsPreflightWithProfile(t *testing.T) {
+	env, mocks := newStepWorkflowEnv(t)
+
+	profile := &model.AgentProfileBody{
+		Plugins: []model.PluginSource{{Plugin: "plugins/test"}},
+	}
+
+	mocks.On("ProvisionSandbox", mock.Anything).Return("sb-1", nil)
+	mocks.On("RunPreflight", mock.MatchedBy(func(input RunPreflightInput) bool {
+		return input.SandboxID == "sb-1" && len(input.Profile.Plugins) == 1
+	})).Return(RunPreflightOutput{EvalPluginDirs: []string{"/tmp/eval-plugin-0/plugins/test"}}, nil)
+	mocks.On("ExecuteStep", mock.MatchedBy(func(input ExecuteStepInput) bool {
+		return len(input.EvalPluginDirs) == 1 && input.EvalPluginDirs[0] == "/tmp/eval-plugin-0/plugins/test"
+	})).Return(&model.StepOutput{StepID: "step1", Status: model.StepStatusComplete}, nil)
+	mocks.On("CompleteStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64")).Return(nil)
+	mocks.On("CleanupSandbox", mock.Anything).Return(nil)
+
+	env.ExecuteWorkflow(StepWorkflow, StepInput{
+		RunID:     "run-1",
+		StepRunID: "sr-1",
+		TeamID:    "team-1",
+		StepDef:   model.StepDef{ID: "step1", Execution: &model.ExecutionDef{Agent: "claude-code", Prompt: "test"}},
+		ResolvedOpts: ResolvedStepOpts{
+			Prompt:           "test",
+			Agent:            "claude-code",
+			EffectiveProfile: profile,
+			EvalPluginURLs:   []string{"https://github.com/org/repo/tree/main/plugins/test"},
+		},
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	mocks.AssertCalled(t, "RunPreflight", mock.Anything)
+}
+
+func TestStepWorkflow_SkipsPreflightWithoutProfile(t *testing.T) {
+	env, mocks := newStepWorkflowEnv(t)
+
+	mocks.On("ProvisionSandbox", mock.Anything).Return("sb-1", nil)
+	mocks.On("ExecuteStep", mock.Anything).Return(&model.StepOutput{StepID: "step1", Status: model.StepStatusComplete}, nil)
+	mocks.On("CompleteStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64")).Return(nil)
+	mocks.On("CleanupSandbox", mock.Anything).Return(nil)
+
+	env.ExecuteWorkflow(StepWorkflow, StepInput{
+		RunID:     "run-1",
+		StepRunID: "sr-1",
+		TeamID:    "team-1",
+		StepDef:   model.StepDef{ID: "step1", Execution: &model.ExecutionDef{Agent: "claude-code", Prompt: "test"}},
+		ResolvedOpts: ResolvedStepOpts{
+			Prompt: "test",
+			Agent:  "claude-code",
+			// No EffectiveProfile, no EvalPluginURLs
+		},
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	mocks.AssertNotCalled(t, "RunPreflight", mock.Anything)
+}
+
+func TestStepWorkflow_PreflightFailurePropagates(t *testing.T) {
+	env, mocks := newStepWorkflowEnv(t)
+
+	profile := &model.AgentProfileBody{
+		MCPs: []model.MCPConfig{{Name: "test-mcp"}},
+	}
+
+	mocks.On("ProvisionSandbox", mock.Anything).Return("sb-1", nil)
+	mocks.On("RunPreflight", mock.Anything).Return(RunPreflightOutput{}, fmt.Errorf("preflight failed: plugin install error"))
+	mocks.On("CleanupSandbox", mock.Anything).Return(nil)
+
+	env.ExecuteWorkflow(StepWorkflow, StepInput{
+		RunID:     "run-1",
+		StepRunID: "sr-1",
+		TeamID:    "team-1",
+		StepDef:   model.StepDef{ID: "step1", Execution: &model.ExecutionDef{Agent: "claude-code", Prompt: "test"}},
+		ResolvedOpts: ResolvedStepOpts{
+			Prompt:           "test",
+			Agent:            "claude-code",
+			EffectiveProfile: profile,
+		},
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	err := env.GetWorkflowError()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "pre-flight")
 }

@@ -24,12 +24,14 @@ type StepInput struct {
 
 // ResolvedStepOpts holds step options after template rendering.
 type ResolvedStepOpts struct {
-	Prompt      string          `json:"prompt"`
-	Repos       []model.RepoRef `json:"repos"`
-	Verifiers   any             `json:"verifiers,omitempty"`
-	Credentials []string        `json:"credentials,omitempty"`
-	PRConfig    *model.PRDef    `json:"pr_config,omitempty"`
-	Agent       string          `json:"agent"`
+	Prompt           string                  `json:"prompt"`
+	Repos            []model.RepoRef         `json:"repos"`
+	Verifiers        any                     `json:"verifiers,omitempty"`
+	Credentials      []string                `json:"credentials,omitempty"`
+	PRConfig         *model.PRDef            `json:"pr_config,omitempty"`
+	Agent            string                  `json:"agent"`
+	EffectiveProfile *model.AgentProfileBody `json:"effective_profile,omitempty"`
+	EvalPluginURLs   []string                `json:"eval_plugin_urls,omitempty"`
 }
 
 // ExecuteStepInput is the input to the ExecuteStep activity.
@@ -39,6 +41,7 @@ type ExecuteStepInput struct {
 	Prompt              string                     `json:"prompt"`
 	ConversationHistory string                     `json:"conversation_history,omitempty"`
 	ContinuationContext *model.ContinuationContext `json:"continuation_context,omitempty"` // E3
+	EvalPluginDirs      []string                   `json:"eval_plugin_dirs,omitempty"`
 }
 
 // StepSignal represents signals that can be sent to a StepWorkflow.
@@ -72,7 +75,28 @@ var (
 	ValidateCredentialsActivity       = "ValidateCredentials"
 	CreateContinuationStepRunActivity = "CreateContinuationStepRun"
 	CleanupCheckpointBranchActivity   = "CleanupCheckpointBranch"
+	RunPreflightActivity              = "RunPreflight"
+	ResolveAgentProfileActivity       = "ResolveAgentProfile"
 )
+
+// ResolveProfileInput is the input to the ResolveAgentProfile activity.
+type ResolveProfileInput struct {
+	TeamID      string `json:"team_id"`
+	ProfileName string `json:"profile_name"`
+}
+
+// RunPreflightInput is the input to the RunPreflightActivity.
+type RunPreflightInput struct {
+	SandboxID      string                 `json:"sandbox_id"`
+	TeamID         string                 `json:"team_id"`
+	Profile        model.AgentProfileBody `json:"profile"`
+	EvalPluginURLs []string               `json:"eval_plugin_urls,omitempty"`
+}
+
+// RunPreflightOutput is the output of RunPreflightActivity.
+type RunPreflightOutput struct {
+	EvalPluginDirs []string `json:"eval_plugin_dirs,omitempty"`
+}
 
 // StepWorkflow orchestrates a single step: provision sandbox, run agent, handle HITL signals, optionally create PR.
 func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, error) {
@@ -95,6 +119,33 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 		if err != nil {
 			return nil, fmt.Errorf("provision sandbox: %w", err)
 		}
+	}
+
+	// Run pre-flight if the step has a profile or eval plugins.
+	var evalPluginDirs []string
+	if input.ResolvedOpts.EffectiveProfile != nil || len(input.ResolvedOpts.EvalPluginURLs) > 0 {
+		profileBody := model.AgentProfileBody{}
+		if input.ResolvedOpts.EffectiveProfile != nil {
+			profileBody = *input.ResolvedOpts.EffectiveProfile
+		}
+		var preflightOut RunPreflightOutput
+		ao := workflow.ActivityOptions{
+			StartToCloseTimeout: 10 * time.Minute,
+			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 2},
+		}
+		if err := workflow.ExecuteActivity(
+			workflow.WithActivityOptions(ctx, ao),
+			RunPreflightActivity,
+			RunPreflightInput{
+				SandboxID:      sandboxID,
+				TeamID:         input.TeamID,
+				Profile:        profileBody,
+				EvalPluginURLs: input.ResolvedOpts.EvalPluginURLs,
+			},
+		).Get(ctx, &preflightOut); err != nil {
+			return nil, fmt.Errorf("pre-flight: %w", err)
+		}
+		evalPluginDirs = preflightOut.EvalPluginDirs
 	}
 
 	// 2. Execute step (may loop for steer)
@@ -123,6 +174,7 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 				SandboxID:           sandboxID,
 				Prompt:              prompt,
 				ConversationHistory: conversationHistory,
+				EvalPluginDirs:      evalPluginDirs,
 			},
 		).Get(ctx, &output)
 		if err != nil {
@@ -202,6 +254,7 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, err
 						CheckpointBranch: output.CheckpointBranch,
 						StateArtifactID:  output.StateArtifactID,
 					},
+					EvalPluginDirs: evalPluginDirs,
 				},
 			).Get(ctx, &continuationOutput)
 

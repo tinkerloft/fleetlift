@@ -90,6 +90,25 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 
 	steps := input.WorkflowDef.Steps
 
+	// Resolve agent profile — must happen before credential preflight so MCP
+	// credentials are included in the validation pass.
+	var effectiveProfile *model.AgentProfileBody
+	if input.WorkflowDef.AgentProfile != "" {
+		var resolved model.AgentProfileBody
+		ao := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second, RetryPolicy: dbRetry}
+		if err := workflow.ExecuteActivity(
+			workflow.WithActivityOptions(ctx, ao),
+			ResolveAgentProfileActivity,
+			ResolveProfileInput{
+				TeamID:      input.TeamID,
+				ProfileName: input.WorkflowDef.AgentProfile,
+			},
+		).Get(ctx, &resolved); err != nil {
+			return fmt.Errorf("resolve agent profile: %w", err)
+		}
+		effectiveProfile = &resolved
+	}
+
 	// Preflight: verify all required credentials exist before starting any work.
 	// This fails fast instead of discovering missing credentials deep in execution.
 	{
@@ -107,6 +126,17 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 				if _, ok := seen[n]; !ok {
 					seen[n] = struct{}{}
 					allCreds = append(allCreds, n)
+				}
+			}
+		}
+		// Add MCP credentials from the effective profile
+		if effectiveProfile != nil {
+			for _, mcp := range effectiveProfile.MCPs {
+				for _, credName := range mcp.Credentials {
+					if _, ok := seen[credName]; !ok {
+						seen[credName] = struct{}{}
+						allCreds = append(allCreds, credName)
+					}
 				}
 			}
 		}
@@ -230,6 +260,25 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 						Error:  err.Error(),
 					}
 					return
+				}
+				resolved.EffectiveProfile = effectiveProfile
+				// Render eval_plugins template values for this step
+				if step.Execution != nil {
+					for _, rawURL := range step.Execution.EvalPlugins {
+						rendered, renderErr := fltemplate.RenderPrompt(rawURL, fltemplate.RenderContext{
+							Params: input.Parameters,
+							Steps:  outputs,
+						})
+						if renderErr != nil {
+							results[i] = &model.StepOutput{
+								StepID: step.ID,
+								Status: model.StepStatusFailed,
+								Error:  fmt.Sprintf("render eval_plugin for step %s: %v", step.ID, renderErr),
+							}
+							return
+						}
+						resolved.EvalPluginURLs = append(resolved.EvalPluginURLs, rendered)
+					}
 				}
 
 				// Check condition

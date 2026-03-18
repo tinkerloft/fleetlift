@@ -32,6 +32,7 @@ type Deps struct {
 	MCP               *handlers.MCPHandler
 	DB                *sqlx.DB
 	Actions           *handlers.ActionsHandler
+	Profiles          *handlers.ProfilesHandler
 	TemporalUIURL     string
 }
 
@@ -167,6 +168,18 @@ func NewRouter(deps Deps) (http.Handler, error) {
 
 		// Action types (registry)
 		r.Get("/api/action-types", deps.Actions.List)
+
+		// Agent profiles
+		r.Get("/api/agent-profiles", deps.Profiles.ListProfiles)
+		r.Post("/api/agent-profiles", deps.Profiles.CreateProfile)
+		r.Get("/api/agent-profiles/{id}", deps.Profiles.GetProfile)
+		r.Put("/api/agent-profiles/{id}", deps.Profiles.UpdateProfile)
+		r.Delete("/api/agent-profiles/{id}", deps.Profiles.DeleteProfile)
+
+		// Marketplaces
+		r.Get("/api/marketplaces", deps.Profiles.ListMarketplaces)
+		r.Post("/api/marketplaces", deps.Profiles.CreateMarketplace)
+		r.Delete("/api/marketplaces/{id}", deps.Profiles.DeleteMarketplace)
 	})
 
 	// Serve embedded React SPA

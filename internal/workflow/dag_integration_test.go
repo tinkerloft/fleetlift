@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -79,6 +80,16 @@ func (m *dagMockActivities) UpdateStepStatus(_ context.Context, stepRunID, statu
 	return args.Error(0)
 }
 
+func (m *dagMockActivities) ResolveAgentProfile(_ context.Context, input ResolveProfileInput) (model.AgentProfileBody, error) {
+	args := m.Called(input)
+	return args.Get(0).(model.AgentProfileBody), args.Error(1)
+}
+
+func (m *dagMockActivities) RunPreflight(_ context.Context, input RunPreflightInput) (RunPreflightOutput, error) {
+	args := m.Called(input)
+	return args.Get(0).(RunPreflightOutput), args.Error(1)
+}
+
 // newDAGTestEnv creates a Temporal test environment with both DAGWorkflow and
 // StepWorkflow registered, and default success mocks for all DB/status activities.
 // Callers can set expectations on the returned mocks for step-level activities
@@ -104,6 +115,8 @@ func newDAGTestEnv(t *testing.T) (*testsuite.TestWorkflowEnvironment, *dagMockAc
 	env.RegisterActivity(mocks.ExecuteStep)
 	env.RegisterActivity(mocks.ExecuteAction)
 	env.RegisterActivity(mocks.UpdateStepStatus)
+	env.RegisterActivity(mocks.ResolveAgentProfile)
+	env.RegisterActivity(mocks.RunPreflight)
 
 	// Default success stubs for DB/status activities that every DAG execution hits.
 	// Tests that need to assert specific call arguments can override these.
@@ -114,6 +127,8 @@ func newDAGTestEnv(t *testing.T) (*testsuite.TestWorkflowEnvironment, *dagMockAc
 	mocks.On("CleanupSandbox", mock.Anything).Return(nil)
 	mocks.On("ValidateCredentials", mock.Anything, mock.Anything).Return(nil)
 	mocks.On("UpdateStepStatus", mock.Anything, mock.Anything).Return(nil)
+	mocks.On("ResolveAgentProfile", mock.Anything).Return(model.AgentProfileBody{}, nil).Maybe()
+	mocks.On("RunPreflight", mock.Anything).Return(RunPreflightOutput{}, nil).Maybe()
 
 	return env, mocks
 }
@@ -1047,4 +1062,112 @@ func TestDAGWorkflow_DeadlockDetection(t *testing.T) {
 	err := env.GetWorkflowError()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "deadlock")
+}
+
+func TestDAGWorkflow_ResolvesAgentProfile(t *testing.T) {
+	env, mocks := newDAGTestEnv(t)
+
+	expectedProfile := model.AgentProfileBody{
+		Plugins: []model.PluginSource{{Plugin: "plugins/test-plugin"}},
+	}
+
+	// Override the default stub with specific expectation
+	mocks.ExpectedCalls = removeCall(mocks.ExpectedCalls, "ResolveAgentProfile")
+	mocks.On("ResolveAgentProfile", mock.MatchedBy(func(input ResolveProfileInput) bool {
+		return input.ProfileName == "test-profile" && input.TeamID == "team-1"
+	})).Return(expectedProfile, nil)
+
+	mocks.On("ProvisionSandbox", mock.Anything).Return("sb-1", nil)
+	mocks.On("ExecuteStep", mock.Anything).Return(&model.StepOutput{StepID: "step1", Status: model.StepStatusComplete}, nil)
+
+	env.ExecuteWorkflow(DAGWorkflow, DAGInput{
+		RunID:  "run-1",
+		TeamID: "team-1",
+		WorkflowDef: model.WorkflowDef{
+			AgentProfile: "test-profile",
+			Steps: []model.StepDef{{
+				ID:        "step1",
+				Execution: &model.ExecutionDef{Agent: "claude-code", Prompt: "test"},
+			}},
+		},
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	mocks.AssertCalled(t, "ResolveAgentProfile", mock.MatchedBy(func(input ResolveProfileInput) bool {
+		return input.ProfileName == "test-profile"
+	}))
+}
+
+func TestDAGWorkflow_NoProfileSkipsResolution(t *testing.T) {
+	env, mocks := newDAGTestEnv(t)
+
+	mocks.On("ProvisionSandbox", mock.Anything).Return("sb-1", nil)
+	mocks.On("ExecuteStep", mock.Anything).Return(&model.StepOutput{StepID: "step1", Status: model.StepStatusComplete}, nil)
+
+	env.ExecuteWorkflow(DAGWorkflow, DAGInput{
+		RunID:  "run-1",
+		TeamID: "team-1",
+		WorkflowDef: model.WorkflowDef{
+			// No AgentProfile set
+			Steps: []model.StepDef{{
+				ID:        "step1",
+				Execution: &model.ExecutionDef{Agent: "claude-code", Prompt: "test"},
+			}},
+		},
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	mocks.AssertNotCalled(t, "ResolveAgentProfile", mock.Anything)
+}
+
+func TestDAGWorkflow_MCPCredsIncludedInPreflight(t *testing.T) {
+	env, mocks := newDAGTestEnv(t)
+
+	profileWithMCPCreds := model.AgentProfileBody{
+		MCPs: []model.MCPConfig{{Name: "mcp1", Credentials: []string{"MCP_TOKEN"}}},
+	}
+
+	mocks.ExpectedCalls = removeCall(mocks.ExpectedCalls, "ResolveAgentProfile")
+	mocks.On("ResolveAgentProfile", mock.Anything).Return(profileWithMCPCreds, nil)
+
+	// Override ValidateCredentials to check MCP_TOKEN is included
+	mocks.ExpectedCalls = removeCall(mocks.ExpectedCalls, "ValidateCredentials")
+	mocks.On("ValidateCredentials", "team-1", mock.MatchedBy(func(creds []string) bool {
+		return slices.Contains(creds, "MCP_TOKEN")
+	})).Return(nil)
+
+	mocks.On("ProvisionSandbox", mock.Anything).Return("sb-1", nil)
+	mocks.On("ExecuteStep", mock.Anything).Return(&model.StepOutput{StepID: "step1", Status: model.StepStatusComplete}, nil)
+
+	env.ExecuteWorkflow(DAGWorkflow, DAGInput{
+		RunID:  "run-1",
+		TeamID: "team-1",
+		WorkflowDef: model.WorkflowDef{
+			AgentProfile: "with-mcp",
+			Steps: []model.StepDef{{
+				ID:        "step1",
+				Execution: &model.ExecutionDef{Agent: "claude-code", Prompt: "test", Credentials: []string{"GITHUB_TOKEN"}},
+			}},
+		},
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.NoError(t, env.GetWorkflowError())
+	mocks.AssertCalled(t, "ValidateCredentials", "team-1", mock.MatchedBy(func(creds []string) bool {
+		return slices.Contains(creds, "MCP_TOKEN") && slices.Contains(creds, "GITHUB_TOKEN")
+	}))
+}
+
+// removeCall removes all expectations for a given method name from the list.
+// This allows overriding default stubs set by newDAGTestEnv.
+func removeCall(calls []*mock.Call, methodName string) []*mock.Call {
+	filtered := make([]*mock.Call, 0, len(calls))
+	for _, c := range calls {
+		if c.Method != methodName {
+			filtered = append(filtered, c)
+		}
+	}
+	return filtered
 }

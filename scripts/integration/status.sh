@@ -38,7 +38,8 @@ if curl -sf http://localhost:8090/v1/sandboxes > /dev/null 2>&1; then
 else
   echo "  OpenSandbox: http://localhost:8090  ✗"
 fi
-if docker exec fleetlift-postgres-1 pg_isready -U fleetlift > /dev/null 2>&1; then
+PG_CONTAINER=$(_fl_pg_container)
+if [[ -n "$PG_CONTAINER" ]] && docker exec "$PG_CONTAINER" pg_isready -U fleetlift > /dev/null 2>&1; then
   echo "  PostgreSQL:  localhost:5432  ✓"
 else
   echo "  PostgreSQL:  localhost:5432  ✗"

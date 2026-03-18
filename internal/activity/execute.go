@@ -194,8 +194,9 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 	}
 
 	events, err := runner.Run(ctx, input.SandboxID, agent.RunOpts{
-		Prompt:  prompt,
-		WorkDir: workDir,
+		Prompt:         prompt,
+		WorkDir:        workDir,
+		EvalPluginDirs: input.EvalPluginDirs,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("start agent: %w", err)
