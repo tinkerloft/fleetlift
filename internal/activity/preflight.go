@@ -144,7 +144,8 @@ func BuildEvalCloneCommands(urls []string) ([]EvalCloneResult, error) {
 		}
 		dir := fmt.Sprintf("/tmp/eval-plugin-%d", i)
 		cmd := fmt.Sprintf(
-			"git clone --depth 1 --filter=blob:none --sparse %s %s && cd %s && git sparse-checkout set %s",
+			"rm -rf %s && git clone --depth 1 --filter=blob:none --sparse %s %s && cd %s && git sparse-checkout set %s",
+			shellquote.Quote(dir),
 			shellquote.Quote(repoURL),
 			shellquote.Quote(dir),
 			shellquote.Quote(dir),

@@ -124,6 +124,18 @@ func TestBuildEvalCloneCommands_ProducesGitClone(t *testing.T) {
 	}
 }
 
+func TestBuildEvalCloneCommands_IncludesRmRf(t *testing.T) {
+	results, err := activity.BuildEvalCloneCommands([]string{
+		"https://github.com/org/repo/tree/main/plugins/foo",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(results[0].Command, "rm -rf") {
+		t.Errorf("expected rm -rf in clone command for idempotency, got:\n%s", results[0].Command)
+	}
+}
+
 func TestParseGitHubTreeURL(t *testing.T) {
 	repoURL, subPath, err := activity.ParseGitHubTreeURL(
 		"https://github.com/org/repo/tree/main/plugins/foo",
