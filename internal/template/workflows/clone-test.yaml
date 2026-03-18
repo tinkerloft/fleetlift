@@ -1,0 +1,24 @@
+version: 1
+id: clone-test
+title: Clone Test
+description: Diagnostic workflow — clones a repository to verify git credentials are working.
+tags:
+  - test
+  - diagnostic
+parameters:
+  - name: repo_url
+    type: string
+    required: true
+    description: "Repository URL to clone (can be private)"
+steps:
+  - id: clone_and_verify
+    title: Clone repository
+    sandbox_group: main
+    mode: report
+    repositories:
+      - url: "{{ .Params.repo_url }}"
+    execution:
+      agent: claude-code
+      credentials:
+        - GITHUB_TOKEN
+      prompt: "ls -la && echo clone-ok"

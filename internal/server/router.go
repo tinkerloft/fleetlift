@@ -32,6 +32,7 @@ type Deps struct {
 	MCP               *handlers.MCPHandler
 	DB                *sqlx.DB
 	Actions           *handlers.ActionsHandler
+	Profiles          *handlers.ProfilesHandler
 	TemporalUIURL     string
 }
 
@@ -57,6 +58,23 @@ func NewRouter(deps Deps) (http.Handler, error) {
 	// Auth (public)
 	r.Get("/auth/github", deps.Auth.HandleGitHubRedirect)
 	r.Get("/auth/github/callback", deps.Auth.HandleGitHubCallback)
+
+	// Dev-mode auto-login — only available when DEV_NO_AUTH=1.
+	// The frontend Login page calls this to obtain a real JWT without GitHub OAuth.
+	if os.Getenv("DEV_NO_AUTH") == "1" {
+		jwtSecret := deps.JWTSecret
+		r.Get("/api/auth/dev-login", func(w http.ResponseWriter, r *http.Request) {
+			userID := os.Getenv("DEV_USER_ID")
+			teamID := os.Getenv("DEV_TEAM_ID")
+			token, err := auth.IssueToken(jwtSecret, userID, map[string]string{teamID: "admin"}, false)
+			if err != nil {
+				http.Error(w, "failed to issue dev token", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"token": token})
+		})
+	}
 
 	// Health check (no auth required)
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -152,6 +170,18 @@ func NewRouter(deps Deps) (http.Handler, error) {
 
 		// Action types (registry)
 		r.Get("/api/action-types", deps.Actions.List)
+
+		// Agent profiles
+		r.Get("/api/agent-profiles", deps.Profiles.ListProfiles)
+		r.Post("/api/agent-profiles", deps.Profiles.CreateProfile)
+		r.Get("/api/agent-profiles/{id}", deps.Profiles.GetProfile)
+		r.Put("/api/agent-profiles/{id}", deps.Profiles.UpdateProfile)
+		r.Delete("/api/agent-profiles/{id}", deps.Profiles.DeleteProfile)
+
+		// Marketplaces
+		r.Get("/api/marketplaces", deps.Profiles.ListMarketplaces)
+		r.Post("/api/marketplaces", deps.Profiles.CreateMarketplace)
+		r.Delete("/api/marketplaces/{id}", deps.Profiles.DeleteMarketplace)
 	})
 
 	// Serve embedded React SPA
@@ -169,9 +199,8 @@ func devAuthBypass(jwtSecret []byte) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Try real auth first (if token is present, use it)
-			token := r.Header.Get("Authorization")
-			if strings.HasPrefix(token, "Bearer ") {
-				if claims, err := auth.ValidateToken(jwtSecret, strings.TrimPrefix(token, "Bearer ")); err == nil {
+			if tokenVal, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
+				if claims, err := auth.ValidateToken(jwtSecret, tokenVal); err == nil {
 					ctx := auth.SetClaimsInContext(r.Context(), claims)
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return

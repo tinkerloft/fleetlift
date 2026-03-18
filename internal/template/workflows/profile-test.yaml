@@ -1,0 +1,19 @@
+version: 1
+id: profile-test
+title: Profile Test
+description: Diagnostic workflow — tests agent profile resolution and pre-flight script in a claude-code sandbox.
+tags:
+  - test
+  - diagnostic
+agent_profile: e2e-profile-test
+steps:
+  - id: verify_preflight
+    title: Verify pre-flight ran
+    mode: report
+    execution:
+      agent: claude-code
+      prompt: |
+        Run these shell commands and report the results. Do NOT do anything else:
+        1. echo "PROFILE_E2E_MARKER: preflight completed"
+        2. claude mcp list
+        Report the output of each command.

@@ -14,6 +14,7 @@ Workflow templates define DAG-based agentic jobs. They are stored as YAML and ca
 | `description` | string | no | Short description of what the workflow does. |
 | `tags` | []string | no | Free-form tags for filtering/searching. |
 | `parameters` | []ParameterDef | no | Input parameters; values supplied at run start. |
+| `agent_profile` | string | no | Name of an agent profile to resolve and apply to all steps. See [Agent Profiles](AGENT_PROFILES.md). |
 | `steps` | []StepDef | yes | Ordered list of DAG steps (order does not imply execution order — use `depends_on`). |
 
 ---
@@ -66,6 +67,7 @@ Workflow templates define DAG-based agentic jobs. They are stored as YAML and ca
 | `verifiers` | any | no | Commands to run after the agent finishes (e.g. `go build ./...`). |
 | `credentials` | []string | no | Named credentials (from the credentials store) to inject as environment variables. |
 | `output` | OutputSchemaDef | no | JSON schema for structured output (used in `report` mode). |
+| `eval_plugins` | []string | no | GitHub tree URLs of plugins to inject via `--plugin-dir`. Supports Go template expressions. See [Agent Profiles](AGENT_PROFILES.md#eval-plugins). |
 
 ### OutputSchemaDef
 

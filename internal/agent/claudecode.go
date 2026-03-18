@@ -42,8 +42,13 @@ func (r *ClaudeCodeRunner) Run(ctx context.Context, sandboxID string, opts RunOp
 		`printf '{"mcpServers":{"fleetlift":{"type":"sse","url":"http://localhost:%s/sse"}}}' "$FLEETLIFT_MCP_PORT" > /workspace/.mcp.json; ` +
 		`fi`
 
-	cmd := fmt.Sprintf("%s && cd %s && claude -p %s --output-format stream-json --verbose --dangerously-skip-permissions --max-turns %d",
-		mcpSetup, shellquote.Quote(opts.WorkDir), shellquote.Quote(opts.Prompt), max(opts.MaxTurns, 20))
+	pluginDirFlags := ""
+	for _, dir := range opts.EvalPluginDirs {
+		pluginDirFlags += " --plugin-dir " + shellquote.Quote(dir)
+	}
+
+	cmd := fmt.Sprintf("%s && cd %s && claude -p %s%s --output-format stream-json --verbose --dangerously-skip-permissions --max-turns %d",
+		mcpSetup, shellquote.Quote(opts.WorkDir), shellquote.Quote(opts.Prompt), pluginDirFlags, max(opts.MaxTurns, 20))
 
 	ch := make(chan Event, 64)
 	go func() {

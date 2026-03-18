@@ -1,3 +1,5 @@
+name: fleetlift
+
 services:
   # Temporal server with all components (auto-setup mode)
   temporal:

@@ -358,6 +358,80 @@ func TestProvisionSandbox_MCPFailsOnHealthCheckTimeout(t *testing.T) {
 	assert.Contains(t, err.Error(), "health check failed")
 }
 
+// gitCredSandbox records WriteFile and Exec calls for git credential assertions.
+type gitCredSandbox struct {
+	noopSandbox
+	execCmds     []string
+	writtenFiles map[string]string
+}
+
+func newGitCredSandbox() *gitCredSandbox {
+	return &gitCredSandbox{writtenFiles: make(map[string]string)}
+}
+
+func (s *gitCredSandbox) Create(_ context.Context, _ sandbox.CreateOpts) (string, error) {
+	return "sb-cred", nil
+}
+
+func (s *gitCredSandbox) Exec(_ context.Context, _, cmd, _ string) (string, string, error) {
+	s.execCmds = append(s.execCmds, cmd)
+	return "", "", nil
+}
+
+func (s *gitCredSandbox) WriteFile(_ context.Context, _, path, content string) error {
+	s.writtenFiles[path] = content
+	return nil
+}
+
+func TestProvisionSandbox_ConfiguresGitCredentialsWhenGithubTokenPresent(t *testing.T) {
+	sb := newGitCredSandbox()
+	a := &Activities{
+		Sandbox:   sb,
+		CredStore: &stubCredStore{val: "ghp_testtoken"},
+	}
+	input := workflow.StepInput{
+		TeamID: "team-1",
+		ResolvedOpts: workflow.ResolvedStepOpts{
+			Credentials: []string{"GITHUB_TOKEN"},
+			Agent:       "shell",
+		},
+	}
+	_, err := a.ProvisionSandbox(context.Background(), input)
+	require.NoError(t, err)
+
+	// No file should be written — credentials are configured via inline helper only
+	_, fileWritten := sb.writtenFiles["/root/.git-credentials"]
+	assert.False(t, fileWritten, "should not write .git-credentials file")
+
+	// git config must be called with an inline credential helper that reads $GITHUB_TOKEN
+	found := false
+	for _, cmd := range sb.execCmds {
+		if strings.Contains(cmd, "credential.helper") && strings.Contains(cmd, "GITHUB_TOKEN") {
+			found = true
+		}
+	}
+	assert.True(t, found, "expected git credential.helper config referencing GITHUB_TOKEN")
+}
+
+func TestProvisionSandbox_SkipsGitCredentialsWhenNoGithubToken(t *testing.T) {
+	sb := newGitCredSandbox()
+	a := &Activities{Sandbox: sb}
+
+	input := workflow.StepInput{
+		TeamID:       "team-1",
+		ResolvedOpts: workflow.ResolvedStepOpts{Agent: "shell"},
+	}
+	_, err := a.ProvisionSandbox(context.Background(), input)
+	require.NoError(t, err)
+
+	_, ok := sb.writtenFiles["/root/.git-credentials"]
+	assert.False(t, ok, "should not write .git-credentials when GITHUB_TOKEN is absent")
+
+	for _, cmd := range sb.execCmds {
+		assert.NotContains(t, cmd, "credential.helper", "should not configure git credential helper when GITHUB_TOKEN is absent")
+	}
+}
+
 func TestCleanupCheckpointBranch_EmptyBranch(t *testing.T) {
 	acts := &Activities{}
 	err := acts.CleanupCheckpointBranch(context.Background(), model.CleanupCheckpointInput{Branch: ""})

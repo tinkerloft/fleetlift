@@ -121,7 +121,7 @@ go run ./cmd/server   # rebuild with embedded dist
 
 - The JWT has expired. Run `fleetlift auth login` again.
 - The server's `JWT_SECRET` was rotated. All existing tokens are invalidated. Re-login.
-- The CLI `--server` flag or `FLEETLIFT_API_URL` points to a different server instance.
+- The CLI `--server` flag or `FLEETLIFT_SERVER` points to a different server instance.
 - Verify your identity: `curl -H "Authorization: Bearer $(cat ~/.fleetlift/auth.json | jq -r .token)" http://localhost:8080/api/me`
 
 ---

@@ -11,10 +11,11 @@ type Event struct {
 
 // RunOpts configures an agent run.
 type RunOpts struct {
-	Prompt      string
-	WorkDir     string
-	MaxTurns    int
-	Environment map[string]string
+	Prompt         string
+	WorkDir        string
+	MaxTurns       int
+	Environment    map[string]string
+	EvalPluginDirs []string // local sandbox paths for --plugin-dir flags
 }
 
 // Runner is the interface for pluggable agent runners.

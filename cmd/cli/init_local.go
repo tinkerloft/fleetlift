@@ -117,7 +117,7 @@ func parseLocalEnv(path string) map[string]string {
 		return nil
 	}
 	result := make(map[string]string)
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		line = strings.TrimPrefix(line, "export ")
 		if line == "" || strings.HasPrefix(line, "#") {
