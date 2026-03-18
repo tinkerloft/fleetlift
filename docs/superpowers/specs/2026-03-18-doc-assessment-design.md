@@ -47,13 +47,14 @@ tags: [documentation, fleet, report, transform]
 ### Steps
 
 ```
-assess (fan-out) → create-prs (fan-out, conditional) → collate
+assess (fan-out) → collate
 ```
 
 #### Step 1: `assess`
 
-- **Mode:** report
+- **Mode:** `transform` (supports both report-only and fix+PR flows)
 - **Fan-out:** Across all repositories, limited by `max_parallel`
+- **Approval policy:** `never` (autonomous)
 - **Execution:** Each sandbox:
   1. Clones the repository
   2. Discovers documentation files: README.md, CLAUDE.md, AGENTS.md, docs/**/*.md, API specs, architecture docs
@@ -70,27 +71,21 @@ assess (fan-out) → create-prs (fan-out, conditional) → collate
      - **Currency** — are docs up to date with recent code changes?
      - **Agent-readiness** — can an AI agent efficiently navigate and work in this repo using the docs?
   7. Computes weighted overall score based on `focus` parameter
-  8. If `mode=fix` AND overall score < `fix_threshold`: fixes issues, commits to branch
-- **Output schema:** See Assessment Output Schema below
-- **Artifacts:** Per-repo detailed report (markdown)
-
-#### Step 2: `create-prs`
-
-- **Mode:** transform
-- **Condition:** `mode=fix` AND at least one repo had `fix_applied=true`
-- **Fan-out:** Across repos where fixes were applied
-- **Execution:** Creates one PR per repo from the branch created in the assess step
-- **Approval policy:** `never` (autonomous)
-- **PR configuration:**
+  8. If `mode=fix` AND overall score < `fix_threshold`: fixes issues, commits to branch, creates PR
+- **Pull request config** (used when fixes are applied):
   - Branch prefix: `docs/fleetlift-assessment-`
   - Title: `docs: fix documentation issues (Fleetlift assessment)`
   - Labels: `["documentation", "automated"]`
-  - Draft: controlled by `draft_prs` parameter (default: true)
+  - Draft: `{{ .Params.draft_prs }}` (default: true)
+- **Output schema:** See Assessment Output Schema below
+- **Artifacts:** Per-repo detailed report (markdown)
 
-#### Step 3: `collate`
+**Note:** The step uses `mode: transform` so that the `pull_request` config is available when fixes are applied. When `mode=report` or the score is above threshold, no branch is created and no PR is raised — the step simply produces the assessment report. The prompt instructs the agent to skip git operations when no fixes are needed.
+
+#### Step 2: `collate`
 
 - **Mode:** report
-- **Depends on:** `assess` (and `create-prs` if it ran)
+- **Depends on:** `assess`
 - **Execution:** Receives all per-repo structured outputs, produces fleet-wide summary:
   - Score distribution (histogram across 1-5)
   - Ranked list of repos by overall score (worst first)
@@ -131,14 +126,14 @@ Each repo's assess step outputs structured JSON:
   ],
   "summary": "Documentation exists but is significantly outdated. README references removed modules. No agent guidance files.",
   "fix_applied": true,
-  "fix_branch": "docs/fleetlift-assessment-abc123",
+  "pr_url": "https://github.com/org/repo-name/pull/42",
   "files_modified": ["README.md", "CLAUDE.md"]
 }
 ```
 
 - Scores are integers 1-5; overall is a weighted float
 - Findings list individual issues with dimension, severity (high/medium/low), affected file, description
-- `fix_applied`, `fix_branch`, `files_modified` only populated when `mode=fix` and score was below threshold
+- `fix_applied`, `pr_url`, `files_modified` only populated when `mode=fix` and score was below threshold
 
 ## Scoring Model
 
@@ -196,4 +191,11 @@ The assess step prompt will:
 
 - **Cost:** At ~$0.50–2.00 per repo assessment (depending on repo size), a 200-repo baseline run costs ~$100–400. Delta runs assessing 20-30 repos weekly are significantly cheaper.
 - **Parallelism:** Default `max_parallel=20` balances throughput against sandbox resource limits. Tunable per run.
-- **Idempotency:** Running fix mode twice on the same repo is safe — if a fix PR already exists, the create-prs step will fail for that repo but others proceed (existing Fleetlift fan-out failure isolation).
+- **Idempotency:** Running fix mode twice on the same repo is safe — if a fix branch already exists, the PR creation will fail for that repo but others proceed (existing Fleetlift fan-out failure isolation).
+
+## Edge Cases
+
+- **Repo has no documentation at all:** Agent scores all dimensions 1 or 2, findings note absence of each expected file. In fix mode, agent creates minimal docs (README, CLAUDE.md) based on code inspection.
+- **All repos score above threshold in fix mode:** No PRs are raised. Collate step still produces the fleet summary report.
+- **Delta context finds no recent changes:** Agent reports "no changes detected" with scores carried forward as N/A. Step completes successfully with no fixes.
+- **Repo is empty or inaccessible:** Fan-out child fails for that repo; other repos continue. Error captured in collate summary.
