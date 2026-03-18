@@ -2,9 +2,13 @@ package activity
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"path"
 	"strings"
+
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/tinkerloft/fleetlift/internal/model"
 	"github.com/tinkerloft/fleetlift/internal/shellquote"
@@ -25,6 +29,9 @@ func (a *Activities) RunPreflight(ctx context.Context, input workflow.RunPreflig
 			`SELECT repo_url, credential FROM marketplaces
 			  WHERE team_id IS NULL OR team_id = $1
 			  ORDER BY team_id IS NULL ASC LIMIT 1`, input.TeamID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return workflow.RunPreflightOutput{}, fmt.Errorf("fetch marketplace config: %w", err)
+		}
 		if err == nil {
 			marketplaceURL = m.RepoURL
 			if m.Credential != nil && *m.Credential != "" && a.CredStore != nil {
@@ -37,7 +44,26 @@ func (a *Activities) RunPreflight(ctx context.Context, input workflow.RunPreflig
 		}
 	}
 
-	script := BuildPreflightScript(input.Profile, marketplaceURL, marketplaceToken)
+	// Resolve MCP credentials.
+	mcpCreds := map[string]string{}
+	if a.CredStore != nil {
+		seen := map[string]bool{}
+		for _, mcp := range input.Profile.MCPs {
+			for _, credName := range mcp.Credentials {
+				if seen[credName] {
+					continue
+				}
+				seen[credName] = true
+				val, err := a.CredStore.Get(ctx, input.TeamID, credName)
+				if err != nil {
+					return workflow.RunPreflightOutput{}, fmt.Errorf("resolve MCP credential %q: %w", credName, err)
+				}
+				mcpCreds[credName] = val
+			}
+		}
+	}
+
+	script := BuildPreflightScript(input.Profile, marketplaceURL, marketplaceToken, mcpCreds)
 	if script != "" {
 		if _, stderr, err := a.Sandbox.Exec(ctx, input.SandboxID, script, "/"); err != nil {
 			return workflow.RunPreflightOutput{}, fmt.Errorf("pre-flight script: %w\nstderr: %s", err, stderr)
@@ -50,7 +76,10 @@ func (a *Activities) RunPreflight(ctx context.Context, input workflow.RunPreflig
 
 	cloneResults, err := BuildEvalCloneCommands(input.EvalPluginURLs)
 	if err != nil {
-		return workflow.RunPreflightOutput{}, fmt.Errorf("build eval clone commands: %w", err)
+		return workflow.RunPreflightOutput{}, temporal.NewNonRetryableApplicationError(
+			fmt.Sprintf("build eval clone commands: %s", err),
+			"InvalidEvalPlugin", nil,
+		)
 	}
 
 	var dirs []string
@@ -66,8 +95,17 @@ func (a *Activities) RunPreflight(ctx context.Context, input workflow.RunPreflig
 
 // BuildPreflightScript generates the shell script to install marketplace plugins and MCPs.
 // marketplaceToken is the resolved credential value for private marketplace auth (empty = public).
-func BuildPreflightScript(profile model.AgentProfileBody, marketplaceURL, marketplaceToken string) string {
+// mcpCreds is a map of credential name → resolved value to export as env vars before the script body.
+func BuildPreflightScript(profile model.AgentProfileBody, marketplaceURL, marketplaceToken string, mcpCreds map[string]string) string {
 	var b strings.Builder
+
+	// Export resolved MCP credentials as env vars (defence-in-depth name validation).
+	for name, value := range mcpCreds {
+		if !validCredName(name) {
+			continue
+		}
+		fmt.Fprintf(&b, "export %s=%s\n", name, shellquote.Quote(value))
+	}
 
 	hasMarketplacePlugins := false
 	for _, p := range profile.Plugins {
@@ -134,7 +172,8 @@ func BuildEvalCloneCommands(urls []string) ([]EvalCloneResult, error) {
 		}
 		dir := fmt.Sprintf("/tmp/eval-plugin-%d", i)
 		cmd := fmt.Sprintf(
-			"git clone --depth 1 --filter=blob:none --sparse %s %s && cd %s && git sparse-checkout set %s",
+			"rm -rf %s && git clone --depth 1 --filter=blob:none --sparse %s %s && cd %s && git sparse-checkout set %s",
+			shellquote.Quote(dir),
 			shellquote.Quote(repoURL),
 			shellquote.Quote(dir),
 			shellquote.Quote(dir),
@@ -148,10 +187,20 @@ func BuildEvalCloneCommands(urls []string) ([]EvalCloneResult, error) {
 	return results, nil
 }
 
+// validCredName reports whether name is a safe environment variable name for MCP credentials.
+// Uses the package-level credNameRe defined in provision.go.
+func validCredName(name string) bool {
+	return credNameRe.MatchString(name)
+}
+
 // ParseGitHubTreeURL parses a GitHub tree URL into a repo clone URL and subpath.
 // Example: "https://github.com/org/repo/tree/main/plugins/foo" -> ("https://github.com/org/repo.git", "plugins/foo")
 func ParseGitHubTreeURL(u string) (string, string, error) {
-	trimmed := strings.TrimPrefix(u, "https://github.com/")
+	const githubPrefix = "https://github.com/"
+	if !strings.HasPrefix(u, githubPrefix) {
+		return "", "", fmt.Errorf("expected GitHub URL starting with %q, got %q", githubPrefix, u)
+	}
+	trimmed := strings.TrimPrefix(u, githubPrefix)
 	parts := strings.SplitN(trimmed, "/tree/", 2)
 	if len(parts) != 2 {
 		return "", "", fmt.Errorf("expected GitHub tree URL with /tree/ component, got %q", u)
@@ -162,5 +211,5 @@ func ParseGitHubTreeURL(u string) (string, string, error) {
 	if len(subParts) < 2 {
 		return "", "", fmt.Errorf("expected branch and subpath after /tree/ in %q", u)
 	}
-	return "https://github.com/" + repoPath + ".git", subParts[1], nil
+	return githubPrefix + repoPath + ".git", subParts[1], nil
 }

@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -86,14 +88,8 @@ func (h *ProfilesHandler) ListProfiles(w http.ResponseWriter, r *http.Request) {
 	profiles := make([]model.AgentProfile, 0)
 	for rows.Next() {
 		var p model.AgentProfile
-		var bodyBytes []byte
-		if err := rows.Scan(&p.ID, &p.TeamID, &p.Name, &p.Description, &bodyBytes, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.TeamID, &p.Name, &p.Description, &p.Body, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			slog.Error("failed to scan agent profile", "error", err)
-			writeJSONError(w, http.StatusInternalServerError, "failed to list agent profiles")
-			return
-		}
-		if err := json.Unmarshal(bodyBytes, &p.Body); err != nil {
-			slog.Error("failed to unmarshal agent profile body", "error", err, "id", p.ID)
 			writeJSONError(w, http.StatusInternalServerError, "failed to list agent profiles")
 			return
 		}
@@ -134,13 +130,6 @@ func (h *ProfilesHandler) CreateProfile(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	bodyJSON, err := json.Marshal(req.Body)
-	if err != nil {
-		slog.Error("failed to marshal profile body", "error", err)
-		writeJSONError(w, http.StatusInternalServerError, "failed to create profile")
-		return
-	}
-
 	now := time.Now()
 	profile := model.AgentProfile{
 		ID:          uuid.New().String(),
@@ -152,10 +141,10 @@ func (h *ProfilesHandler) CreateProfile(w http.ResponseWriter, r *http.Request) 
 		UpdatedAt:   now,
 	}
 
-	_, err = h.db.ExecContext(r.Context(),
+	_, err := h.db.ExecContext(r.Context(),
 		`INSERT INTO agent_profiles (id, team_id, name, description, body, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		profile.ID, profile.TeamID, profile.Name, profile.Description, bodyJSON, profile.CreatedAt, profile.UpdatedAt)
+		profile.ID, profile.TeamID, profile.Name, profile.Description, profile.Body, profile.CreatedAt, profile.UpdatedAt)
 	if err != nil {
 		slog.Error("failed to insert agent profile", "error", err, "team_id", teamID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to create profile")
@@ -180,17 +169,16 @@ func (h *ProfilesHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	var p model.AgentProfile
-	var bodyBytes []byte
 	err := h.db.QueryRowContext(r.Context(),
 		`SELECT id, team_id, name, description, body, created_at, updated_at
 		 FROM agent_profiles WHERE id = $1 AND (team_id = $2 OR team_id IS NULL)`,
-		id, teamID).Scan(&p.ID, &p.TeamID, &p.Name, &p.Description, &bodyBytes, &p.CreatedAt, &p.UpdatedAt)
-	if err != nil {
+		id, teamID).Scan(&p.ID, &p.TeamID, &p.Name, &p.Description, &p.Body, &p.CreatedAt, &p.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
 		writeJSONError(w, http.StatusNotFound, "profile not found")
 		return
 	}
-	if err := json.Unmarshal(bodyBytes, &p.Body); err != nil {
-		slog.Error("failed to unmarshal agent profile body", "error", err, "id", id)
+	if err != nil {
+		slog.Error("failed to get agent profile", "error", err, "id", id)
 		writeJSONError(w, http.StatusInternalServerError, "failed to get profile")
 		return
 	}
@@ -222,17 +210,10 @@ func (h *ProfilesHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	bodyJSON, err := json.Marshal(req.Body)
-	if err != nil {
-		slog.Error("failed to marshal profile body", "error", err)
-		writeJSONError(w, http.StatusInternalServerError, "failed to update profile")
-		return
-	}
-
 	result, err := h.db.ExecContext(r.Context(),
 		`UPDATE agent_profiles SET description = $1, body = $2, updated_at = $3
 		 WHERE id = $4 AND team_id = $5`,
-		req.Description, bodyJSON, time.Now(), id, teamID)
+		req.Description, req.Body, time.Now(), id, teamID)
 	if err != nil {
 		slog.Error("failed to update agent profile", "error", err, "team_id", teamID, "id", id)
 		writeJSONError(w, http.StatusInternalServerError, "failed to update profile")
@@ -252,19 +233,13 @@ func (h *ProfilesHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) 
 
 	// Return the updated profile by re-fetching.
 	var p model.AgentProfile
-	var bodyBytesOut []byte
 	err = h.db.QueryRowContext(r.Context(),
 		`SELECT id, team_id, name, description, body, created_at, updated_at
 		 FROM agent_profiles WHERE id = $1 AND team_id = $2`,
-		id, teamID).Scan(&p.ID, &p.TeamID, &p.Name, &p.Description, &bodyBytesOut, &p.CreatedAt, &p.UpdatedAt)
+		id, teamID).Scan(&p.ID, &p.TeamID, &p.Name, &p.Description, &p.Body, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		slog.Error("failed to re-fetch updated profile", "error", err, "id", id)
 		writeJSONError(w, http.StatusInternalServerError, "profile updated but failed to re-fetch")
-		return
-	}
-	if err := json.Unmarshal(bodyBytesOut, &p.Body); err != nil {
-		slog.Error("failed to unmarshal updated profile body", "error", err, "id", id)
-		writeJSONError(w, http.StatusInternalServerError, "profile updated but body corrupt")
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
@@ -283,11 +258,22 @@ func (h *ProfilesHandler) DeleteProfile(w http.ResponseWriter, r *http.Request) 
 	}
 
 	id := chi.URLParam(r, "id")
-	_, err := h.db.ExecContext(r.Context(),
+	result, err := h.db.ExecContext(r.Context(),
 		`DELETE FROM agent_profiles WHERE id = $1 AND team_id = $2`, id, teamID)
 	if err != nil {
 		slog.Error("failed to delete agent profile", "error", err, "team_id", teamID, "id", id)
 		writeJSONError(w, http.StatusInternalServerError, "failed to delete profile")
+		return
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		slog.Error("failed to check delete result", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "failed to delete profile")
+		return
+	}
+	if rows == 0 {
+		writeJSONError(w, http.StatusNotFound, "profile not found")
 		return
 	}
 
@@ -393,11 +379,22 @@ func (h *ProfilesHandler) DeleteMarketplace(w http.ResponseWriter, r *http.Reque
 	}
 
 	id := chi.URLParam(r, "id")
-	_, err := h.db.ExecContext(r.Context(),
+	result, err := h.db.ExecContext(r.Context(),
 		`DELETE FROM marketplaces WHERE id = $1 AND team_id = $2`, id, teamID)
 	if err != nil {
 		slog.Error("failed to delete marketplace", "error", err, "team_id", teamID, "id", id)
 		writeJSONError(w, http.StatusInternalServerError, "failed to delete marketplace")
+		return
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		slog.Error("failed to check delete result", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "failed to delete marketplace")
+		return
+	}
+	if rows == 0 {
+		writeJSONError(w, http.StatusNotFound, "marketplace not found")
 		return
 	}
 
