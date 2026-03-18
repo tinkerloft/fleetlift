@@ -1,6 +1,6 @@
 # CLI Reference
 
-The `fleetlift` CLI communicates with the API server over HTTP. By default it targets `http://localhost:8080`; override with `--server <url>` or the `FLEETLIFT_API_URL` environment variable.
+The `fleetlift` CLI communicates with the API server over HTTP. By default it targets `http://localhost:8080`; override with `--server <url>` or the `FLEETLIFT_SERVER` environment variable.
 
 ## Global flags
 
@@ -234,6 +234,42 @@ Permanently delete a credential.
 
 ```
 fleetlift credential delete GITHUB_TOKEN
+```
+
+---
+
+## knowledge
+
+Manage knowledge items captured during workflow runs.
+
+### knowledge list
+
+List knowledge items for your team. Filter by status with `--status`.
+
+```
+fleetlift knowledge list [--status pending|approved|rejected] [--output-json]
+```
+
+Output columns: `ID`, `STATUS`, `CONTENT` (truncated), `TAGS`, `CREATED`
+
+| Flag | Description |
+|------|-------------|
+| `--status <value>` | Filter by `pending`, `approved`, or `rejected` (default: all) |
+
+### knowledge approve \<id\>
+
+Approve a knowledge item so it will be injected into future runs.
+
+```
+fleetlift knowledge approve <id>
+```
+
+### knowledge reject \<id\>
+
+Reject a knowledge item so it will not be used in future runs.
+
+```
+fleetlift knowledge reject <id>
 ```
 
 ---

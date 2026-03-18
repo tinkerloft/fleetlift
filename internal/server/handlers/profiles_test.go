@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
+
 	"github.com/stretchr/testify/assert"
 
 	"github.com/tinkerloft/fleetlift/internal/model"

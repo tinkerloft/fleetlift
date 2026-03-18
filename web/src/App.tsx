@@ -1,4 +1,5 @@
 import type React from 'react'
+import { useState, useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { WorkflowListPage } from './pages/WorkflowList'
@@ -13,6 +14,7 @@ import { SystemHealthPage } from './pages/SystemHealth'
 import { CredentialsPage } from './pages/CredentialsPage'
 import { LoginPage } from './pages/Login'
 import { AuthCallbackPage } from './pages/AuthCallback'
+import { getConfig } from './api/client'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('token')
@@ -21,6 +23,20 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const [ready, setReady] = useState(!!localStorage.getItem('token'))
+
+  useEffect(() => {
+    if (ready) return
+    getConfig().then(cfg => {
+      if (cfg.dev_no_auth && !localStorage.getItem('token')) {
+        localStorage.setItem('token', 'dev-token')
+      }
+      setReady(true)
+    }).catch(() => setReady(true))
+  }, [ready])
+
+  if (!ready) return null
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />

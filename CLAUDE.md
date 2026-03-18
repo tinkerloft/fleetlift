@@ -14,7 +14,7 @@ Use the scripts in `scripts/integration/` to manage the local dev environment:
 - `scripts/integration/run-sandbox-test.sh` — trigger a sandbox-test workflow run
 - `scripts/integration/run-mcp-test.sh [--with-agent]` — run MCP sidecar integration test
 
-Prerequisites: `docker compose up -d` (Temporal + Postgres) and `docker compose -f docker-compose.opensandbox.yaml up -d` (OpenSandbox) must be running.
+Prerequisites: `docker compose up -d` (Temporal + Postgres + OpenSandbox) must be running.
 
 Logs are written to `/tmp/fleetlift-worker.log` and `/tmp/fleetlift-server.log`.
 
