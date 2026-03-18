@@ -8,6 +8,8 @@ import (
 	"path"
 	"strings"
 
+	"go.temporal.io/sdk/temporal"
+
 	"github.com/tinkerloft/fleetlift/internal/model"
 	"github.com/tinkerloft/fleetlift/internal/shellquote"
 	"github.com/tinkerloft/fleetlift/internal/workflow"
@@ -55,7 +57,10 @@ func (a *Activities) RunPreflight(ctx context.Context, input workflow.RunPreflig
 
 	cloneResults, err := BuildEvalCloneCommands(input.EvalPluginURLs)
 	if err != nil {
-		return workflow.RunPreflightOutput{}, fmt.Errorf("build eval clone commands: %w", err)
+		return workflow.RunPreflightOutput{}, temporal.NewNonRetryableApplicationError(
+			fmt.Sprintf("build eval clone commands: %s", err),
+			"InvalidEvalPlugin", nil,
+		)
 	}
 
 	var dirs []string

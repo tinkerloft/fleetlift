@@ -2,12 +2,14 @@ package activity
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/tinkerloft/fleetlift/internal/model"
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
@@ -126,5 +128,24 @@ func TestRunPreflight_MarketplaceDBError_ReturnsError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error from DB failure, got nil")
+	}
+}
+
+func TestRunPreflight_InvalidURLScheme_IsNonRetryable(t *testing.T) {
+	acts := &Activities{
+		Sandbox: &preflightRecordingSandbox{},
+	}
+	_, err := acts.RunPreflight(context.Background(), workflow.RunPreflightInput{
+		SandboxID:      "s1",
+		TeamID:         "team-1",
+		Profile:        model.AgentProfileBody{},
+		EvalPluginURLs: []string{"git://github.com/org/repo/tree/main/plugins/foo"},
+	})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var appErr *temporal.ApplicationError
+	if !errors.As(err, &appErr) || !appErr.NonRetryable() {
+		t.Errorf("expected NonRetryableApplicationError, got: %T %v", err, err)
 	}
 }

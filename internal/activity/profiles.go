@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"go.temporal.io/sdk/temporal"
+
 	"github.com/tinkerloft/fleetlift/internal/model"
 	"github.com/tinkerloft/fleetlift/internal/workflow"
 )
@@ -35,7 +37,10 @@ func (a *Activities) ResolveAgentProfile(ctx context.Context, input workflow.Res
 		return model.AgentProfileBody{}, fmt.Errorf("fetch profile %q: %w", name, err)
 	}
 	if wp == nil {
-		return model.AgentProfileBody{}, fmt.Errorf("agent profile %q not found for team %s", name, input.TeamID)
+		return model.AgentProfileBody{}, temporal.NewNonRetryableApplicationError(
+			fmt.Sprintf("agent profile %q not found for team %s", name, input.TeamID),
+			"ProfileNotFound", nil,
+		)
 	}
 	return model.MergeProfiles(baselineBody, &wp.Body), nil
 }

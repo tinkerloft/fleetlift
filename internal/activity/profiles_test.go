@@ -2,7 +2,10 @@ package activity_test
 
 import (
 	"context"
+	"errors"
 	"testing"
+
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/tinkerloft/fleetlift/internal/activity"
 	"github.com/tinkerloft/fleetlift/internal/model"
@@ -91,5 +94,21 @@ func TestResolveProfile_MissingProfileErrors(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for missing profile")
+	}
+}
+
+func TestResolveProfile_MissingProfile_IsNonRetryable(t *testing.T) {
+	store := &stubProfileStore{profiles: map[string]*model.AgentProfile{}}
+	acts := &activity.Activities{ProfileStore: store}
+	_, err := acts.ResolveAgentProfile(context.Background(), workflow.ResolveProfileInput{
+		TeamID:      "team-1",
+		ProfileName: "nonexistent",
+	})
+	if err == nil {
+		t.Fatal("expected error for missing profile")
+	}
+	var appErr *temporal.ApplicationError
+	if !errors.As(err, &appErr) || !appErr.NonRetryable() {
+		t.Errorf("expected NonRetryableApplicationError, got: %T %v", err, err)
 	}
 }
