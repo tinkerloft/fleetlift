@@ -44,7 +44,26 @@ func (a *Activities) RunPreflight(ctx context.Context, input workflow.RunPreflig
 		}
 	}
 
-	script := BuildPreflightScript(input.Profile, marketplaceURL, marketplaceToken)
+	// Resolve MCP credentials.
+	mcpCreds := map[string]string{}
+	if a.CredStore != nil {
+		seen := map[string]bool{}
+		for _, mcp := range input.Profile.MCPs {
+			for _, credName := range mcp.Credentials {
+				if seen[credName] {
+					continue
+				}
+				seen[credName] = true
+				val, err := a.CredStore.Get(ctx, input.TeamID, credName)
+				if err != nil {
+					return workflow.RunPreflightOutput{}, fmt.Errorf("resolve MCP credential %q: %w", credName, err)
+				}
+				mcpCreds[credName] = val
+			}
+		}
+	}
+
+	script := BuildPreflightScript(input.Profile, marketplaceURL, marketplaceToken, mcpCreds)
 	if script != "" {
 		if _, stderr, err := a.Sandbox.Exec(ctx, input.SandboxID, script, "/"); err != nil {
 			return workflow.RunPreflightOutput{}, fmt.Errorf("pre-flight script: %w\nstderr: %s", err, stderr)
@@ -76,8 +95,17 @@ func (a *Activities) RunPreflight(ctx context.Context, input workflow.RunPreflig
 
 // BuildPreflightScript generates the shell script to install marketplace plugins and MCPs.
 // marketplaceToken is the resolved credential value for private marketplace auth (empty = public).
-func BuildPreflightScript(profile model.AgentProfileBody, marketplaceURL, marketplaceToken string) string {
+// mcpCreds is a map of credential name → resolved value to export as env vars before the script body.
+func BuildPreflightScript(profile model.AgentProfileBody, marketplaceURL, marketplaceToken string, mcpCreds map[string]string) string {
 	var b strings.Builder
+
+	// Export resolved MCP credentials as env vars (defence-in-depth name validation).
+	for name, value := range mcpCreds {
+		if !validCredName(name) {
+			continue
+		}
+		fmt.Fprintf(&b, "export %s=%s\n", name, shellquote.Quote(value))
+	}
 
 	hasMarketplacePlugins := false
 	for _, p := range profile.Plugins {
@@ -157,6 +185,12 @@ func BuildEvalCloneCommands(urls []string) ([]EvalCloneResult, error) {
 		})
 	}
 	return results, nil
+}
+
+// validCredName reports whether name is a safe environment variable name for MCP credentials.
+// Uses the package-level credNameRe defined in provision.go.
+func validCredName(name string) bool {
+	return credNameRe.MatchString(name)
 }
 
 // ParseGitHubTreeURL parses a GitHub tree URL into a repo clone URL and subpath.
