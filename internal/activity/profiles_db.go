@@ -3,7 +3,6 @@ package activity
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -50,16 +49,12 @@ func (s *DBProfileStore) GetProfile(ctx context.Context, teamID, name string) (*
 
 func scanProfile(row *sql.Row) (*model.AgentProfile, error) {
 	var p model.AgentProfile
-	var bodyJSON []byte
-	err := row.Scan(&p.ID, &p.TeamID, &p.Name, &p.Description, &bodyJSON, &p.CreatedAt, &p.UpdatedAt)
+	err := row.Scan(&p.ID, &p.TeamID, &p.Name, &p.Description, &p.Body, &p.CreatedAt, &p.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
-	}
-	if err := json.Unmarshal(bodyJSON, &p.Body); err != nil {
-		return nil, fmt.Errorf("unmarshal profile body: %w", err)
 	}
 	return &p, nil
 }

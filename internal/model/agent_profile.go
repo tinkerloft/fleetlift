@@ -1,6 +1,8 @@
 package model
 
 import (
+	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -30,6 +32,32 @@ type AgentProfileBody struct {
 	Plugins []PluginSource `json:"plugins,omitempty"`
 	Skills  []SkillSource  `json:"skills,omitempty"`
 	MCPs    []MCPConfig    `json:"mcps,omitempty"`
+}
+
+// Scan implements sql.Scanner so AgentProfileBody can be scanned directly from a JSONB column.
+func (b *AgentProfileBody) Scan(src any) error {
+	var data []byte
+	switch v := src.(type) {
+	case []byte:
+		data = v
+	case string:
+		data = []byte(v)
+	case nil:
+		*b = AgentProfileBody{}
+		return nil
+	default:
+		return fmt.Errorf("AgentProfileBody: unsupported Scan source type %T", src)
+	}
+	return json.Unmarshal(data, b)
+}
+
+// Value implements driver.Valuer so AgentProfileBody can be stored to a JSONB column.
+func (b AgentProfileBody) Value() (driver.Value, error) {
+	data, err := json.Marshal(b)
+	if err != nil {
+		return nil, err
+	}
+	return string(data), nil
 }
 
 type PluginSource struct {
