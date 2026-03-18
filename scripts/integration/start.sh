@@ -16,7 +16,7 @@ echo "[start] Checking dependencies..."
 
 if ! curl -sf http://localhost:8090/v1/sandboxes > /dev/null 2>&1; then
   echo "[start] ERROR: OpenSandbox not running on :8090"
-  echo "  Run: docker compose -f docker-compose.opensandbox.yaml up -d"
+  echo "  Run: docker compose up -d"
   exit 1
 fi
 

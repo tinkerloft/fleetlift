@@ -480,15 +480,11 @@ func dockerServicesRunning() bool {
 		return true
 	}
 
-	out1, err := exec.Command("docker", "compose", "ps", "--services", "--filter", "status=running").Output()
-	if err != nil || !hasAll(out1, "temporal", "postgres") {
-		return false
-	}
-	out2, err := exec.Command("docker", "compose", "-f", "docker-compose.opensandbox.yaml", "ps", "--services", "--filter", "status=running").Output()
+	out, err := exec.Command("docker", "compose", "ps", "--services", "--status", "running").Output()
 	if err != nil {
 		return false
 	}
-	return hasAll(out2, "opensandbox-server")
+	return hasAll(out, "temporal", "postgres", "opensandbox-server")
 }
 
 // tailLogLines returns the last n lines of the file at path.
@@ -559,6 +555,26 @@ func startAndVerify() error {
 	fmt.Println()
 	fmt.Println("To see more: scripts/integration/logs.sh")
 	return fmt.Errorf("server not responding at http://localhost:8080/health")
+}
+
+// waitForHTTP polls url every second until it returns any 2xx response or timeout elapses.
+func waitForHTTP(url string, timeout time.Duration) error {
+	client := &http.Client{Timeout: 2 * time.Second}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(url) //nolint:noctx
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode < 300 {
+				return nil
+			}
+		}
+		time.Sleep(1 * time.Second)
+		fmt.Print(".")
+		os.Stdout.Sync() //nolint:errcheck
+	}
+	fmt.Println()
+	return fmt.Errorf("timed out after %s waiting for %s", timeout, url)
 }
 
 func initLocalCmd() *cobra.Command {
@@ -793,14 +809,16 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 		}
 
 		if startDocker {
-			fmt.Println("Starting Temporal + Postgres...")
+			// Stop first to release any stale port allocations from previously-exited containers.
+			_ = exec.Command("docker", "compose", "stop").Run()
+			fmt.Println("Starting Docker services...")
 			if err := execCmd("docker", "compose", "up", "-d"); err != nil {
 				return fmt.Errorf("docker compose up failed: %w", err)
 			}
-			fmt.Println("Starting OpenSandbox...")
-			if err := execCmd("docker", "compose", "-f", "docker-compose.opensandbox.yaml", "up", "-d"); err != nil {
-				return fmt.Errorf("docker compose opensandbox up failed: %w", err)
+			if err := waitForHTTP("http://localhost:8090/v1/sandboxes", 30*time.Second); err != nil {
+				return fmt.Errorf("opensandbox did not become ready: %w", err)
 			}
+			fmt.Println("✓ OpenSandbox ready")
 		} else {
 			var alreadyUp bool
 			alreadyUpForm := huh.NewForm(
@@ -862,8 +880,7 @@ func execCmd(name string, args ...string) error {
 
 func printManualSteps() {
 	fmt.Println()
-	fmt.Println("Start the stacks manually, then re-run 'fleetlift init-local':")
+	fmt.Println("Start the stack manually, then re-run 'fleetlift init-local':")
 	fmt.Println()
 	fmt.Println("  docker compose up -d")
-	fmt.Println("  docker compose -f docker-compose.opensandbox.yaml up -d")
 }
