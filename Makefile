@@ -98,15 +98,15 @@ test-integration-k8s:
 # Start OpenSandbox lifecycle server (pulls opensandbox/server:latest from Docker Hub)
 # Worker env: OPEN_SANDBOX_DOMAIN=http://localhost:8090 OPEN_SANDBOX_USE_SERVER_PROXY=true
 opensandbox-up:
-	docker compose -f docker-compose.opensandbox.yaml up -d
+	docker compose up -d opensandbox-server
 
 # Stop OpenSandbox lifecycle server
 opensandbox-down:
-	docker compose -f docker-compose.opensandbox.yaml down
+	docker compose stop opensandbox-server
 
 # View OpenSandbox lifecycle server logs
 opensandbox-logs:
-	docker compose -f docker-compose.opensandbox.yaml logs -f opensandbox-server
+	docker compose logs -f opensandbox-server
 
 # Run local setup wizard (builds agent image and CLI first, then runs wizard)
 init-local: sandbox-build fleetlift

@@ -16,11 +16,13 @@ echo "[start] Checking dependencies..."
 
 if ! curl -sf http://localhost:8090/v1/sandboxes > /dev/null 2>&1; then
   echo "[start] ERROR: OpenSandbox not running on :8090"
-  echo "  Run: docker compose -f docker-compose.opensandbox.yaml up -d"
+  echo "  Run: docker compose up -d"
   exit 1
 fi
 
-if ! temporal workflow list --limit 1 --address "$TEMPORAL_ADDRESS" > /dev/null 2>&1; then
+TEMPORAL_HOST="${TEMPORAL_ADDRESS%:*}"
+TEMPORAL_PORT="${TEMPORAL_ADDRESS##*:}"
+if ! nc -z "$TEMPORAL_HOST" "$TEMPORAL_PORT" > /dev/null 2>&1; then
   echo "[start] ERROR: Temporal not running on $TEMPORAL_ADDRESS"
   echo "  Run: docker compose up -d"
   exit 1

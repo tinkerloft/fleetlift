@@ -7,7 +7,7 @@ import type {
 const BASE = '/api'
 
 // Server config (fetched once at startup)
-let _config: { temporal_ui_url: string } | null = null
+let _config: { temporal_ui_url: string; dev_no_auth?: boolean } | null = null
 export async function getConfig() {
   if (!_config) {
     const res = await fetch('/api/config')

@@ -18,7 +18,7 @@ You will also need accounts/keys for:
 | Item | Where to get it |
 |------|----------------|
 | **Anthropic API key** *or* **Claude OAuth token** | [console.anthropic.com](https://console.anthropic.com/) — the `init-local` wizard will prompt for this |
-| **OpenSandbox** | Required for agent steps to execute. The `init-local` wizard starts it automatically; or run `docker compose -f docker-compose.opensandbox.yaml up -d` manually |
+| **OpenSandbox** | Required for agent steps to execute. The `init-local` wizard starts it automatically; or run `docker compose up -d` manually |
 | **GitHub OAuth app** *(production only)* | Only needed when `DEV_NO_AUTH` is not set. [github.com/settings/developers](https://github.com/settings/developers) — callback URL: `http://localhost:8080/auth/github/callback` |
 
 ---
@@ -57,7 +57,7 @@ The wizard will:
 
 > **Dev mode:** `init-local` sets `DEV_NO_AUTH=1` so you can use the web UI and CLI without a GitHub OAuth app. All requests are authenticated as a local dev user. Disable this for production by removing `DEV_NO_AUTH` from your env.
 
-> **OpenSandbox:** Agent steps require a running OpenSandbox instance. The wizard starts it automatically. If you skip the Docker step, start it manually: `docker compose -f docker-compose.opensandbox.yaml up -d`
+> **OpenSandbox:** Agent steps require a running OpenSandbox instance. The wizard starts it automatically. If you skip the Docker step, start it manually: `docker compose up -d`
 
 ---
 

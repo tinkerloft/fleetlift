@@ -1,5 +1,31 @@
 name: fleetlift
 
+configs:
+  opensandbox-config:
+    content: |
+      [server]
+      host = "0.0.0.0"
+      port = 8080
+      log_level = "INFO"
+
+      [runtime]
+      type = "docker"
+      execd_image = "opensandbox/execd:v1.0.6"
+
+      [egress]
+      image = "opensandbox/egress:v1.0.1"
+
+      [docker]
+      network_mode = "bridge"
+      # host.docker.internal lets sandbox execd endpoints be reachable from the host
+      host_ip = "host.docker.internal"
+      drop_capabilities = ["AUDIT_WRITE", "MKNOD", "NET_ADMIN", "NET_RAW", "SYS_ADMIN", "SYS_MODULE", "SYS_PTRACE", "SYS_TIME", "SYS_TTY_CONFIG"]
+      no_new_privileges = true
+      pids_limit = 512
+
+      [ingress]
+      mode = "direct"
+
 services:
   # Temporal server with all components (auto-setup mode)
   temporal:
@@ -55,6 +81,20 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  # OpenSandbox — sandbox execution environment for agent steps
+  opensandbox-server:
+    image: opensandbox/server:latest
+    container_name: opensandbox-server
+    ports:
+      - "8090:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    configs:
+      - source: opensandbox-config
+        target: /etc/opensandbox/config.toml
+    environment:
+      - SANDBOX_CONFIG_PATH=/etc/opensandbox/config.toml
 
 volumes:
   temporal-postgres:

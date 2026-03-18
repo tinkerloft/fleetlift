@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	_ "github.com/lib/pq"
 	flcrypto "github.com/tinkerloft/fleetlift/internal/crypto"
@@ -375,6 +376,87 @@ func TestCheckExistingGitHubToken_Found(t *testing.T) {
 	if !found {
 		t.Error("expected found=true, got false")
 	}
+}
+
+func TestTailLogLines(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.log")
+
+	t.Run("missing file returns empty", func(t *testing.T) {
+		if got := tailLogLines("/nonexistent/path.log", 5); got != "" {
+			t.Errorf("expected empty string, got %q", got)
+		}
+	})
+
+	t.Run("empty file returns empty", func(t *testing.T) {
+		os.WriteFile(path, []byte(""), 0o600) //nolint:errcheck
+		if got := tailLogLines(path, 5); got != "" {
+			t.Errorf("expected empty string for empty file, got %q", got)
+		}
+	})
+
+	t.Run("fewer lines than n returns all", func(t *testing.T) {
+		os.WriteFile(path, []byte("line1\nline2\nline3\n"), 0o600) //nolint:errcheck
+		got := tailLogLines(path, 10)
+		if !strings.Contains(got, "line1") || !strings.Contains(got, "line3") {
+			t.Errorf("expected all lines, got %q", got)
+		}
+	})
+
+	t.Run("more lines than n returns last n", func(t *testing.T) {
+		var sb strings.Builder
+		for i := 1; i <= 30; i++ {
+			sb.WriteString(strings.Repeat("x", 10) + "\n")
+		}
+		sb.WriteString("last\n")
+		os.WriteFile(path, []byte(sb.String()), 0o600) //nolint:errcheck
+
+		got := tailLogLines(path, 5)
+		lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
+		if len(lines) != 5 {
+			t.Errorf("expected 5 lines, got %d: %q", len(lines), got)
+		}
+		if lines[len(lines)-1] != "last" {
+			t.Errorf("last line should be 'last', got %q", lines[len(lines)-1])
+		}
+	})
+}
+
+func TestIsBuildStale(t *testing.T) {
+	now := time.Now()
+	old := now.Add(-1 * time.Hour)
+	newer := now.Add(1 * time.Hour)
+
+	t.Run("missing server binary is stale", func(t *testing.T) {
+		if !isBuildStale(now, time.Time{}, now) {
+			t.Error("expected stale when server binary missing")
+		}
+	})
+
+	t.Run("missing worker binary is stale", func(t *testing.T) {
+		if !isBuildStale(now, now, time.Time{}) {
+			t.Error("expected stale when worker binary missing")
+		}
+	})
+
+	t.Run("binaries newer than source is not stale", func(t *testing.T) {
+		if isBuildStale(old, now, now) {
+			t.Error("expected not stale when binaries are newer than source")
+		}
+	})
+
+	t.Run("source newer than older binary is stale", func(t *testing.T) {
+		// server is new, worker is old — should rebuild
+		if !isBuildStale(now, newer, old) {
+			t.Error("expected stale when one binary is older than source")
+		}
+	})
+
+	t.Run("source same age as binary is stale", func(t *testing.T) {
+		if !isBuildStale(now, now, now) {
+			t.Error("expected stale when source and binary have same mtime")
+		}
+	})
 }
 
 func TestCheckExistingGitHubToken_DBError_TreatedAsNotFound(t *testing.T) {
