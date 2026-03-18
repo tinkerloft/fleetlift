@@ -2,6 +2,8 @@ package activity
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"path"
 	"strings"
@@ -25,6 +27,9 @@ func (a *Activities) RunPreflight(ctx context.Context, input workflow.RunPreflig
 			`SELECT repo_url, credential FROM marketplaces
 			  WHERE team_id IS NULL OR team_id = $1
 			  ORDER BY team_id IS NULL ASC LIMIT 1`, input.TeamID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return workflow.RunPreflightOutput{}, fmt.Errorf("fetch marketplace config: %w", err)
+		}
 		if err == nil {
 			marketplaceURL = m.RepoURL
 			if m.Credential != nil && *m.Credential != "" && a.CredStore != nil {

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -106,4 +107,24 @@ func TestRunPreflight_ProfileWithPluginsAndMCPs(t *testing.T) {
 	script := sb.execCmds[0]
 	assert.True(t, strings.Contains(script, "claude plugin install") && strings.Contains(script, "claude mcp add"),
 		"script should contain both plugin install and mcp add commands")
+}
+
+func TestRunPreflight_MarketplaceDBError_ReturnsError(t *testing.T) {
+	// sqlx.Open doesn't connect, so use a bad DSN to force errors on first query.
+	db, err := sqlx.Open("postgres", "postgres://invalid@localhost:5999/bad")
+	if err != nil {
+		t.Fatal(err)
+	}
+	acts := &Activities{
+		DB:      db,
+		Sandbox: &preflightRecordingSandbox{},
+	}
+	_, err = acts.RunPreflight(context.Background(), workflow.RunPreflightInput{
+		SandboxID: "s1",
+		TeamID:    "team-1",
+		Profile:   model.AgentProfileBody{},
+	})
+	if err == nil {
+		t.Fatal("expected error from DB failure, got nil")
+	}
 }
