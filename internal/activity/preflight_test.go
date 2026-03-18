@@ -150,3 +150,10 @@ func TestParseGitHubTreeURL(t *testing.T) {
 		t.Errorf("unexpected subPath: %q", subPath)
 	}
 }
+
+func TestParseGitHubTreeURL_RejectsNonGitHubHost(t *testing.T) {
+	_, _, err := activity.ParseGitHubTreeURL("https://github.example.com/org/repo/tree/main/plugins/foo")
+	if err == nil {
+		t.Fatal("expected error for non-github.com host")
+	}
+}

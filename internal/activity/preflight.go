@@ -162,7 +162,11 @@ func BuildEvalCloneCommands(urls []string) ([]EvalCloneResult, error) {
 // ParseGitHubTreeURL parses a GitHub tree URL into a repo clone URL and subpath.
 // Example: "https://github.com/org/repo/tree/main/plugins/foo" -> ("https://github.com/org/repo.git", "plugins/foo")
 func ParseGitHubTreeURL(u string) (string, string, error) {
-	trimmed := strings.TrimPrefix(u, "https://github.com/")
+	const githubPrefix = "https://github.com/"
+	if !strings.HasPrefix(u, githubPrefix) {
+		return "", "", fmt.Errorf("expected GitHub URL starting with %q, got %q", githubPrefix, u)
+	}
+	trimmed := strings.TrimPrefix(u, githubPrefix)
 	parts := strings.SplitN(trimmed, "/tree/", 2)
 	if len(parts) != 2 {
 		return "", "", fmt.Errorf("expected GitHub tree URL with /tree/ component, got %q", u)
@@ -173,5 +177,5 @@ func ParseGitHubTreeURL(u string) (string, string, error) {
 	if len(subParts) < 2 {
 		return "", "", fmt.Errorf("expected branch and subpath after /tree/ in %q", u)
 	}
-	return "https://github.com/" + repoPath + ".git", subParts[1], nil
+	return githubPrefix + repoPath + ".git", subParts[1], nil
 }
