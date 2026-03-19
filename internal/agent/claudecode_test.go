@@ -74,6 +74,18 @@ func TestParseClaudeEvent_InvalidJSON(t *testing.T) {
 	assert.Equal(t, "not json at all", ev.Content)
 }
 
+func TestEffectiveMaxTurns_ZeroReturnsDefault(t *testing.T) {
+	assert.Equal(t, 100, effectiveMaxTurns(0))
+}
+
+func TestEffectiveMaxTurns_ExplicitSmallValueRespected(t *testing.T) {
+	assert.Equal(t, 5, effectiveMaxTurns(5))
+}
+
+func TestEffectiveMaxTurns_ExplicitLargeValueRespected(t *testing.T) {
+	assert.Equal(t, 200, effectiveMaxTurns(200))
+}
+
 // Tests for ExecStream-wrapped format: {"stream":"stdout","content":"<claude json>"}
 
 func TestParseClaudeEvent_WrappedSystemInit(t *testing.T) {

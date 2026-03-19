@@ -521,13 +521,18 @@ func (h *RunsHandler) ResolveFanOut(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		Action string `json:"action"`
+		StepID string `json:"step_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || (req.Action != "proceed" && req.Action != "terminate") {
 		writeJSONError(w, http.StatusBadRequest, "invalid action")
 		return
 	}
+	if req.StepID == "" {
+		writeJSONError(w, http.StatusBadRequest, "step_id is required")
+		return
+	}
 
-	payload := workflow.FanOutResolvePayload{Action: req.Action}
+	payload := workflow.FanOutResolvePayload{Action: req.Action, StepID: req.StepID}
 	if err := h.temporal.SignalWorkflow(r.Context(), run.TemporalID, "", workflow.SignalFanOutResolve, payload); err != nil {
 		slog.Error("failed to send fan_out_resolve signal", "error", err, "run_id", runID, "temporal_id", run.TemporalID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to signal workflow")

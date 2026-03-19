@@ -61,6 +61,7 @@ const SignalFanOutResolve = "fan_out_resolve"
 // FanOutResolvePayload is the payload for the fan_out_resolve signal.
 type FanOutResolvePayload struct {
 	Action string `json:"action"` // "proceed" or "terminate"
+	StepID string `json:"step_id"`
 }
 
 // SteerPayload is the payload for a steer signal.
@@ -113,11 +114,18 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (retOut *model.StepOutp
 	logger := workflow.GetLogger(ctx)
 	respondCh := workflow.GetSignalChannel(ctx, "respond")
 
+	// stepRunFinalized is set to true before any finalizeStep call. Once finalizeStep
+	// is in progress, the defer must not overwrite the DB status — finalizeStep is
+	// already responsible for writing the terminal state, and a second write with
+	// "failed" would corrupt a successfully-written "complete" record (e.g. if the
+	// activity succeeded in the DB but Temporal returned a timeout on .Get()).
+	stepRunFinalized := false
+
 	// If the workflow returns an error after the step_run record exists, mark it
 	// failed in the DB. Use a disconnected context so this runs even if ctx is
 	// cancelled (e.g. worker restart, parent cancellation).
 	defer func() {
-		if retErr != nil && input.StepRunID != "" {
+		if retErr != nil && !stepRunFinalized && input.StepRunID != "" {
 			dCtx, _ := workflow.NewDisconnectedContext(ctx)
 			ao := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second, RetryPolicy: dbRetry}
 			if err := workflow.ExecuteActivity(
@@ -349,6 +357,7 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (retOut *model.StepOutp
 					Status: model.StepStatusFailed,
 					Error:  fmt.Sprintf("verification failed: %v", verifyErr),
 				}
+				stepRunFinalized = true
 				if fErr := finalizeStep(ctx, logger, input.StepRunID, failOutput); fErr != nil {
 					return nil, fErr
 				}
@@ -403,6 +412,7 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (retOut *model.StepOutp
 				Status: model.StepStatusFailed,
 				Error:  "rejected by user",
 			}
+			stepRunFinalized = true
 			if fErr := finalizeStep(ctx, logger, input.StepRunID, rejectOutput); fErr != nil {
 				return nil, fErr
 			}
@@ -445,6 +455,7 @@ func StepWorkflow(ctx workflow.Context, input StepInput) (retOut *model.StepOutp
 	}
 
 	// 9. Finalize step_run record with status, output, diff, and error.
+	stepRunFinalized = true
 	if fErr := finalizeStep(ctx, logger, input.StepRunID, output); fErr != nil {
 		return nil, fErr
 	}

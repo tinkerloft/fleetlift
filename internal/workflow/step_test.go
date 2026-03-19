@@ -141,6 +141,49 @@ func newStepWorkflowEnv(t *testing.T) (*testsuite.TestWorkflowEnvironment, *step
 	return env, mocks
 }
 
+// TestStepWorkflow_FinalizeErrorDoesNotDoubleWriteFailed verifies that when finalizeStep
+// fails (e.g. Temporal timeout after DB write), the defer does NOT call CompleteStepRun
+// a second time — which would corrupt a successfully-written terminal status.
+func TestStepWorkflow_FinalizeErrorDoesNotDoubleWriteFailed(t *testing.T) {
+	env, mocks := newStepWorkflowEnv(t)
+
+	input := StepInput{
+		RunID:     "run-1",
+		StepRunID: "sr-1",
+		StepDef: model.StepDef{
+			ID:             "analyze",
+			Mode:           "report",
+			ApprovalPolicy: "never",
+		},
+		ResolvedOpts: ResolvedStepOpts{
+			Prompt: "Analyze the code",
+			Agent:  "claude-code",
+		},
+		SandboxID: "sb-1",
+	}
+
+	mocks.On("ExecuteStep", mock.Anything).Return(&model.StepOutput{
+		StepID: "analyze",
+		Status: model.StepStatusComplete,
+	}, nil)
+	// CleanupSandbox not called since SandboxID is pre-provided and SandboxGroup is empty
+	// (step.go line 442: only cleanup when SandboxID == "" && SandboxGroup == "")
+	// Set CompleteStepRun to fail, triggering retries (dbRetry has MaximumAttempts: 5).
+	// The test verifies that after finalizeStep fails, the defer does NOT add a 6th call
+	// due to the stepRunFinalized flag.
+	mocks.On("CompleteStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64")).
+		Return(fmt.Errorf("simulated activity timeout"))
+
+	env.ExecuteWorkflow(StepWorkflow, input)
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.Error(t, env.GetWorkflowError())
+
+	// CompleteStepRun will be retried up to 5 times (dbRetry: MaximumAttempts: 5),
+	// but the defer must not add a 6th call. The stepRunFinalized flag prevents this.
+	mocks.AssertNumberOfCalls(t, "CompleteStepRun", 5)
+}
+
 // TestStepWorkflow_ReusesSandboxID verifies that when SandboxID is pre-provided in
 // StepInput, ProvisionSandbox is never called — the provided ID is used directly.
 func TestStepWorkflow_ReusesSandboxID(t *testing.T) {

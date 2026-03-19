@@ -277,6 +277,27 @@ func TestProvisionSandbox_MCPFailsWhenBinaryUnreadable(t *testing.T) {
 	assert.True(t, appErr.NonRetryable(), "binary-not-found error must be non-retryable")
 }
 
+func TestProvisionSandbox_MCPFailsIfEnvFileNotCreated(t *testing.T) {
+	tmpPrefix := t.TempDir() + "/fleetlift-mcp"
+	require.NoError(t, os.WriteFile(tmpPrefix+"-amd64", []byte("fake-binary"), 0o755))
+
+	t.Setenv("FLEETLIFT_MCP_BINARY_PATH", tmpPrefix)
+	t.Setenv("JWT_SECRET", "test-secret-key-32bytes-minimum!")
+
+	sb := newMCPSandbox()
+	sb.failExec = "test -f /tmp/fleetlift-mcp-env.sh"
+	a := &Activities{Sandbox: sb}
+
+	input := workflow.StepInput{
+		TeamID:       "team-1",
+		RunID:        "run-1",
+		ResolvedOpts: workflow.ResolvedStepOpts{Agent: "claude-code"},
+	}
+	_, err := a.ProvisionSandbox(context.Background(), input)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MCP env file")
+}
+
 func TestProvisionSandbox_MCPFailsWhenJWTSecretEmpty(t *testing.T) {
 	tmpPrefix := t.TempDir() + "/fleetlift-mcp"
 	require.NoError(t, os.WriteFile(tmpPrefix+"-amd64", []byte("fake"), 0o755))

@@ -1,6 +1,6 @@
 # FleetLift Roadmap
 
-**Last updated:** 2026-03-19 (artifact-ux)
+**Last updated:** 2026-03-19
 
 ---
 
@@ -18,8 +18,9 @@ Broken contracts fixed, dead code removed, test coverage added. See [`archive/20
 - **Track E — MCP Agent Interface:** E1 read-only context tools, E2 write tools (`artifact.create`, `progress.update`), E3 interactive tools (`inbox.request_input`, `inbox.notify`).
 - **Track F (partial):** GitHub activities, Slack notifications, Prometheus metrics, run duration + cost tracking, dark mode, HITL inbox notifications (via MCP `inbox.request_input`).
 - **Agent Profiles (PR #44/#45):** Workflows declare an `agent_profile` to inject skills, MCPs, and plugins into the sandbox before execution.
-- **Fan-out reliability (2026-03-19):** Per-step input tracking, DAG visual redesign (IBM Plex, dark mode tokens, status glows, border animations), DAG fan-out collapse (threshold 6, collapsed node with status bar), partial fan-out failure → inbox item + proceed/terminate signal, stuck `running` step records fixed.
-- **Artifact & output UX (2026-03-19):** `GET /api/artifacts/{id}/content` endpoint (auth, Content-Disposition, download mode, content-type allowlist); `ArtifactCard` component (expand/collapse, markdown rendering, download); `ReportViewer` redesigned artifact-first; `StepPanel` surfaces artifacts above output JSON; `RunDetail` hero panel auto-expands primary artifact above DAG; inbox `output_ready`/`notify` items get "View Report →" links; `artifact_id` stored on inbox items via `GetPrimaryRunArtifactID` activity. See [`2026-03-19-artifact-ux-plan.md`](2026-03-19-artifact-ux-plan.md).
+- **Fan-out reliability (PR #47, 2026-03-19):** Per-step input tracking, DAG visual redesign (IBM Plex, dark mode tokens, status glows, border animations), DAG fan-out collapse (threshold 6, collapsed node with status bar), partial fan-out failure → inbox item + proceed/terminate signal, stuck `running` step records fixed.
+- **Artifact & output UX (PR #48, 2026-03-19):** `GET /api/artifacts/{id}/content` endpoint (auth, Content-Disposition, download mode, content-type allowlist); `ArtifactCard` component (expand/collapse, markdown rendering, download); `ReportViewer` redesigned artifact-first; `StepPanel` surfaces artifacts above output JSON; `RunDetail` hero panel auto-expands primary artifact above DAG; inbox `output_ready`/`notify` items get "View Report →" links; `artifact_id` stored on inbox items via `GetPrimaryRunArtifactID` activity. See [`2026-03-19-artifact-ux-plan.md`](2026-03-19-artifact-ux-plan.md).
+- **Post-PR #47 bug fixes (2026-03-19):** DB CHECK constraint extended for `fan_out_partial_failure` kind (migration 007); `max_turns` default logic fixed (0 = runner default, not a floor); concurrent fan-out signal routing fixed (per-step channels, StepID in payload); `StepWorkflow` defer double-write on `finalizeStep` failure prevented (`stepRunFinalized` flag); MCP env file write verified in sandbox before continuing.
 
 ---
 

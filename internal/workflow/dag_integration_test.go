@@ -368,7 +368,7 @@ func TestDAGWorkflow_FanOutPartialFailure_Terminate(t *testing.T) {
 
 	// After the partial failure inbox item is created, send a "terminate" signal to the parent DAGWorkflow.
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalFanOutResolve, FanOutResolvePayload{Action: "terminate"}) //nolint:errcheck
+		env.SignalWorkflow(SignalFanOutResolve, FanOutResolvePayload{Action: "terminate", StepID: "step-1"}) //nolint:errcheck
 	}, time.Second)
 
 	fanoutPartialFailureDef := model.WorkflowDef{
@@ -423,7 +423,7 @@ func TestDAGWorkflow_FanOutPartialFailure_Proceed(t *testing.T) {
 
 	// After the partial failure inbox item is created, send a "proceed" signal.
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(SignalFanOutResolve, FanOutResolvePayload{Action: "proceed"}) //nolint:errcheck
+		env.SignalWorkflow(SignalFanOutResolve, FanOutResolvePayload{Action: "proceed", StepID: "step-1"}) //nolint:errcheck
 	}, time.Second)
 
 	def := model.WorkflowDef{
@@ -1226,6 +1226,95 @@ func TestDAGWorkflow_MCPCredsIncludedInPreflight(t *testing.T) {
 	mocks.AssertCalled(t, "ValidateCredentials", "team-1", mock.MatchedBy(func(creds []string) bool {
 		return slices.Contains(creds, "MCP_TOKEN") && slices.Contains(creds, "GITHUB_TOKEN")
 	}))
+}
+
+// TestDAGWorkflow_FanOutPartialFailure_ConcurrentStepsSignaledByStepID verifies that
+// when two parallel fan-out steps both have partial failures, each receives only its
+// own resolve signal. The step receiving "terminate" causes the workflow to fail while
+// the step receiving "proceed" completes successfully.
+func TestDAGWorkflow_FanOutPartialFailure_ConcurrentStepsSignaledByStepID(t *testing.T) {
+	env, mocks := newDAGTestEnv(t)
+
+	mocks.On("ProvisionSandbox", mock.Anything).Return("sb-1", nil)
+
+	// step-1: first call succeeds, second fails (partial failure).
+	mocks.On("ExecuteStep", mock.MatchedBy(func(input ExecuteStepInput) bool {
+		return input.StepInput.StepDef.ID == "step-1"
+	})).Return(&model.StepOutput{
+		StepID: "step-1",
+		Status: model.StepStatusComplete,
+		Output: map[string]any{"summary": "done"},
+	}, nil).Once()
+	mocks.On("ExecuteStep", mock.MatchedBy(func(input ExecuteStepInput) bool {
+		return input.StepInput.StepDef.ID == "step-1"
+	})).Return(nil,
+		temporal.NewNonRetryableApplicationError("step-1 repo2 failed", "ExecutionError", nil),
+	).Once()
+
+	// step-2: first call succeeds, second fails (partial failure).
+	mocks.On("ExecuteStep", mock.MatchedBy(func(input ExecuteStepInput) bool {
+		return input.StepInput.StepDef.ID == "step-2"
+	})).Return(&model.StepOutput{
+		StepID: "step-2",
+		Status: model.StepStatusComplete,
+		Output: map[string]any{"summary": "done"},
+	}, nil).Once()
+	mocks.On("ExecuteStep", mock.MatchedBy(func(input ExecuteStepInput) bool {
+		return input.StepInput.StepDef.ID == "step-2"
+	})).Return(nil,
+		temporal.NewNonRetryableApplicationError("step-2 repo2 failed", "ExecutionError", nil),
+	).Once()
+
+	// Signal both steps: step-1 proceeds, step-2 terminates. Without StepID routing, one
+	// step would consume the other's signal and produce incorrect results.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(SignalFanOutResolve, FanOutResolvePayload{Action: "proceed", StepID: "step-1"})   //nolint:errcheck
+		env.SignalWorkflow(SignalFanOutResolve, FanOutResolvePayload{Action: "terminate", StepID: "step-2"}) //nolint:errcheck
+	}, time.Second)
+
+	def := model.WorkflowDef{
+		ID:    "test-concurrent-fanout-wf",
+		Title: "Concurrent Fan-Out Routing",
+		Steps: []model.StepDef{
+			{
+				ID:    "step-1",
+				Title: "Fan-Out Step 1",
+				Execution: &model.ExecutionDef{
+					Agent:  "claude-code",
+					Prompt: "do something",
+				},
+				Repositories: []any{
+					map[string]any{"url": "https://github.com/test/repo1"},
+					map[string]any{"url": "https://github.com/test/repo2"},
+				},
+			},
+			{
+				ID:    "step-2",
+				Title: "Fan-Out Step 2",
+				Execution: &model.ExecutionDef{
+					Agent:  "claude-code",
+					Prompt: "do something else",
+				},
+				Repositories: []any{
+					map[string]any{"url": "https://github.com/test/repo3"},
+					map[string]any{"url": "https://github.com/test/repo4"},
+				},
+			},
+		},
+	}
+
+	env.ExecuteWorkflow(DAGWorkflow, DAGInput{
+		RunID:       "run-concurrent-fanout-1",
+		TeamID:      "team-1",
+		WorkflowDef: def,
+		Parameters:  map[string]any{},
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	// step-2 terminated → workflow fails and error references step-2.
+	err := env.GetWorkflowError()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "step-2")
 }
 
 // removeCall removes all expectations for a given method name from the list.

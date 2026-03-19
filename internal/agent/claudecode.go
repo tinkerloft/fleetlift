@@ -48,7 +48,7 @@ func (r *ClaudeCodeRunner) Run(ctx context.Context, sandboxID string, opts RunOp
 	}
 
 	cmd := fmt.Sprintf("%s && cd %s && claude -p %s%s --output-format stream-json --verbose --dangerously-skip-permissions --max-turns %d",
-		mcpSetup, shellquote.Quote(opts.WorkDir), shellquote.Quote(opts.Prompt), pluginDirFlags, max(opts.MaxTurns, 100))
+		mcpSetup, shellquote.Quote(opts.WorkDir), shellquote.Quote(opts.Prompt), pluginDirFlags, effectiveMaxTurns(opts.MaxTurns))
 
 	ch := make(chan Event, 64)
 	go func() {
@@ -68,6 +68,15 @@ func (r *ClaudeCodeRunner) Run(ctx context.Context, sandboxID string, opts RunOp
 		}
 	}()
 	return ch, nil
+}
+
+// effectiveMaxTurns returns the max_turns to pass to claude. A configured value of 0
+// means "use the runner default" (100). Any explicitly-set value is used as-is.
+func effectiveMaxTurns(configured int) int {
+	if configured == 0 {
+		return 100
+	}
+	return configured
 }
 
 func (r *ClaudeCodeRunner) Interrupt(ctx context.Context, sandboxID string) error {

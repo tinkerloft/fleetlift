@@ -222,6 +222,10 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 			_ = a.Sandbox.Kill(ctx, sandboxID)
 			return "", fmt.Errorf("persist MCP env in sandbox: %w", err)
 		}
+		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, "test -f /tmp/fleetlift-mcp-env.sh", "/"); err != nil {
+			_ = a.Sandbox.Kill(ctx, sandboxID)
+			return "", fmt.Errorf("MCP env file not created in sandbox: %w", err)
+		}
 	}
 
 	return sandboxID, nil

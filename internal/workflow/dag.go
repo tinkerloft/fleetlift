@@ -177,6 +177,33 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 		pending[s.ID] = s
 	}
 
+	// Pre-allocate a per-step channel for fan_out_resolve signals so that concurrent
+	// fan-out steps each receive only their own signal. A dispatcher goroutine routes
+	// incoming signals from the shared channel to the correct per-step channel.
+	fanOutResolveChannels := make(map[string]workflow.Channel)
+	for _, s := range steps {
+		if s.Repositories != nil {
+			fanOutResolveChannels[s.ID] = workflow.NewChannel(ctx)
+		}
+	}
+	if len(fanOutResolveChannels) > 0 {
+		sharedResolveCh := workflow.GetSignalChannel(ctx, SignalFanOutResolve)
+		workflow.Go(ctx, func(gCtx workflow.Context) {
+			for {
+				var payload FanOutResolvePayload
+				more := sharedResolveCh.Receive(gCtx, &payload)
+				if !more {
+					return
+				}
+				if ch, ok := fanOutResolveChannels[payload.StepID]; ok {
+					ch.Send(gCtx, payload)
+				} else {
+					logger.Error("fan_out_resolve for unknown step", "step_id", payload.StepID)
+				}
+			}
+		})
+	}
+
 	// Cleanup sandbox groups on any exit path (normal, failure, or cancellation).
 	defer func() {
 		cleanupCtx, _ := workflow.NewDisconnectedContext(ctx)
@@ -493,7 +520,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 					// Wait for fan_out_resolve signal with a 48-hour timeout.
 					// Using a selector prevents the workflow from blocking forever if the
 					// operator never responds to the inbox item.
-					resolveCh := workflow.GetSignalChannel(gCtx, SignalFanOutResolve)
+					resolveCh := fanOutResolveChannels[step.ID]
 					var resolvePayload FanOutResolvePayload
 					timedOut := false
 					sel := workflow.NewSelector(gCtx)
