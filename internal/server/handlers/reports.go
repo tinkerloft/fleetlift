@@ -1,8 +1,13 @@
 package handlers
 
 import (
+	"database/sql"
+	"errors"
 	"log/slog"
+	"mime"
 	"net/http"
+	"strconv"
+	"strings"
 	"text/template"
 	"time"
 
@@ -173,6 +178,74 @@ func (h *ReportsHandler) Artifacts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"items": artifacts})
+}
+
+// ArtifactContent serves the raw bytes of a single artifact identified by {id}.
+// Auth: JWT + team ownership verified via step_runs → runs → team_id.
+// Query param: ?download=1 switches Content-Disposition to attachment.
+// Storage "object_store" returns 501 Not Implemented.
+func (h *ReportsHandler) ArtifactContent(w http.ResponseWriter, r *http.Request) {
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
+	artifactID := chi.URLParam(r, "id")
+
+	var artifact model.Artifact
+	err := h.db.GetContext(r.Context(), &artifact,
+		`SELECT a.id, a.step_run_id, a.name, a.path, a.size_bytes, a.content_type, a.storage, a.data, a.object_key, a.created_at
+		 FROM artifacts a
+		 JOIN step_runs s ON a.step_run_id = s.id
+		 JOIN runs ru ON s.run_id = ru.id
+		 WHERE a.id = $1 AND ru.team_id = $2`,
+		artifactID, teamID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeJSONError(w, http.StatusNotFound, "artifact not found")
+		} else {
+			slog.Error("failed to get artifact", "error", err)
+			writeJSONError(w, http.StatusInternalServerError, "internal error")
+		}
+		return
+	}
+
+	if artifact.Storage == "object_store" {
+		writeJSONError(w, http.StatusNotImplemented, "object_store artifacts are not yet supported")
+		return
+	}
+
+	const maxArtifactSize = 50 * 1024 * 1024 // 50MB
+	if int64(len(artifact.Data)) > maxArtifactSize {
+		writeJSONError(w, http.StatusRequestEntityTooLarge, "artifact too large to serve inline")
+		return
+	}
+
+	disposition := "inline"
+	if r.URL.Query().Get("download") == "1" {
+		disposition = "attachment"
+	}
+
+	// Allowlist safe content types to prevent stored XSS if content_type is
+	// ever influenced by user/agent input in the future.
+	contentType := artifact.ContentType
+	switch {
+	case contentType == "":
+		contentType = "application/octet-stream"
+	case contentType == "text/html" || contentType == "text/xml" ||
+		strings.HasPrefix(contentType, "text/html;") || strings.HasPrefix(contentType, "text/xml;"):
+		contentType = "application/octet-stream"
+	}
+
+	params := map[string]string{"filename": artifact.Name}
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, params))
+	w.Header().Set("Content-Length", strconv.Itoa(len(artifact.Data)))
+	_, _ = w.Write(artifact.Data)
 }
 
 const markdownReportTmpl = `# Report: {{.Run.WorkflowTitle}}

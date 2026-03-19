@@ -298,6 +298,11 @@ export function InboxPage() {
                     <Button size="sm" variant="secondary" className="h-7 text-xs" asChild>
                       <Link to={`/runs/${item.run_id}`}>View</Link>
                     </Button>
+                    {(item.kind === 'output_ready' || item.kind === 'notify') && (
+                      <Button size="sm" variant="secondary" className="h-7 text-xs" asChild>
+                        <Link to={`/reports/${item.run_id}`}>View Report →</Link>
+                      </Button>
+                    )}
                     {!item.read && (
                       <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => markReadMutation.mutate(item.id)}>
                         Mark Read

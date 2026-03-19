@@ -110,6 +110,7 @@ export interface InboxItem {
   answered_at?: string
   answered_by?: string
   urgency?: string
+  artifact_id?: string
   created_at: string
   read?: boolean
 }

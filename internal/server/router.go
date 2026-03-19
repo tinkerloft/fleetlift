@@ -153,6 +153,7 @@ func NewRouter(deps Deps) (http.Handler, error) {
 		r.Get("/api/reports/{runID}", deps.Reports.Get)
 		r.Get("/api/reports/{runID}/export", deps.Reports.Export)
 		r.Get("/api/reports/{runID}/artifacts", deps.Reports.Artifacts)
+		r.Get("/api/artifacts/{id}/content", deps.Reports.ArtifactContent)
 
 		// Credentials
 		r.Get("/api/credentials", deps.Credentials.List)

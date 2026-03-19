@@ -1,6 +1,6 @@
 # FleetLift Roadmap
 
-**Last updated:** 2026-03-19
+**Last updated:** 2026-03-19 (artifact-ux)
 
 ---
 
@@ -19,6 +19,7 @@ Broken contracts fixed, dead code removed, test coverage added. See [`archive/20
 - **Track F (partial):** GitHub activities, Slack notifications, Prometheus metrics, run duration + cost tracking, dark mode, HITL inbox notifications (via MCP `inbox.request_input`).
 - **Agent Profiles (PR #44/#45):** Workflows declare an `agent_profile` to inject skills, MCPs, and plugins into the sandbox before execution.
 - **Fan-out reliability (2026-03-19):** Per-step input tracking, DAG visual redesign (IBM Plex, dark mode tokens, status glows, border animations), DAG fan-out collapse (threshold 6, collapsed node with status bar), partial fan-out failure → inbox item + proceed/terminate signal, stuck `running` step records fixed.
+- **Artifact & output UX (2026-03-19):** `GET /api/artifacts/{id}/content` endpoint (auth, Content-Disposition, download mode, content-type allowlist); `ArtifactCard` component (expand/collapse, markdown rendering, download); `ReportViewer` redesigned artifact-first; `StepPanel` surfaces artifacts above output JSON; `RunDetail` hero panel auto-expands primary artifact above DAG; inbox `output_ready`/`notify` items get "View Report →" links; `artifact_id` stored on inbox items via `GetPrimaryRunArtifactID` activity. See [`2026-03-19-artifact-ux-plan.md`](2026-03-19-artifact-ux-plan.md).
 
 ---
 
@@ -31,7 +32,6 @@ Broken contracts fixed, dead code removed, test coverage added. See [`archive/20
 | F5 | **Cost tracking broken** — `cost_usd` is NULL for all steps despite `extractCostUSD` being called | `extractCostUSD` looks for `cost_usd` in the raw result event but the field is absent; Claude Code CLI may use a different field name (`total_cost_usd`, `usage.cost_usd`, etc.) — needs inspection of actual CLI output |
 | F6 | **Per-step failure notifications** — create inbox item immediately when a non-optional step fails | `CreateInboxItemActivity` in `dag.go` only fires in the run-completion defer; operators see nothing until the whole run ends |
 | F7 | **Agent output normalisation (text result)** — when no schema declared and `result` is a string, store it cleanly instead of the full raw Claude event map (`session_id`, `usage`, `modelUsage`, etc.) | `extractStructuredOutput` already handles the JSON-object case; only the text-string case remains |
-| F8 | **Artifact & output UX** — full plan at [`2026-03-19-artifact-ux-plan.md`](2026-03-19-artifact-ux-plan.md) | Artifacts stored correctly but unviewable; no content endpoint; no markdown rendering; no hero result panel on run detail; inbox links don't reach artifacts |
 
 ### Track J — Workflow Expressiveness
 

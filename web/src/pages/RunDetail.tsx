@@ -13,7 +13,8 @@ import { useLiveDuration } from '@/lib/use-live-duration'
 import { formatCost } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { parse as parseYaml } from '@/lib/yaml'
-import type { StepDef, StepRun, WorkflowDef } from '@/api/types'
+import { ArtifactCard } from '@/components/ArtifactCard'
+import type { StepDef, StepRun, WorkflowDef, Artifact } from '@/api/types'
 
 const SEG_COLOR: Record<string, string> = {
   complete: 'bg-green-500',
@@ -54,6 +55,14 @@ export function RunDetailPage() {
     refetchInterval: sseConnected ? false : 5000,
   })
 
+  const { data: artifactsData } = useQuery({
+    queryKey: ['run-artifacts', id],
+    queryFn: () => api.getReportArtifacts(id!),
+    enabled: !!id,
+    refetchInterval: sseConnected ? false : 10000,
+  })
+  const allArtifacts: Artifact[] = artifactsData?.items ?? []
+
   const duration = useLiveDuration(run?.started_at, run?.completed_at)
 
   useEffect(() => {
@@ -61,7 +70,10 @@ export function RunDetailPage() {
     setSseConnected(false)
     const cleanup = subscribeToRun(
       id,
-      () => queryClient.invalidateQueries({ queryKey: ['run', id] }),
+      () => {
+        queryClient.invalidateQueries({ queryKey: ['run', id] })
+        queryClient.invalidateQueries({ queryKey: ['run-artifacts', id] })
+      },
       () => {},
       () => setSseConnected(false),
     )
@@ -138,6 +150,27 @@ export function RunDetailPage() {
   const selectedStep = stepRuns.find((sr: StepRun) => sr.step_id === selectedStepId)
   const awaitingStep = stepRuns.find((sr: StepRun) => sr.status === 'awaiting_input')
   const completedCount = stepRuns.filter(s => s.status === 'complete').length
+
+  // Derive primary artifact for hero panel
+  const isRunComplete = run.status === 'complete'
+  const heroPrimaryArtifact: Artifact | null = (() => {
+    if (!isRunComplete || allArtifacts.length === 0) return null
+    const PRIORITY_NAMES = ['fleet-summary', 'fleet_summary', 'report', 'summary']
+    const byName = allArtifacts.find(a =>
+      PRIORITY_NAMES.some(kw => a.name.toLowerCase().includes(kw))
+    )
+    if (byName) return byName
+    // Fallback: artifact on the last completed step (latest completed_at)
+    const completedStepRuns = stepRuns
+      .filter(sr => sr.status === 'complete' && sr.completed_at)
+      .sort((a, b) => (b.completed_at! > a.completed_at! ? 1 : -1))
+    for (const sr of completedStepRuns) {
+      const a = allArtifacts.find(art => art.step_run_id === sr.id)
+      if (a) return a
+    }
+    // Final fallback: largest artifact by size
+    return allArtifacts.reduce((max, a) => (a.size_bytes > max.size_bytes ? a : max), allArtifacts[0])
+  })()
 
   return (
     <div className="space-y-6">
@@ -232,6 +265,16 @@ export function RunDetailPage() {
         </div>
       )}
 
+      {/* Hero panel — primary artifact for completed runs */}
+      {heroPrimaryArtifact && (
+        <div className="rounded-lg border bg-card p-4 space-y-3">
+          <h2 className="text-base font-semibold">
+            {run.workflow_title || run.workflow_id} Result
+          </h2>
+          <ArtifactCard artifact={heroPrimaryArtifact} defaultExpanded={true} />
+        </div>
+      )}
+
       {/* DAG */}
       {steps.length > 0 && (
         <div className="rounded-lg border bg-card p-4">
@@ -256,7 +299,12 @@ export function RunDetailPage() {
           <div>
             {selectedStep ? (
               <div className="rounded-lg border bg-card p-4">
-                <StepPanel stepRun={selectedStep} runParameters={run.parameters} allStepRuns={stepRuns} />
+                <StepPanel
+                  stepRun={selectedStep}
+                  runParameters={run.parameters}
+                  allStepRuns={stepRuns}
+                  artifacts={allArtifacts.filter(a => a.step_run_id === selectedStep.id)}
+                />
               </div>
             ) : (
               <div className="flex items-center justify-center rounded-lg border border-dashed py-16 text-sm text-muted-foreground">
