@@ -11,32 +11,25 @@ export interface DAGNodeData {
   startedAt?: string
   completedAt?: string
   selected?: boolean
+  /** Phase 3: repo name extracted from step_run.input.repo_url */
+  repoName?: string
+  /** Phase 3: positional label e.g. "(2/5)" */
+  repoIndex?: string
   [key: string]: unknown
 }
 
-const STATUS_DOT_COLOR: Record<string, string> = {
-  pending: 'bg-gray-400',
-  cloning: 'bg-blue-500',
-  running: 'bg-blue-500',
-  verifying: 'bg-violet-500',
-  awaiting_input: 'bg-amber-500',
-  complete: 'bg-green-500',
-  failed: 'bg-red-500',
-  skipped: 'bg-gray-400',
-}
+const ACTIVE = new Set(['running', 'cloning', 'verifying', 'awaiting_input'])
 
-const STATUS_ACCENT_COLOR: Record<string, string> = {
-  pending: 'bg-gray-300',
-  cloning: 'bg-blue-500',
-  running: 'bg-blue-500',
-  verifying: 'bg-violet-500',
-  awaiting_input: 'bg-amber-500',
-  complete: 'bg-green-500',
-  failed: 'bg-red-500',
-  skipped: 'bg-gray-300',
+const DOT: Record<string, string> = {
+  pending:        'dot-pending',
+  cloning:        'dot-cloning',
+  running:        'dot-running',
+  verifying:      'dot-verifying',
+  awaiting_input: 'dot-awaiting_input',
+  complete:       'dot-complete',
+  failed:         'dot-failed',
+  skipped:        'dot-skipped',
 }
-
-const PULSING = new Set(['running', 'cloning', 'verifying'])
 
 function DAGNodeInner({ data }: NodeProps) {
   const d = data as DAGNodeData
@@ -44,46 +37,62 @@ function DAGNodeInner({ data }: NodeProps) {
 
   return (
     <>
-      <Handle type="target" position={Position.Top} className="!bg-transparent !border-0 !w-3 !h-1" />
+      <Handle type="target" position={Position.Top} className="!bg-transparent !border-0 !w-2 !h-px" />
+
       <div className={cn(
-        'relative rounded-lg border bg-card px-3 py-2 min-w-[180px] transition-shadow',
-        d.selected && 'border-blue-500 shadow-[0_0_0_2px_hsl(221_83%_53%/0.2)]',
-        !d.selected && 'hover:shadow-md',
+        'relative w-[150px] rounded border bg-card px-2 py-1.5',
+        'transition-all duration-150 cursor-pointer select-none',
+        // Selected overrides everything
+        d.selected && 'border-accent shadow-[0_0_0_1px_hsl(var(--accent)/0.4),0_2px_16px_hsl(var(--accent)/0.12)]',
+        // Active: animated blue border glow
+        !d.selected && ACTIVE.has(d.status) && d.status !== 'awaiting_input' && 'dag-node-running',
+        !d.selected && d.status === 'awaiting_input' && 'dag-node-waiting',
+        // Complete: subtle green border
+        !d.selected && d.status === 'complete' && 'border-green-500/30',
+        // Failed: subtle red border
+        !d.selected && d.status === 'failed' && 'border-red-500/30',
+        // Default
+        !d.selected && !ACTIVE.has(d.status) && d.status !== 'complete' && d.status !== 'failed' && 'border-border',
+        'hover:brightness-110',
       )}>
-        {/* Left accent bar */}
-        <div className={cn(
-          'absolute left-0 top-0 bottom-0 w-1 rounded-l-lg',
-          STATUS_ACCENT_COLOR[d.status] ?? 'bg-gray-300',
-        )} />
 
         {/* Title row */}
-        <div className="flex items-center gap-1.5 pl-2">
-          <span className={cn(
-            'inline-block h-2 w-2 rounded-full shrink-0',
-            STATUS_DOT_COLOR[d.status] ?? 'bg-gray-400',
-            PULSING.has(d.status) && 'animate-pulse',
-          )} />
-          <span className="text-[13px] font-medium truncate">{d.label}</span>
+        <div className="flex items-center gap-1.5">
+          <span className={cn('status-dot h-[6px] w-[6px] shrink-0', DOT[d.status] ?? 'dot-pending')} />
+          <span className="text-[11px] font-medium leading-tight truncate text-foreground">
+            {d.label}
+          </span>
         </div>
 
+        {/* Repo sub-label — fan-out individual nodes (Phase 3) */}
+        {d.repoName && (
+          <div className="mt-px pl-[10px] flex items-baseline gap-1 min-w-0">
+            <span className="text-[9px] font-mono text-accent truncate leading-tight">· {d.repoName}</span>
+            {d.repoIndex && (
+              <span className="text-[9px] font-mono text-muted-foreground shrink-0 leading-tight">{d.repoIndex}</span>
+            )}
+          </div>
+        )}
+
         {/* Meta row */}
-        <div className="flex items-center gap-2 pl-5 mt-0.5">
+        <div className="flex items-center gap-1 mt-1 pl-[10px]">
           {d.mode && (
-            <span className="text-[10px] font-medium bg-muted px-1.5 py-px rounded">
+            <span className="text-[8px] font-mono px-1 py-px rounded-sm border border-border bg-muted text-muted-foreground tracking-wide leading-tight">
               {d.mode}
             </span>
           )}
           {elapsed && (
-            <span className="text-[11px] text-muted-foreground tabular-nums">
+            <span className="text-[8px] font-mono text-muted-foreground tabular-nums leading-tight">
               {elapsed}
             </span>
           )}
           {d.status === 'awaiting_input' && !elapsed && (
-            <span className="text-[11px] text-amber-600">awaiting input</span>
+            <span className="text-[8px] font-mono text-amber-400 leading-tight">waiting</span>
           )}
         </div>
       </div>
-      <Handle type="source" position={Position.Bottom} className="!bg-transparent !border-0 !w-3 !h-1" />
+
+      <Handle type="source" position={Position.Bottom} className="!bg-transparent !border-0 !w-2 !h-px" />
     </>
   )
 }

@@ -11,11 +11,12 @@ import { cn } from '@/lib/utils'
 import { Inbox as InboxIcon } from 'lucide-react'
 import type { InboxItem } from '@/api/types'
 
-type Filter = 'all' | 'awaiting_input' | 'failure' | 'output_ready' | 'notify' | 'request_input'
+type Filter = 'all' | 'awaiting_input' | 'failure' | 'output_ready' | 'notify' | 'request_input' | 'fan_out_partial_failure'
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'awaiting_input', label: 'Action Required' },
+  { key: 'fan_out_partial_failure', label: 'Fan-out Issues' },
   { key: 'request_input', label: 'Input Requested' },
   { key: 'failure', label: 'Failures' },
   { key: 'output_ready', label: 'Output Ready' },
@@ -42,6 +43,17 @@ function KindBadge({ kind }: { kind: string }) {
           <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-current" />
         </span>
         Input Requested
+      </Badge>
+    )
+  }
+  if (kind === 'fan_out_partial_failure') {
+    return (
+      <Badge variant="destructive" className="gap-1">
+        <span className="relative flex h-1.5 w-1.5">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-50" />
+          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-current" />
+        </span>
+        Fan-out Partial Failure
       </Badge>
     )
   }
@@ -74,6 +86,20 @@ export function InboxPage() {
   })
 
   const [actionError, setActionError] = useState<string | null>(null)
+  const [resolvingId, setResolvingId] = useState<string | null>(null)
+
+  const handleResolveFanOut = useCallback(async (item: InboxItem, action: 'proceed' | 'terminate') => {
+    setActionError(null)
+    setResolvingId(item.id)
+    try {
+      await api.resolveFanOut(item.run_id, action)
+      queryClient.invalidateQueries({ queryKey: ['inbox'] })
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Action failed')
+    } finally {
+      setResolvingId(null)
+    }
+  }, [queryClient])
 
   const handleApprove = useCallback(async (item: InboxItem) => {
     setActionError(null)
@@ -118,6 +144,7 @@ export function InboxPage() {
   const counts: Record<Filter, number> = {
     all: items.length,
     awaiting_input: items.filter(i => i.kind === 'awaiting_input').length,
+    fan_out_partial_failure: items.filter(i => i.kind === 'fan_out_partial_failure').length,
     request_input: items.filter(i => i.kind === 'request_input').length,
     failure: items.filter(i => i.kind === 'failure').length,
     output_ready: items.filter(i => i.kind === 'output_ready').length,
@@ -183,7 +210,8 @@ export function InboxPage() {
               'rounded-lg border bg-card p-4 transition-all',
               !item.read && item.kind === 'awaiting_input' && 'border-l-4 border-l-amber-500',
               !item.read && item.kind === 'request_input' && 'border-l-4 border-l-amber-500',
-              !item.read && item.kind !== 'awaiting_input' && item.kind !== 'request_input' && 'border-l-4 border-l-blue-500',
+              !item.read && item.kind === 'fan_out_partial_failure' && 'border-l-4 border-l-red-500',
+              !item.read && item.kind !== 'awaiting_input' && item.kind !== 'request_input' && item.kind !== 'fan_out_partial_failure' && 'border-l-4 border-l-blue-500',
             )}
           >
             <div className="flex items-start justify-between gap-4">
@@ -203,6 +231,29 @@ export function InboxPage() {
                 <p className="text-xs text-muted-foreground">{formatTimeAgo(item.created_at)}</p>
               </div>
               <div className="flex flex-col items-end gap-2 shrink-0">
+                {item.kind === 'fan_out_partial_failure' && !item.answer && (
+                  <div className="flex gap-1.5">
+                    <Button
+                      size="sm" variant="default"
+                      className="h-7 text-xs bg-green-600 hover:bg-green-700"
+                      disabled={resolvingId === item.id}
+                      onClick={() => handleResolveFanOut(item, 'proceed')}
+                    >
+                      Proceed with results
+                    </Button>
+                    <Button
+                      size="sm" variant="destructive"
+                      className="h-7 text-xs"
+                      disabled={resolvingId === item.id}
+                      onClick={() => handleResolveFanOut(item, 'terminate')}
+                    >
+                      Terminate
+                    </Button>
+                  </div>
+                )}
+                {item.kind === 'fan_out_partial_failure' && item.answer && (
+                  <Badge variant="secondary">{item.answer === 'proceed' ? 'Proceeded' : 'Terminated'}</Badge>
+                )}
                 {item.kind === 'awaiting_input' && (
                   <div className="flex gap-1.5">
                     <Button size="sm" variant="default" className="h-7 text-xs bg-green-600 hover:bg-green-700" onClick={() => handleApprove(item)}>

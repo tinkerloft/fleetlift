@@ -35,6 +35,7 @@ type StepRun struct {
 	StartedAt            *time.Time `db:"started_at" json:"started_at,omitempty"`
 	CompletedAt          *time.Time `db:"completed_at" json:"completed_at,omitempty"`
 	CostUSD              *float64   `db:"cost_usd" json:"cost_usd,omitempty"`
+	Input                JSONMap    `db:"input" json:"input,omitempty"`
 	CreatedAt            time.Time  `db:"created_at" json:"created_at"`
 }
 

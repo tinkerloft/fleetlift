@@ -30,6 +30,7 @@ type ResolvedStepOpts struct {
 	Credentials      []string                `json:"credentials,omitempty"`
 	PRConfig         *model.PRDef            `json:"pr_config,omitempty"`
 	Agent            string                  `json:"agent"`
+	MaxTurns         int                     `json:"max_turns,omitempty"`
 	EffectiveProfile *model.AgentProfileBody `json:"effective_profile,omitempty"`
 	EvalPluginURLs   []string                `json:"eval_plugin_urls,omitempty"`
 }
@@ -53,6 +54,14 @@ const (
 	SignalSteer   StepSignal = "steer"
 	SignalCancel  StepSignal = "cancel"
 )
+
+// SignalFanOutResolve is sent by an operator to resolve a partial fan-out failure.
+const SignalFanOutResolve = "fan_out_resolve"
+
+// FanOutResolvePayload is the payload for the fan_out_resolve signal.
+type FanOutResolvePayload struct {
+	Action string `json:"action"` // "proceed" or "terminate"
+}
 
 // SteerPayload is the payload for a steer signal.
 type SteerPayload struct {
@@ -99,9 +108,31 @@ type RunPreflightOutput struct {
 }
 
 // StepWorkflow orchestrates a single step: provision sandbox, run agent, handle HITL signals, optionally create PR.
-func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, error) {
+func StepWorkflow(ctx workflow.Context, input StepInput) (retOut *model.StepOutput, retErr error) {
 	logger := workflow.GetLogger(ctx)
 	respondCh := workflow.GetSignalChannel(ctx, "respond")
+
+	// If the workflow returns an error after the step_run record exists, mark it
+	// failed in the DB. Use a disconnected context so this runs even if ctx is
+	// cancelled (e.g. worker restart, parent cancellation).
+	defer func() {
+		if retErr != nil && input.StepRunID != "" {
+			dCtx, _ := workflow.NewDisconnectedContext(ctx)
+			ao := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second, RetryPolicy: dbRetry}
+			if err := workflow.ExecuteActivity(
+				workflow.WithActivityOptions(dCtx, ao),
+				CompleteStepRunActivity,
+				input.StepRunID,
+				string(model.StepStatusFailed),
+				map[string]any(nil),
+				"",
+				retErr.Error(),
+				0.0,
+			).Get(dCtx, nil); err != nil {
+				logger.Error("failed to mark step run as failed", "step_run_id", input.StepRunID, "error", err)
+			}
+		}
+	}()
 
 	// 1. Provision sandbox (unless reusing from group)
 	var sandboxID string

@@ -113,7 +113,7 @@ func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Reques
 	rows, err := h.db.QueryxContext(r.Context(),
 		`SELECT team_id, role FROM team_members WHERE user_id = $1`, userID)
 	if err == nil {
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var teamID, role string
 			if rows.Scan(&teamID, &role) == nil {
@@ -178,7 +178,7 @@ func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.QueryxContext(r.Context(),
 		`SELECT team_id, role FROM team_members WHERE user_id = $1`, userID)
 	if err == nil {
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var teamID, role string
 			if rows.Scan(&teamID, &role) == nil {
@@ -240,7 +240,7 @@ func (h *AuthHandler) HandleMe(w http.ResponseWriter, r *http.Request) {
 		 FROM teams t JOIN team_members tm ON t.id = tm.team_id
 		 WHERE tm.user_id = $1 ORDER BY t.name`, claims.UserID)
 	if err == nil {
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var t teamInfo
 			if rows.StructScan(&t) == nil {

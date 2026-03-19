@@ -28,14 +28,14 @@ type WorkflowTemplate struct {
 // Never add or change json: tags — the field names in history must remain stable.
 // Use workflow_yaml (raw YAML string) for API responses to the frontend.
 type WorkflowDef struct {
-	Version     int            `yaml:"version"`
-	ID          string         `yaml:"id"`
-	Title       string         `yaml:"title"`
-	Description string         `yaml:"description"`
-	Tags        []string       `yaml:"tags"`
-	Parameters  []ParameterDef `yaml:"parameters"`
-	Steps        []StepDef `yaml:"steps"`
-	AgentProfile string    `yaml:"agent_profile,omitempty"`
+	Version      int            `yaml:"version"`
+	ID           string         `yaml:"id"`
+	Title        string         `yaml:"title"`
+	Description  string         `yaml:"description"`
+	Tags         []string       `yaml:"tags"`
+	Parameters   []ParameterDef `yaml:"parameters"`
+	Steps        []StepDef      `yaml:"steps"`
+	AgentProfile string         `yaml:"agent_profile,omitempty"`
 }
 
 type ParameterDef struct {
@@ -54,7 +54,6 @@ type StepDef struct {
 	Mode              string          `yaml:"mode,omitempty"` // report | transform
 	Repositories      any             `yaml:"repositories,omitempty"`
 	MaxParallel       int             `yaml:"max_parallel,omitempty"`
-	FailureThreshold  int             `yaml:"failure_threshold,omitempty"`
 	Execution         *ExecutionDef   `yaml:"execution,omitempty"`
 	ApprovalPolicy    string          `yaml:"approval_policy,omitempty"` // always|never|agent|on_changes
 	AllowMidExecPause bool            `yaml:"allow_mid_execution_pause,omitempty"`
@@ -96,6 +95,7 @@ type ExecutionDef struct {
 	Credentials []string         `yaml:"credentials,omitempty"`
 	Output      *OutputSchemaDef `yaml:"output,omitempty"`
 	EvalPlugins []string         `yaml:"eval_plugins,omitempty"`
+	MaxTurns    int              `yaml:"max_turns,omitempty"` // 0 = use runner default
 }
 
 type OutputSchemaDef struct {

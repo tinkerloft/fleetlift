@@ -29,7 +29,7 @@ func openTestDB(t *testing.T) *sqlx.DB {
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
 
@@ -266,7 +266,7 @@ func TestGetProfile_DBError_Returns500(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	h := NewProfilesHandler(db)
 

@@ -31,10 +31,12 @@ steps:
   - id: identify
     title: Identify affected repos
     mode: report
-    repositories: "{{ .Params.repos }}"
+    repositories: "{{ .Params.repos | toJSON }}"
     max_parallel: 10
     execution:
       agent: claude-code
+      credentials:
+        - GITHUB_TOKEN
       prompt: |
         Check if this repository uses {{ .Params.dependency_name }} at version {{ .Params.current_version }}.
 
@@ -49,11 +51,13 @@ steps:
     depends_on:
       - identify
     mode: transform
-    repositories: "{{ .Params.repos }}"
+    repositories: "{{ .Params.repos | toJSON }}"
     max_parallel: 5
     condition: "steps.identify.output.affected == true"
     execution:
       agent: claude-code
+      credentials:
+        - GITHUB_TOKEN
       prompt: |
         Update {{ .Params.dependency_name }} from {{ .Params.current_version }} to {{ .Params.target_version }}.
 

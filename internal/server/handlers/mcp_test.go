@@ -406,7 +406,7 @@ func TestHandleGetKnowledge_CrossTeam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
 
 	// Expect the team-scoped JOIN. The regex must match what the fixed query sends.
@@ -501,7 +501,7 @@ func TestHandleAddLearning_CrossTeam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
 
 	// activeStepRunID query fires first (returns no row — that's fine).

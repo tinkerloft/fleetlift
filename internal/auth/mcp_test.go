@@ -207,7 +207,7 @@ func TestMCPAuth_ValidToken_ActiveRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
 
 	token, err := IssueMCPToken(testMCPSecret, "team-1", "run-1")
@@ -251,7 +251,7 @@ func TestMCPAuth_TerminatedRun(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 			sqlxDB := sqlx.NewDb(db, "sqlmock")
 
 			token, err := IssueMCPToken(testMCPSecret, "team-1", "run-1")
@@ -284,7 +284,7 @@ func TestMCPAuth_RunNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	sqlxDB := sqlx.NewDb(db, "sqlmock")
 
 	token, err := IssueMCPToken(testMCPSecret, "team-1", "run-1")

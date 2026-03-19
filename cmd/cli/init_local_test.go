@@ -244,7 +244,7 @@ func TestSeedGitHubToken_InsertsEncryptedCredential(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	t.Cleanup(func() { db.Close() }) // registered first → runs last (LIFO)
+	t.Cleanup(func() { _ = db.Close() }) // registered first → runs last (LIFO)
 	t.Cleanup(func() {
 		db.Exec(`DELETE FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN'`, devTeamID) //nolint:errcheck
 	})
@@ -282,7 +282,7 @@ func TestSeedGitHubToken_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	t.Cleanup(func() { db.Close() }) // registered first → runs last (LIFO)
+	t.Cleanup(func() { _ = db.Close() }) // registered first → runs last (LIFO)
 	t.Cleanup(func() {
 		db.Exec(`DELETE FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN'`, devTeamID) //nolint:errcheck
 	})
@@ -333,7 +333,7 @@ func TestCheckExistingGitHubToken_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	t.Cleanup(func() { db.Close() }) // registered first → runs last (LIFO)
+	t.Cleanup(func() { _ = db.Close() }) // registered first → runs last (LIFO)
 	t.Cleanup(func() {
 		db.Exec(`DELETE FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN'`, devTeamID) //nolint:errcheck
 	})
@@ -359,7 +359,7 @@ func TestCheckExistingGitHubToken_Found(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	t.Cleanup(func() { db.Close() }) // registered first → runs last (LIFO)
+	t.Cleanup(func() { _ = db.Close() }) // registered first → runs last (LIFO)
 	t.Cleanup(func() {
 		db.Exec(`DELETE FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN'`, devTeamID) //nolint:errcheck
 	})

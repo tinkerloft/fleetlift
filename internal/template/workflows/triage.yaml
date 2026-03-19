@@ -28,6 +28,8 @@ steps:
       - url: "{{ .Params.repo_url }}"
     execution:
       agent: claude-code
+      credentials:
+        - GITHUB_TOKEN
       prompt: |
         Analyze this issue and determine its nature and severity.
 
@@ -52,6 +54,8 @@ steps:
     sandbox_group: main
     action:
       type: github_label
+      credentials:
+        - GITHUB_TOKEN
       config:
         repo_url: "{{ .Params.repo_url }}"
         issue_number: "{{ .Params.issue_number }}"
@@ -66,6 +70,8 @@ steps:
       - classify
     action:
       type: github_comment
+      credentials:
+        - GITHUB_TOKEN
       config:
         repo_url: "{{ .Params.repo_url }}"
         issue_number: "{{ .Params.issue_number }}"

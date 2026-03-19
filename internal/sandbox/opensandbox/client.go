@@ -111,7 +111,7 @@ func (c *Client) Create(ctx context.Context, opts sandbox.CreateOpts) (string, e
 	if err != nil {
 		return "", fmt.Errorf("opensandbox: create: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusAccepted {
 		b, _ := io.ReadAll(resp.Body)
@@ -158,7 +158,7 @@ func (c *Client) fetchAndCacheProxyPort(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("get sandbox returned %d", resp.StatusCode)
@@ -200,7 +200,7 @@ func (c *Client) ExecStream(ctx context.Context, id, cmd, workDir string, onLine
 	if err != nil {
 		return fmt.Errorf("opensandbox: exec: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
@@ -298,7 +298,9 @@ func (c *Client) WriteFile(ctx context.Context, id, path, content string) error 
 	if _, err := io.WriteString(fw, content); err != nil {
 		return fmt.Errorf("opensandbox: write file content: %w", err)
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("opensandbox: finalise multipart: %w", err)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.sandboxProxyURL(id)+"/files/upload", &buf)
 	if err != nil {
@@ -311,7 +313,7 @@ func (c *Client) WriteFile(ctx context.Context, id, path, content string) error 
 	if err != nil {
 		return fmt.Errorf("opensandbox: write file: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		b, _ := io.ReadAll(resp.Body)
@@ -343,7 +345,9 @@ func (c *Client) WriteBytes(ctx context.Context, id, path string, data []byte) e
 	if _, err := io.Copy(fw, bytes.NewReader(data)); err != nil {
 		return fmt.Errorf("opensandbox: write file content: %w", err)
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("opensandbox: finalise multipart: %w", err)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.sandboxProxyURL(id)+"/files/upload", &buf)
 	if err != nil {
@@ -356,7 +360,7 @@ func (c *Client) WriteBytes(ctx context.Context, id, path string, data []byte) e
 	if err != nil {
 		return fmt.Errorf("opensandbox: write bytes: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		b, _ := io.ReadAll(resp.Body)
@@ -384,7 +388,7 @@ func (c *Client) ReadBytes(ctx context.Context, id, path string) ([]byte, error)
 	if err != nil {
 		return nil, fmt.Errorf("opensandbox: read file: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
@@ -404,7 +408,7 @@ func (c *Client) Kill(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("opensandbox: kill: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		b, _ := io.ReadAll(resp.Body)
@@ -435,7 +439,7 @@ func (c *Client) RenewExpiration(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("opensandbox: renew: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)

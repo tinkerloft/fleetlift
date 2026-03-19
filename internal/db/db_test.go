@@ -23,7 +23,7 @@ func TestMigrate(t *testing.T) {
 	}
 	db, err := Connect(context.Background())
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// First call: applies all pending migrations
 	require.NoError(t, Migrate(db))

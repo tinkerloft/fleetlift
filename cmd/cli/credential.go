@@ -49,11 +49,11 @@ func credentialListCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "NAME\tUPDATED")
+			_, _ = fmt.Fprintln(w, "NAME\tUPDATED")
 			for _, cr := range creds {
 				name, _ := cr["name"].(string)
 				updated, _ := cr["updated_at"].(string)
-				fmt.Fprintf(w, "%s\t%s\n", name, updated)
+				_, _ = fmt.Fprintf(w, "%s\t%s\n", name, updated)
 			}
 			return w.Flush()
 		},

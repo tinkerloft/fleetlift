@@ -27,10 +27,12 @@ steps:
   - id: analyze
     title: Analyze migration impact
     mode: report
-    repositories: "{{ .Params.repos }}"
+    repositories: "{{ .Params.repos | toJSON }}"
     max_parallel: 10
     execution:
       agent: claude-code
+      credentials:
+        - GITHUB_TOKEN
       prompt: |
         Analyze the impact of this migration on the repository.
 
@@ -54,11 +56,13 @@ steps:
     depends_on:
       - analyze
     mode: transform
-    repositories: "{{ .Params.repos }}"
+    repositories: "{{ .Params.repos | toJSON }}"
     max_parallel: 5
     condition: "steps.analyze.output.affected == true"
     execution:
       agent: claude-code
+      credentials:
+        - GITHUB_TOKEN
       prompt: |
         Apply this migration to the repository.
 
@@ -82,10 +86,12 @@ steps:
     depends_on:
       - transform
     mode: report
-    repositories: "{{ .Params.repos }}"
+    repositories: "{{ .Params.repos | toJSON }}"
     max_parallel: 5
     execution:
       agent: claude-code
+      credentials:
+        - GITHUB_TOKEN
       prompt: |
         Validate the migration was applied correctly.
 
@@ -109,6 +115,8 @@ steps:
       - review
     action:
       type: create_pr
+      credentials:
+        - GITHUB_TOKEN
       config:
         branch_prefix: "migration"
         title: "Migration: {{ .Params.migration_description }}"

@@ -49,7 +49,7 @@ func openTestDB(t *testing.T) *sqlx.DB {
 	}
 	db, err := sqlx.Open("postgres", dsn)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
 

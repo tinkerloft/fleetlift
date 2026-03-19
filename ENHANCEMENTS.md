@@ -1,31 +1,19 @@
 # Fleetlift Enhancement Backlog
 
-All tracked items have been moved to `docs/plans/ROADMAP.md`.
+All tracked items are in [`docs/plans/ROADMAP.md`](docs/plans/ROADMAP.md).
 
 ---
 
-## Pending Triage
+## Worker-restart-safe ExecuteStep
 
-Items below have not yet been placed on the roadmap.
+**Problem:** If the worker is restarted while `ExecuteStep` is running, the activity loses its heartbeat. After `HeartbeatTimeout` (2 min), Temporal marks attempt 1 failed and retries. The retry typically fails immediately with `context canceled` due to a race in Temporal's task-token management. Any fan-out step running at restart time will fail permanently.
 
-### Background Document Assessor
+**Root cause:**
+- `ExecuteStep` heartbeats on every agent event — correct and necessary.
+- `MaximumAttempts: 2` allows one retry, but retries are not idempotent: the agent restarts from scratch. The sandbox survives (git clone, MCP setup, written files persist); only the in-memory conversation is lost.
 
-Run overnight across every repository with recent changes, check the documents against the code, report back findings and/or raise PRs to fix.
+**What a proper fix requires:**
+1. **Heartbeat-detail checkpointing** — record a "started" token before running the agent. On retry, call `activity.GetInfo(ctx).HeartbeatDetails` to detect the restart, then either skip (if output already written to `/workspace/.fleetlift-output.json`) or re-run from scratch.
+2. **Per-step retry flag in YAML** — `retry_on_worker_restart: true/false`, defaulting to `false` for `transform` mode steps (PRs may already be open).
 
-### End-to-End Code Change Manager
-
-Manage a code change from start to finish: creation → CI → fixes → handle review comments → CI → notify user to take over.
-
-### Agent MCP / Skill Profiles
-
-Workflows declare an `agent_profile` that installs plugins, skills, and MCPs into the Claude agent sandbox before execution, with eval-time plugin injection support.
-
-### User prompt injecting into exisitng workflows
-- Tailoring PR review prompts
-
-### User authoring new workflows
-
-## Remove 'mode: [report|transform]' from workflow schema
-
-## PRD for platform improvements
-- docs/plans/2026-03-18-workflow-expressiveness-prd.md
+**Workaround:** Check `scripts/integration/status.sh` and wait for in-flight runs to complete before calling `restart.sh`.

@@ -57,8 +57,8 @@ func validateAgentProfileBody(body *model.AgentProfileBody) error {
 // --- Agent Profiles ---
 
 type createProfileRequest struct {
-	Name        string               `json:"name"`
-	Description string               `json:"description"`
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
 	Body        model.AgentProfileBody `json:"body"`
 }
 
@@ -83,7 +83,7 @@ func (h *ProfilesHandler) ListProfiles(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, "failed to list agent profiles")
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	profiles := make([]model.AgentProfile, 0)
 	for rows.Next() {

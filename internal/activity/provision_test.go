@@ -210,10 +210,10 @@ func TestProvisionSandbox_MCPSetup(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "sb-mcp", sandboxID)
 
-	// Verify binary was uploaded
-	assert.Contains(t, sb.writtenFiles, "/usr/local/bin/fleetlift-mcp")
+	// Verify binary was uploaded to the staging path before install
+	assert.Contains(t, sb.writtenFiles, "/tmp/fleetlift-mcp-upload")
 
-	// Verify chmod, test -x, start cmd, health check, and profile.d write were called
+	// Verify install cmd, test -x, start cmd, health check, and profile.d write were called
 	assert.True(t, len(sb.execCmds) >= 5, "expected at least 5 exec calls, got %d", len(sb.execCmds))
 
 	// Verify the nohup command does NOT contain --token flag
@@ -224,14 +224,14 @@ func TestProvisionSandbox_MCPSetup(t *testing.T) {
 		}
 	}
 
-	// Verify profile.d write includes both PORT and TOKEN
+	// Verify env file write includes both PORT and TOKEN
 	foundTokenExport := false
 	for _, cmd := range sb.execCmds {
-		if strings.Contains(cmd, "FLEETLIFT_MCP_TOKEN") && strings.Contains(cmd, "profile.d") {
+		if strings.Contains(cmd, "FLEETLIFT_MCP_TOKEN") && strings.Contains(cmd, "fleetlift-mcp-env.sh") {
 			foundTokenExport = true
 		}
 	}
-	assert.True(t, foundTokenExport, "expected profile.d write to include FLEETLIFT_MCP_TOKEN export")
+	assert.True(t, foundTokenExport, "expected fleetlift-mcp-env.sh write to include FLEETLIFT_MCP_TOKEN export")
 
 	// Verify health check command has correct port syntax (not shell-quoted inside perl string)
 	for _, cmd := range sb.execCmds {

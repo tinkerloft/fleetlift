@@ -28,10 +28,12 @@ steps:
   - id: research
     title: Research repositories
     mode: report
-    repositories: "{{ .Params.repos }}"
+    repositories: "{{ .Params.repos | toJSON }}"
     max_parallel: 5
     execution:
       agent: claude-code
+      credentials:
+        - GITHUB_TOKEN
       prompt: "{{ .Params.prompt }}"
     outputs:
       artifacts:

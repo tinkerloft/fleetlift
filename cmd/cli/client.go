@@ -80,7 +80,7 @@ func (c *apiClient) do(req *http.Request, out any) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
 		b, _ := io.ReadAll(resp.Body)
@@ -108,7 +108,7 @@ func (c *apiClient) streamSSE(path string, onEvent func(eventType, data string) 
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 1024*1024), 4*1024*1024) // 4 MiB max line — matches agent output buffer

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, subscribeToRun, getConfig } from '@/api/client'
 import { DAGGraph } from '@/components/DAGGraph'
@@ -33,8 +33,19 @@ export function RunDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
   const [sseConnected, setSseConnected] = useState(false)
+  const [resolvingFanOut, setResolvingFanOut] = useState(false)
 
   const { data: config } = useQuery({ queryKey: ['config'], queryFn: getConfig, staleTime: Infinity })
+
+  const { data: inboxData } = useQuery({
+    queryKey: ['inbox'],
+    queryFn: () => api.listInbox(),
+    refetchInterval: sseConnected ? false : 5000,
+    enabled: !!id,
+  })
+  const fanOutFailureItem = inboxData?.items.find(
+    i => i.run_id === id && i.kind === 'fan_out_partial_failure' && !i.answer,
+  )
 
   const { data: run } = useQuery({
     queryKey: ['run', id],
@@ -77,6 +88,18 @@ export function RunDetailPage() {
     setActionError(null)
     try { await api.steerRun(id, prompt); queryClient.invalidateQueries({ queryKey: ['run', id] }) }
     catch (err) { setActionError(err instanceof Error ? err.message : 'Action failed') }
+  }, [id, queryClient])
+
+  const handleResolveFanOut = useCallback(async (action: 'proceed' | 'terminate') => {
+    if (!id) return
+    setActionError(null)
+    setResolvingFanOut(true)
+    try {
+      await api.resolveFanOut(id, action)
+      queryClient.invalidateQueries({ queryKey: ['run', id] })
+      queryClient.invalidateQueries({ queryKey: ['inbox'] })
+    } catch (err) { setActionError(err instanceof Error ? err.message : 'Action failed') }
+    finally { setResolvingFanOut(false) }
   }, [id, queryClient])
 
   const handleCancel = useCallback(async () => {
@@ -170,6 +193,42 @@ export function RunDetailPage() {
       {run.status === 'failed' && run.error_message && (
         <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400">
           <span className="font-semibold">Run failed: </span>{run.error_message}
+        </div>
+      )}
+
+      {fanOutFailureItem && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/8 p-3">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-amber-400">{fanOutFailureItem.title}</p>
+              {fanOutFailureItem.summary && (
+                <pre className="mt-1 text-xs text-muted-foreground font-mono whitespace-pre-wrap line-clamp-3">
+                  {fanOutFailureItem.summary}
+                </pre>
+              )}
+              <Link to="/inbox" className="mt-1 text-xs text-accent hover:underline block">
+                View in inbox ↗
+              </Link>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <Button
+                size="sm" variant="default"
+                className="h-7 text-xs bg-green-600 hover:bg-green-700"
+                disabled={resolvingFanOut}
+                onClick={() => handleResolveFanOut('proceed')}
+              >
+                Proceed with results
+              </Button>
+              <Button
+                size="sm" variant="destructive"
+                className="h-7 text-xs"
+                disabled={resolvingFanOut}
+                onClick={() => handleResolveFanOut('terminate')}
+              >
+                Terminate
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 
