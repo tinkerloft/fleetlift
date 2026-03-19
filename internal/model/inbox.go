@@ -11,6 +11,7 @@ type InboxItem struct {
 	TeamID     string         `db:"team_id" json:"team_id"`
 	RunID      string         `db:"run_id" json:"run_id"`
 	StepRunID  *string        `db:"step_run_id" json:"step_run_id,omitempty"`
+	StepID     *string        `db:"step_id" json:"step_id,omitempty"`
 	Kind       string         `db:"kind" json:"kind"` // "awaiting_input" | "output_ready" | "notify" | "request_input"
 	Title      string         `db:"title" json:"title"`
 	Summary    *string        `db:"summary" json:"summary,omitempty"`

@@ -101,6 +101,7 @@ export interface InboxItem {
   team_id: string
   run_id: string
   step_run_id?: string
+  step_id?: string
   kind: string  // "awaiting_input" | "output_ready" | "notify" | "request_input"
   title: string
   summary?: string

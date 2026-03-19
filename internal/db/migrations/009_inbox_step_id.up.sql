@@ -1,0 +1,1 @@
+ALTER TABLE inbox_items ADD COLUMN IF NOT EXISTS step_id TEXT;

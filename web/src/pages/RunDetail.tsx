@@ -44,7 +44,7 @@ export function RunDetailPage() {
     refetchInterval: sseConnected ? false : 5000,
     enabled: !!id,
   })
-  const fanOutFailureItem = inboxData?.items.find(
+  const fanOutFailureItem = inboxData?.items?.find(
     i => i.run_id === id && i.kind === 'fan_out_partial_failure' && !i.answer,
   )
 
@@ -103,11 +103,11 @@ export function RunDetailPage() {
   }, [id, queryClient])
 
   const handleResolveFanOut = useCallback(async (action: 'proceed' | 'terminate') => {
-    if (!id) return
+    if (!id || !fanOutFailureItem) return
     setActionError(null)
     setResolvingFanOut(true)
     try {
-      await api.resolveFanOut(id, action)
+      await api.resolveFanOut(id, action, fanOutFailureItem.step_id ?? '')
       queryClient.invalidateQueries({ queryKey: ['run', id] })
       queryClient.invalidateQueries({ queryKey: ['inbox'] })
     } catch (err) { setActionError(err instanceof Error ? err.message : 'Action failed') }

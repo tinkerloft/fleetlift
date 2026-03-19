@@ -97,11 +97,11 @@ func (a *Activities) UpdateRunStatus(ctx context.Context, runID string, status s
 }
 
 // CreateInboxItem creates an inbox notification for awaiting_input or output_ready events.
-func (a *Activities) CreateInboxItem(ctx context.Context, teamID, runID, stepRunID, kind, title, summary, artifactID string) error {
+func (a *Activities) CreateInboxItem(ctx context.Context, teamID, runID, stepRunID, kind, title, summary, artifactID, stepID string) error {
 	_, err := a.DB.ExecContext(ctx,
-		`INSERT INTO inbox_items (team_id, run_id, step_run_id, kind, title, summary, artifact_id)
-		 VALUES ($1, $2, NULLIF($3, '')::uuid, $4, $5, $6, NULLIF($7, '')::uuid)`,
-		teamID, runID, stepRunID, kind, title, summary, artifactID)
+		`INSERT INTO inbox_items (team_id, run_id, step_run_id, kind, title, summary, artifact_id, step_id)
+		 VALUES ($1, $2, NULLIF($3, '')::uuid, $4, $5, $6, NULLIF($7, '')::uuid, NULLIF($8, ''))`,
+		teamID, runID, stepRunID, kind, title, summary, artifactID, stepID)
 	if err != nil {
 		return fmt.Errorf("create inbox item: %w", err)
 	}

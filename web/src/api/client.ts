@@ -89,8 +89,8 @@ export const api = {
   steerRun: (id: string, prompt: string) =>
     post<{ status: string }>(`/runs/${id}/steer`, { prompt }),
   cancelRun: (id: string) => post<{ status: string }>(`/runs/${id}/cancel`),
-  resolveFanOut: (id: string, action: 'proceed' | 'terminate') =>
-    post(`/runs/${id}/resolve-fanout`, { action }),
+  resolveFanOut: (id: string, action: 'proceed' | 'terminate', stepId: string) =>
+    post(`/runs/${id}/resolve-fanout`, { action, step_id: stepId }),
 
   // Inbox
   listInbox: () => get<ListResponse<InboxItem>>('/inbox'),

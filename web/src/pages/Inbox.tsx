@@ -92,7 +92,7 @@ export function InboxPage() {
     setActionError(null)
     setResolvingId(item.id)
     try {
-      await api.resolveFanOut(item.run_id, action)
+      await api.resolveFanOut(item.run_id, action, item.step_id ?? '')
       queryClient.invalidateQueries({ queryKey: ['inbox'] })
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Action failed')

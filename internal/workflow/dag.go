@@ -96,7 +96,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 			}
 			_ = workflow.ExecuteActivity(
 				workflow.WithActivityOptions(dCtx, ao),
-				CreateInboxItemActivity, input.TeamID, input.RunID, "", kind, title, summary, primaryArtifactID,
+				CreateInboxItemActivity, input.TeamID, input.RunID, "", kind, title, summary, primaryArtifactID, "",
 			).Get(dCtx, nil)
 		}
 	}()
@@ -512,7 +512,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 					summary := buildFanOutFailureSummary(fanResults)
 					if err := workflow.ExecuteActivity(
 						workflow.WithActivityOptions(gCtx, inboxAO),
-						CreateInboxItemActivity, input.TeamID, input.RunID, "", "fan_out_partial_failure", title, summary, "",
+						CreateInboxItemActivity, input.TeamID, input.RunID, "", "fan_out_partial_failure", title, summary, "", step.ID,
 					).Get(gCtx, nil); err != nil {
 						logger.Error("failed to create fan-out partial failure inbox item", "error", err)
 					}
