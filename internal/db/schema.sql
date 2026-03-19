@@ -136,9 +136,10 @@ CREATE TABLE IF NOT EXISTS inbox_items (
     team_id         UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
     run_id          UUID NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
     step_run_id     UUID REFERENCES step_runs(id) ON DELETE CASCADE,
-    kind            TEXT NOT NULL,  -- 'awaiting_input' | 'output_ready'
+    kind            TEXT NOT NULL,  -- 'awaiting_input' | 'output_ready' | 'notify' | 'request_input'
     title           TEXT NOT NULL,
     summary         TEXT,
+    artifact_id     UUID REFERENCES artifacts(id) ON DELETE SET NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS inbox_team ON inbox_items(team_id, created_at DESC);

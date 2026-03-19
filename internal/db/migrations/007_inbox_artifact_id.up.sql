@@ -1,0 +1,1 @@
+ALTER TABLE inbox_items ADD COLUMN IF NOT EXISTS artifact_id UUID REFERENCES artifacts(id) ON DELETE SET NULL;

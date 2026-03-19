@@ -16,7 +16,7 @@ export async function getConfig() {
   return _config!
 }
 
-function authHeaders(): Record<string, string> {
+export function authHeaders(): Record<string, string> {
   const token = localStorage.getItem('token')
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
@@ -114,6 +114,9 @@ export const api = {
   listReports: () => get<ListResponse<Run>>('/reports'),
   getReport: (runId: string) => get<Run>(`/reports/${runId}`),
   getReportArtifacts: (runId: string) => get<ListResponse<Artifact>>(`/reports/${runId}/artifacts`),
+
+  // Artifacts
+  getArtifactContentUrl: (id: string) => `${BASE}/artifacts/${id}/content`,
 }
 
 /** Subscribe to live run updates via SSE. Returns an unsubscribe function. */

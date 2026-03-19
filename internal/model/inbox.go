@@ -20,6 +20,7 @@ type InboxItem struct {
 	AnsweredAt *time.Time     `db:"answered_at" json:"answered_at,omitempty"`
 	AnsweredBy *string        `db:"answered_by" json:"answered_by,omitempty"`
 	Urgency    string         `db:"urgency" json:"urgency"`
+	ArtifactID *string        `db:"artifact_id" json:"artifact_id,omitempty"`
 	CreatedAt  time.Time      `db:"created_at" json:"created_at"`
 }
 

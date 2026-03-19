@@ -1,7 +1,7 @@
 # Plan: Artifact & Output UX
 
 **Date:** 2026-03-19
-**Status:** Ready to implement
+**Status:** Complete
 **Motivation:** Workflow outputs (especially doc-assessment) are technically correct but practically unreadable. All the data is there — artifacts stored in DB, rich structured JSON output, fleet summary markdown — but the display layer buries it behind raw JSON and tiny artifact cards with no way to view or download content.
 
 ---

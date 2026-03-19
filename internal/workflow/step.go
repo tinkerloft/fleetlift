@@ -86,6 +86,7 @@ var (
 	CleanupCheckpointBranchActivity   = "CleanupCheckpointBranch"
 	RunPreflightActivity              = "RunPreflight"
 	ResolveAgentProfileActivity       = "ResolveAgentProfile"
+	GetPrimaryRunArtifactIDActivity   = "GetPrimaryRunArtifactID"
 )
 
 // ResolveProfileInput is the input to the ResolveAgentProfile activity.

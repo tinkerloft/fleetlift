@@ -1,13 +1,16 @@
-import type { StepRun } from '@/api/types'
+import { useState, useEffect } from 'react'
+import type { StepRun, Artifact } from '@/api/types'
 import { LogStream } from './LogStream'
 import { DiffViewer } from './DiffViewer'
 import { JsonViewer } from './JsonViewer'
 import { StatusBadge } from './StatusBadge'
+import { ArtifactCard } from './ArtifactCard'
 
 interface StepPanelProps {
   stepRun: StepRun
   runParameters?: Record<string, unknown>
   allStepRuns?: StepRun[]
+  artifacts?: Artifact[]
 }
 
 /** Strip the fan-out index suffix (e.g. "assess-2" → "assess"). */
@@ -15,7 +18,13 @@ function baseStepId(stepId: string): string {
   return stepId.replace(/-\d+$/, '')
 }
 
-export function StepPanel({ stepRun, runParameters, allStepRuns }: StepPanelProps) {
+export function StepPanel({ stepRun, runParameters, allStepRuns, artifacts = [] }: StepPanelProps) {
+  const [outputExpanded, setOutputExpanded] = useState(artifacts.length === 0)
+
+  // Reset output collapse state when the selected step or its artifacts change
+  useEffect(() => {
+    setOutputExpanded(artifacts.length === 0)
+  }, [stepRun.id, artifacts.length])
   const myBase = baseStepId(stepRun.step_id)
 
   // Prior completed steps whose output is available as template context.
@@ -51,6 +60,17 @@ export function StepPanel({ stepRun, runParameters, allStepRuns }: StepPanelProp
              className="text-accent hover:underline font-mono">
             {stepRun.pr_url}
           </a>
+        </div>
+      )}
+
+      {artifacts.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Artifacts</h4>
+          <div className="space-y-2">
+            {artifacts.map(a => (
+              <ArtifactCard key={a.id} artifact={a} />
+            ))}
+          </div>
         </div>
       )}
 
@@ -109,8 +129,14 @@ export function StepPanel({ stepRun, runParameters, allStepRuns }: StepPanelProp
 
       {stepRun.output && Object.keys(stepRun.output).length > 0 && (
         <div className="space-y-1.5">
-          <h4 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Output</h4>
-          <JsonViewer data={stepRun.output} />
+          <button
+            onClick={() => setOutputExpanded(v => !v)}
+            className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <span>Output</span>
+            <span className="text-[9px]">{outputExpanded ? '▲' : '▼'}</span>
+          </button>
+          {outputExpanded && <JsonViewer data={stepRun.output} />}
         </div>
       )}
 

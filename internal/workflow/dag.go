@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"text/template"
@@ -81,9 +82,21 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 					summary = "Run failed: " + finalError
 				}
 			}
+			// For output_ready events, look up the primary artifact.
+			primaryArtifactID := ""
+			if kind == "output_ready" {
+				var artifactID string
+				if err := workflow.ExecuteActivity(
+					workflow.WithActivityOptions(dCtx, ao),
+					GetPrimaryRunArtifactIDActivity, input.RunID,
+				).Get(dCtx, &artifactID); err == nil {
+					primaryArtifactID = artifactID
+				}
+				// Non-fatal: proceed without artifact_id if lookup fails
+			}
 			_ = workflow.ExecuteActivity(
 				workflow.WithActivityOptions(dCtx, ao),
-				CreateInboxItemActivity, input.TeamID, input.RunID, "", kind, title, summary,
+				CreateInboxItemActivity, input.TeamID, input.RunID, "", kind, title, summary, primaryArtifactID,
 			).Get(dCtx, nil)
 		}
 	}()
@@ -233,7 +246,6 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 		results := make([]*model.StepOutput, len(ready))
 
 		for i, step := range ready {
-			i, step := i, step
 			wg.Add(1)
 			workflow.Go(ctx, func(gCtx workflow.Context) {
 				defer wg.Done()
@@ -403,7 +415,6 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 				fanResults := make([]*model.StepOutput, len(repos))
 				fanWg := workflow.NewWaitGroup(gCtx)
 				for j, repo := range repos {
-					j, repo := j, repo
 					fanWg.Add(1)
 					workflow.Go(gCtx, func(rCtx workflow.Context) {
 						defer fanWg.Done()
@@ -474,7 +485,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 					summary := buildFanOutFailureSummary(fanResults)
 					if err := workflow.ExecuteActivity(
 						workflow.WithActivityOptions(gCtx, inboxAO),
-						CreateInboxItemActivity, input.TeamID, input.RunID, "", "fan_out_partial_failure", title, summary,
+						CreateInboxItemActivity, input.TeamID, input.RunID, "", "fan_out_partial_failure", title, summary, "",
 					).Get(gCtx, nil); err != nil {
 						logger.Error("failed to create fan-out partial failure inbox item", "error", err)
 					}
@@ -791,18 +802,15 @@ func skipDownstream(pending map[string]model.StepDef, failedID string, allSteps 
 		if _, isPending := pending[step.ID]; !isPending {
 			continue
 		}
-		for _, dep := range step.DependsOn {
-			if dep == failedID {
-				outputs[step.ID] = &model.StepOutput{
-					StepID: step.ID,
-					Status: model.StepStatusSkipped,
-					Error:  fmt.Sprintf("skipped: dependency %s failed", failedID),
-				}
-				delete(pending, step.ID)
-				// Recursively skip downstream of this skipped step
-				skipDownstream(pending, step.ID, allSteps, outputs)
-				break
+		if slices.Contains(step.DependsOn, failedID) {
+			outputs[step.ID] = &model.StepOutput{
+				StepID: step.ID,
+				Status: model.StepStatusSkipped,
+				Error:  fmt.Sprintf("skipped: dependency %s failed", failedID),
 			}
+			delete(pending, step.ID)
+			// Recursively skip downstream of this skipped step
+			skipDownstream(pending, step.ID, allSteps, outputs)
 		}
 	}
 }

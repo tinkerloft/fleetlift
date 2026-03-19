@@ -38,6 +38,9 @@ const (
 	// E3: MCP interactive tools
 	ActivityCleanupCheckpointBranch   = "CleanupCheckpointBranch"
 	ActivityCreateContinuationStepRun = "CreateContinuationStepRun"
+
+	// Artifact lookup
+	ActivityGetPrimaryRunArtifactID = "GetPrimaryRunArtifactID"
 )
 
 // Default configuration values (SIMP-004)

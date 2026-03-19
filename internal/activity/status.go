@@ -97,15 +97,49 @@ func (a *Activities) UpdateRunStatus(ctx context.Context, runID string, status s
 }
 
 // CreateInboxItem creates an inbox notification for awaiting_input or output_ready events.
-func (a *Activities) CreateInboxItem(ctx context.Context, teamID, runID, stepRunID, kind, title, summary string) error {
+func (a *Activities) CreateInboxItem(ctx context.Context, teamID, runID, stepRunID, kind, title, summary, artifactID string) error {
 	_, err := a.DB.ExecContext(ctx,
-		`INSERT INTO inbox_items (team_id, run_id, step_run_id, kind, title, summary)
-		 VALUES ($1, $2, NULLIF($3, '')::uuid, $4, $5, $6)`,
-		teamID, runID, stepRunID, kind, title, summary)
+		`INSERT INTO inbox_items (team_id, run_id, step_run_id, kind, title, summary, artifact_id)
+		 VALUES ($1, $2, NULLIF($3, '')::uuid, $4, $5, $6, NULLIF($7, '')::uuid)`,
+		teamID, runID, stepRunID, kind, title, summary, artifactID)
 	if err != nil {
 		return fmt.Errorf("create inbox item: %w", err)
 	}
 	return nil
+}
+
+// GetPrimaryRunArtifactID returns the ID of the primary artifact for a run,
+// or an empty string if no artifacts exist.
+// Priority: name matching fleet-summary/report/summary (case-insensitive) → largest by size_bytes.
+func (a *Activities) GetPrimaryRunArtifactID(ctx context.Context, runID string) (string, error) {
+	type row struct {
+		ID        string `db:"id"`
+		Name      string `db:"name"`
+		SizeBytes int64  `db:"size_bytes"`
+	}
+	var artifacts []row
+	err := a.DB.SelectContext(ctx, &artifacts,
+		`SELECT a.id, a.name, a.size_bytes
+         FROM artifacts a
+         JOIN step_runs s ON a.step_run_id = s.id
+         WHERE s.run_id = $1
+         ORDER BY a.size_bytes DESC`, runID)
+	if err != nil {
+		return "", fmt.Errorf("query artifacts: %w", err)
+	}
+	if len(artifacts) == 0 {
+		return "", nil
+	}
+	// Priority names (case-insensitive substring match)
+	for _, kw := range []string{"fleet-summary", "fleet_summary", "report", "summary"} {
+		for _, art := range artifacts {
+			if strings.Contains(strings.ToLower(art.Name), kw) {
+				return art.ID, nil
+			}
+		}
+	}
+	// Fallback: largest (already sorted DESC)
+	return artifacts[0].ID, nil
 }
 
 // CompleteStepRun sets the final status, output, diff, error, and cost for a step run.
