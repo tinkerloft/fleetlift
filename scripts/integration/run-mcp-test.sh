@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the mcp-test workflow and verify MCP sidecar integration.
-# Exercises: sidecar provisioning → health check → 7 API endpoints → DB state.
-# Usage: run-mcp-test.sh [--with-agent]
+# Exercises: sidecar provisioning → health check → 7 API endpoints → Claude Code agent MCP tool calls.
+# Usage: run-mcp-test.sh
 set -euo pipefail
 source "$(dirname "$0")/dev-env.sh"
 cd "$PROJECT_ROOT"
@@ -16,29 +16,27 @@ dbquery() {
   fi
 }
 
-# ── Parse flags ──────────────────────────────────────────────────────────────
-INCLUDE_AGENT="false"
-TIMEOUT=60
-if [[ "${1:-}" == "--with-agent" ]]; then
-  INCLUDE_AGENT="true"
-  TIMEOUT=120
-fi
-
 # ── Check prerequisites ─────────────────────────────────────────────────────
-if [[ ! -f bin/fleetlift-mcp-amd64 ]]; then
-  echo "ERROR: bin/fleetlift-mcp-amd64 not found."
+if [[ ! -f bin/fleetlift-mcp-amd64 ]] && [[ ! -f bin/fleetlift-mcp-arm64 ]]; then
+  echo "ERROR: MCP sidecar binaries not found."
   echo "  Run: make mcp-sidecar"
   exit 1
 fi
 
-if ! file bin/fleetlift-mcp-amd64 | grep -q ELF; then
-  echo "ERROR: bin/fleetlift-mcp-amd64 is not a Linux ELF binary (sandbox requires linux/amd64)."
+# Confirm at least one ELF binary exists for the sandbox (linux target)
+MCP_ELF=""
+for arch in amd64 arm64; do
+  if [[ -f "bin/fleetlift-mcp-$arch" ]] && file "bin/fleetlift-mcp-$arch" | grep -q ELF; then
+    MCP_ELF="bin/fleetlift-mcp-$arch"
+    break
+  fi
+done
+if [[ -z "$MCP_ELF" ]]; then
+  echo "ERROR: No Linux ELF MCP binary found (sandbox requires linux/amd64 or linux/arm64)."
   echo "  Run: make mcp-sidecar"
   exit 1
 fi
-
-export FLEETLIFT_MCP_BINARY_PATH="$PROJECT_ROOT/bin/fleetlift-mcp"
-echo "MCP binary: $FLEETLIFT_MCP_BINARY_PATH"
+echo "MCP binary: $MCP_ELF"
 
 # Check worker is running
 if [[ -f "$WORKER_PIDFILE" ]] && kill -0 "$(cat "$WORKER_PIDFILE")" 2>/dev/null; then
@@ -50,12 +48,10 @@ else
 fi
 
 # ── Resolve team/user IDs ─────────────────────────────────────────────────────
-# Prefer DEV_TEAM_ID/DEV_USER_ID from dev-env.sh (set via local.env or docker exec).
 TEAM_ID="${DEV_TEAM_ID:-}"
 USER_ID="${DEV_USER_ID:-}"
 
 if [[ -z "$TEAM_ID" || -z "$USER_ID" ]]; then
-  # Fallback: query DB directly via psql (requires psql on PATH or docker)
   TEAM_ID=$(dbquery "SELECT id FROM teams LIMIT 1" 2>/dev/null | tr -d ' \n')
   USER_ID=$(dbquery "SELECT id FROM users LIMIT 1" 2>/dev/null | tr -d ' \n')
 fi
@@ -105,16 +101,11 @@ if ! curl -sf "${AUTH[@]}" "$API/api/workflows" > /dev/null 2>&1; then
 fi
 
 # ── Submit mcp-test workflow ─────────────────────────────────────────────────
-echo "Submitting mcp-test workflow (include_agent_step=$INCLUDE_AGENT)..."
+echo "Submitting mcp-test workflow..."
 RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
   "${AUTH[@]}" \
   -H "Content-Type: application/json" \
-  -d "{
-    \"workflow_id\": \"mcp-test\",
-    \"parameters\": {
-      \"include_agent_step\": \"$INCLUDE_AGENT\"
-    }
-  }" \
+  -d '{"workflow_id": "mcp-test", "parameters": {}}' \
   "$API/api/runs")
 
 HTTP_CODE=$(echo "$RESPONSE" | tail -1)
@@ -130,7 +121,8 @@ TEMPORAL_ID=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.st
 echo "Run ID:      $RUN_ID"
 echo "Temporal ID: $TEMPORAL_ID"
 
-# ── Wait for completion ───────────────────────────────────────────────────────
+# ── Wait for completion (agent step takes longer) ─────────────────────────────
+TIMEOUT=180
 echo "Waiting for workflow to complete (timeout: ${TIMEOUT}s)..."
 STATUS=""
 for i in $(seq 1 $((TIMEOUT / 2))); do
@@ -161,7 +153,6 @@ echo ""
 echo "=== DB Verification ==="
 OK=true
 
-# Check step statuses
 STEP_RESULTS=$(dbquery "
 SELECT json_agg(json_build_object(
   'step_id', step_id,
@@ -175,7 +166,7 @@ for s in steps:
     print(f\"  {s['step_id']}: {s['status']}\")
 "
 
-# Check shell step completed
+# Shell endpoint step
 SHELL_STATUS=$(dbquery \
   "SELECT status FROM step_runs WHERE run_id = '$RUN_ID' AND step_id = 'verify_mcp_endpoints'" 2>/dev/null | tr -d ' \n')
 if [[ "$SHELL_STATUS" == "complete" ]]; then
@@ -185,26 +176,17 @@ else
   OK=false
 fi
 
-# Check artifact was created
+# Shell artifact
 ARTIFACT_COUNT=$(dbquery \
   "SELECT count(*) FROM artifacts a JOIN step_runs sr ON a.step_run_id = sr.id WHERE sr.run_id = '$RUN_ID' AND a.name = 'mcp-test-shell.txt'" 2>/dev/null | tr -d ' \n')
 if [[ "$ARTIFACT_COUNT" -ge 1 ]]; then
-  echo "PASS: artifact 'mcp-test-shell.txt' found"
+  echo "PASS: shell artifact 'mcp-test-shell.txt' found"
 else
-  echo "FAIL: artifact 'mcp-test-shell.txt' not found"
+  echo "FAIL: shell artifact 'mcp-test-shell.txt' not found"
   OK=false
 fi
 
-# Check progress was written (may be overwritten by final output — accept either)
-PROGRESS=$(dbquery \
-  "SELECT output->'progress'->>'percentage' FROM step_runs WHERE run_id = '$RUN_ID' AND step_id = 'verify_mcp_endpoints'" 2>/dev/null | tr -d ' \n')
-if [[ "$PROGRESS" == "25" ]]; then
-  echo "PASS: progress percentage=25 found in step output"
-else
-  echo "INFO: progress percentage not found in final output (may have been overwritten — POST /progress returned 200 during execution)"
-fi
-
-# Check knowledge item was created
+# Knowledge item
 KNOWLEDGE_COUNT=$(dbquery \
   "SELECT count(*) FROM knowledge_items WHERE team_id = '$TEAM_ID' AND summary = 'mcp-test-learning'" 2>/dev/null | tr -d ' \n')
 if [[ "$KNOWLEDGE_COUNT" -ge 1 ]]; then
@@ -214,25 +196,24 @@ else
   OK=false
 fi
 
-# ── Agent step verification (if enabled) ──────────────────────────────────────
-if [[ "$INCLUDE_AGENT" == "true" ]]; then
-  AGENT_STATUS=$(dbquery \
-    "SELECT status FROM step_runs WHERE run_id = '$RUN_ID' AND step_id = 'agent_uses_mcp'" 2>/dev/null | tr -d ' \n')
-  if [[ "$AGENT_STATUS" == "complete" ]]; then
-    echo "PASS: agent_uses_mcp completed"
-  else
-    echo "FAIL: agent_uses_mcp status=$AGENT_STATUS"
-    OK=false
-  fi
+# Claude Code agent step
+AGENT_STATUS=$(dbquery \
+  "SELECT status FROM step_runs WHERE run_id = '$RUN_ID' AND step_id = 'agent_uses_mcp'" 2>/dev/null | tr -d ' \n')
+if [[ "$AGENT_STATUS" == "complete" ]]; then
+  echo "PASS: agent_uses_mcp completed"
+else
+  echo "FAIL: agent_uses_mcp status=$AGENT_STATUS"
+  OK=false
+fi
 
-  AGENT_ARTIFACT=$(dbquery \
-    "SELECT count(*) FROM artifacts a JOIN step_runs sr ON a.step_run_id = sr.id WHERE sr.run_id = '$RUN_ID' AND a.name = 'mcp-test-agent.txt'" 2>/dev/null | tr -d ' \n')
-  if [[ "$AGENT_ARTIFACT" -ge 1 ]]; then
-    echo "PASS: agent artifact 'mcp-test-agent.txt' found"
-  else
-    echo "FAIL: agent artifact 'mcp-test-agent.txt' not found"
-    OK=false
-  fi
+# Agent artifact (proves the agent actually called mcp__fleetlift__artifact__create)
+AGENT_ARTIFACT=$(dbquery \
+  "SELECT count(*) FROM artifacts a JOIN step_runs sr ON a.step_run_id = sr.id WHERE sr.run_id = '$RUN_ID' AND a.name = 'mcp-test-agent.txt'" 2>/dev/null | tr -d ' \n')
+if [[ "$AGENT_ARTIFACT" -ge 1 ]]; then
+  echo "PASS: agent artifact 'mcp-test-agent.txt' found"
+else
+  echo "FAIL: agent artifact 'mcp-test-agent.txt' not found (agent did not call artifact.create)"
+  OK=false
 fi
 
 # ── Cleanup test data ─────────────────────────────────────────────────────────

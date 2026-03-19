@@ -18,6 +18,8 @@ export TEMPORAL_ADDRESS="${TEMPORAL_ADDRESS:-localhost:7233}"
 export OPENSANDBOX_DOMAIN="${OPENSANDBOX_DOMAIN:-http://localhost:8090}"
 export JWT_SECRET="${JWT_SECRET:-dev-secret-for-testing-only-32chars!!}"
 export CREDENTIAL_ENCRYPTION_KEY="${CREDENTIAL_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}"
+# MCP sidecar — enable structured tool API for agent sandboxes (arch suffix appended at runtime)
+export FLEETLIFT_MCP_BINARY_PATH="${FLEETLIFT_MCP_BINARY_PATH:-$PROJECT_ROOT/bin/fleetlift-mcp}"
 
 # ── Postgres container helper ────────────────────────────────────────────────
 # Finds the running postgres container regardless of compose project name.

@@ -96,6 +96,7 @@ type ExecutionDef struct {
 	Credentials []string         `yaml:"credentials,omitempty"`
 	Output      *OutputSchemaDef `yaml:"output,omitempty"`
 	EvalPlugins []string         `yaml:"eval_plugins,omitempty"`
+	MaxTurns    int              `yaml:"max_turns,omitempty"` // 0 = use runner default
 }
 
 type OutputSchemaDef struct {

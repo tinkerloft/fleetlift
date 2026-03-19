@@ -35,11 +35,13 @@ steps:
   - id: transform
     title: Transform repositories
     mode: transform
-    repositories: "{{ .Params.repos }}"
+    repositories: "{{ .Params.repos | toJSON }}"
     max_parallel: 5
     failure_threshold: 3
     execution:
       agent: claude-code
+      credentials:
+        - GITHUB_TOKEN
       prompt: "{{ .Params.prompt }}"
       verifiers: "{{ .Params.verifiers }}"
 
@@ -56,6 +58,8 @@ steps:
     mode: transform
     action:
       type: create_pr
+      credentials:
+        - GITHUB_TOKEN
       config:
         branch_prefix: "fleet-transform"
         title: "Fleet transform"

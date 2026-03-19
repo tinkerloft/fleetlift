@@ -56,7 +56,7 @@ steps:
   - id: assess
     title: Assess repository documentation
     mode: report
-    repositories: "{{ .Params.repos }}"
+    repositories: "{{ .Params.repos | toJSON }}"
     max_parallel: 20
     execution:
       agent: claude-code

@@ -29,3 +29,11 @@ Workflows declare an `agent_profile` that installs plugins, skills, and MCPs int
 
 ## PRD for platform improvements
 - docs/plans/2026-03-18-workflow-expressiveness-prd.md
+
+
+### Snagging issues
+ * Costs are collected or displaued
+ * Run durations aren't shown against individual steps
+ * Inputs **for a step** aren't shown, only the overall DAG
+ * Outputs from each step don't appear as individual reports / artifacts
+ * Outputs are not human readable, they're structured JSON.  How do I see at a glance, and download, a report that's easy to consume ?

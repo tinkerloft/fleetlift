@@ -64,6 +64,11 @@ var templateBuiltinFuncs = map[string]any{
 	"le":       func() {},
 	"lt":       func() {},
 	"ne":       func() {},
+	// Custom template functions registered by RenderPrompt — must be present so
+	// parse.Parse does not reject templates that use them.
+	"toJSON":   func() {},
+	"truncate": func() {},
+	"join":     func() {},
 }
 
 var reservedCredNames = map[string]bool{
@@ -84,6 +89,7 @@ func ValidateWorkflow(def model.WorkflowDef, params map[string]any) []Validation
 	errs = append(errs, validateAgentTypes(def)...)
 	errs = append(errs, validateCredentialNames(def)...)
 	errs = append(errs, validateTemplateRefs(def)...)
+	errs = append(errs, validateJSONParamsInRepositories(def)...)
 	return errs
 }
 
@@ -420,6 +426,118 @@ func extractTemplateRefs(templateStr string, conditionCtx bool) (paramRefs []str
 		stepRefs = nil
 	}
 	return paramSet, stepRefs, nil
+}
+
+// validateJSONParamsInRepositories checks that any json-typed parameter referenced in a
+// repositories: template is piped through toJSON. Without it the Go template engine renders
+// the value as a Go fmt string (e.g. "[map[url:...]]") instead of JSON, causing a parse
+// failure at runtime.
+//
+// It detects pipes of the form {{ .Params.X }} where X is a json-typed param and the pipe
+// contains no toJSON call. It does NOT flag {{ .Params.X | toJSON }} or literal JSON arrays.
+func validateJSONParamsInRepositories(def model.WorkflowDef) []ValidationError {
+	jsonParams := make(map[string]bool, len(def.Parameters))
+	for _, p := range def.Parameters {
+		if p.Type == "json" {
+			jsonParams[p.Name] = true
+		}
+	}
+	if len(jsonParams) == 0 {
+		return nil
+	}
+
+	var errs []ValidationError
+	for _, step := range def.Steps {
+		repoStr, ok := step.Repositories.(string)
+		if !ok || repoStr == "" {
+			continue
+		}
+		for _, name := range jsonParamsWithoutToJSON(repoStr, jsonParams) {
+			errs = append(errs, ValidationError{
+				StepID:  step.ID,
+				Field:   "repositories",
+				Message: fmt.Sprintf("json-typed parameter %q must be piped through toJSON (use {{ .Params.%s | toJSON }})", name, name),
+			})
+		}
+	}
+	return errs
+}
+
+// jsonParamsWithoutToJSON walks the template AST and returns the names of json-typed
+// parameters that appear in a pipe without a toJSON call.
+func jsonParamsWithoutToJSON(tmpl string, jsonParams map[string]bool) []string {
+	trees, err := parse.Parse("t", tmpl, "{{", "}}", templateBuiltinFuncs)
+	if err != nil {
+		return nil // parse errors are reported by validateTemplateRefs
+	}
+	tree, ok := trees["t"]
+	if !ok || tree == nil || tree.Root == nil {
+		return nil
+	}
+
+	var violations []string
+	seen := make(map[string]bool)
+
+	var walkNode func(n parse.Node)
+	walkNode = func(n parse.Node) {
+		if n == nil {
+			return
+		}
+		switch node := n.(type) {
+		case *parse.ListNode:
+			for _, child := range node.Nodes {
+				walkNode(child)
+			}
+		case *parse.ActionNode:
+			// An action wraps a single top-level pipe — inspect it directly.
+			checkPipe(node.Pipe, jsonParams, seen, &violations)
+			// Also descend into any nested pipes inside commands.
+			for _, cmd := range node.Pipe.Cmds {
+				for _, arg := range cmd.Args {
+					walkNode(arg)
+				}
+			}
+		case *parse.IfNode:
+			walkNode(node.List)
+			walkNode(node.ElseList)
+		case *parse.RangeNode:
+			walkNode(node.List)
+			walkNode(node.ElseList)
+		case *parse.WithNode:
+			walkNode(node.List)
+			walkNode(node.ElseList)
+		}
+	}
+	walkNode(tree.Root)
+	return violations
+}
+
+// checkPipe examines one PipeNode: if it references a json-typed param and has no toJSON
+// call, the param name is appended to violations.
+func checkPipe(pipe *parse.PipeNode, jsonParams map[string]bool, seen map[string]bool, violations *[]string) {
+	if pipe == nil {
+		return
+	}
+	var jsonParamName string
+	hasToJSON := false
+	for _, cmd := range pipe.Cmds {
+		for _, arg := range cmd.Args {
+			switch a := arg.(type) {
+			case *parse.FieldNode:
+				if len(a.Ident) >= 2 && a.Ident[0] == "Params" && jsonParams[a.Ident[1]] {
+					jsonParamName = a.Ident[1]
+				}
+			case *parse.IdentifierNode:
+				if a.Ident == "toJSON" {
+					hasToJSON = true
+				}
+			}
+		}
+	}
+	if jsonParamName != "" && !hasToJSON && !seen[jsonParamName] {
+		seen[jsonParamName] = true
+		*violations = append(*violations, jsonParamName)
+	}
 }
 
 // upstreamOf returns a set of all step IDs that are upstream of (ancestors of) the given step,

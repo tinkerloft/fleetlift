@@ -30,6 +30,7 @@ type ResolvedStepOpts struct {
 	Credentials      []string                `json:"credentials,omitempty"`
 	PRConfig         *model.PRDef            `json:"pr_config,omitempty"`
 	Agent            string                  `json:"agent"`
+	MaxTurns         int                     `json:"max_turns,omitempty"`
 	EffectiveProfile *model.AgentProfileBody `json:"effective_profile,omitempty"`
 	EvalPluginURLs   []string                `json:"eval_plugin_urls,omitempty"`
 }

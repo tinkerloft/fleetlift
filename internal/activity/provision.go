@@ -152,16 +152,16 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 				"TOKEN_ISSUE_FAILED", err)
 		}
 
-		if err := a.Sandbox.WriteBytes(ctx, sandboxID, "/usr/local/bin/fleetlift-mcp", mcpData); err != nil {
+		if err := a.Sandbox.WriteBytes(ctx, sandboxID, "/tmp/fleetlift-mcp", mcpData); err != nil {
 			_ = a.Sandbox.Kill(ctx, sandboxID)
 			return "", fmt.Errorf("upload MCP binary: %w", err)
 		}
-		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, "chmod +x /usr/local/bin/fleetlift-mcp", "/"); err != nil {
+		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, "chmod +x /tmp/fleetlift-mcp", "/"); err != nil {
 			_ = a.Sandbox.Kill(ctx, sandboxID)
 			return "", fmt.Errorf("chmod MCP binary: %w", err)
 		}
 		// Verify chmod took effect using POSIX-portable test.
-		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, "test -x /usr/local/bin/fleetlift-mcp", "/"); err != nil {
+		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, "test -x /tmp/fleetlift-mcp", "/"); err != nil {
 			_ = a.Sandbox.Kill(ctx, sandboxID)
 			return "", fmt.Errorf("MCP binary is not executable after chmod")
 		}
@@ -174,7 +174,7 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 
 		// Pass token exclusively via env var — avoid exposing it in /proc/cmdline.
 		startCmd := fmt.Sprintf(
-			"FLEETLIFT_MCP_TOKEN=%s nohup /usr/local/bin/fleetlift-mcp --api-url %s --port %s > /tmp/fleetlift-mcp.log 2>&1 &",
+			"FLEETLIFT_MCP_TOKEN=%s nohup /tmp/fleetlift-mcp --api-url %s --port %s > /tmp/fleetlift-mcp.log 2>&1 &",
 			shellquote.Quote(mcpToken),
 			shellquote.Quote(apiURL), shellquote.Quote(mcpPort),
 		)
@@ -212,7 +212,7 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 		// Inject MCP port and token into sandbox env so the agent runner and test steps can use them.
 		// Use separate echo commands to avoid nested single-quote issues with shellquote.
 		profileCmd := fmt.Sprintf(
-			"echo export FLEETLIFT_MCP_PORT=%s >> /etc/profile.d/fleetlift-mcp.sh && echo export FLEETLIFT_MCP_TOKEN=%s >> /etc/profile.d/fleetlift-mcp.sh",
+			"echo export FLEETLIFT_MCP_PORT=%s >> /tmp/fleetlift-mcp-env.sh && echo export FLEETLIFT_MCP_TOKEN=%s >> /tmp/fleetlift-mcp-env.sh",
 			shellquote.Quote(mcpPort), shellquote.Quote(mcpToken),
 		)
 		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, profileCmd, "/"); err != nil {

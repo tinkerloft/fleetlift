@@ -196,6 +196,7 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 	events, err := runner.Run(ctx, input.SandboxID, agent.RunOpts{
 		Prompt:         prompt,
 		WorkDir:        workDir,
+		MaxTurns:       stepInput.ResolvedOpts.MaxTurns,
 		EvalPluginDirs: input.EvalPluginDirs,
 	})
 	if err != nil {

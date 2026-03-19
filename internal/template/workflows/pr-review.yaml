@@ -25,6 +25,8 @@ steps:
         ref: "refs/pull/{{ .Params.pr_number }}/head"
     execution:
       agent: claude-code
+      credentials:
+        - GITHUB_TOKEN
       prompt: |
         You are in a repository with PR #{{ .Params.pr_number }} already checked out.
         The PR branch is at HEAD and the base branch (main/master) is at origin/main or origin/master.
@@ -51,6 +53,8 @@ steps:
         ref: "refs/pull/{{ .Params.pr_number }}/head"
     execution:
       agent: claude-code
+      credentials:
+        - GITHUB_TOKEN
       prompt: |
         Review the code changes in this PR thoroughly.
 

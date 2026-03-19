@@ -1,17 +1,14 @@
 version: 1
 id: mcp-test
 title: MCP Sidecar Test
-description: Diagnostic workflow — verifies MCP sidecar provisioning, all 9 backend API endpoints, and optionally Claude Code MCP discovery.
+description: >
+  Verifies MCP sidecar provisioning end-to-end: shell step exercises all API
+  endpoints via raw HTTP, then a Claude Code agent step confirms the agent can
+  discover and call MCP tools naturally.
 tags:
   - test
   - diagnostic
   - mcp
-parameters:
-  - name: include_agent_step
-    type: string
-    required: false
-    default: "false"
-    description: "Set to 'true' to run the optional Claude Code agent step (costs AI tokens)"
 steps:
   - id: verify_mcp_endpoints
     title: Verify MCP sidecar and API endpoints
@@ -20,9 +17,8 @@ steps:
     execution:
       agent: shell
       prompt: |
-        . /etc/profile.d/fleetlift-mcp.sh 2>/dev/null
+        . /tmp/fleetlift-mcp-env.sh 2>/dev/null
         echo "DEBUG: PORT=$FLEETLIFT_MCP_PORT TOKEN_PREFIX=${FLEETLIFT_MCP_TOKEN:0:20}"
-        cat /etc/profile.d/fleetlift-mcp.sh 2>/dev/null | head -3
         test -n "$FLEETLIFT_MCP_PORT" || { echo "FAIL: FLEETLIFT_MCP_PORT not set"; exit 1; }
         test -n "$FLEETLIFT_MCP_TOKEN" || { echo "FAIL: FLEETLIFT_MCP_TOKEN not set"; exit 1; }
         printf %s dXNlIHN0cmljdDsgdXNlIHdhcm5pbmdzOyB1c2UgSU86OlNvY2tldDo6SU5FVDsKbXkgJHBvcnQgPSAkRU5We0ZMRUVUTElGVF9NQ1BfUE9SVH07Cm15ICR0b2tlbiA9ICRFTlZ7RkxFRVRMSUZUX01DUF9UT0tFTn07Cm15ICRhcGkgPSAiaG9zdC5kb2NrZXIuaW50ZXJuYWw6ODA4MCI7Cm15ICgkcGFzcywkZmFpbCkgPSAoMCwwKTsKc3ViIGh0dHBfcmVxIHsKICBteSAoJG1ldGhvZCwkcGF0aCwkYm9keSkgPSBAXzsKICBteSAkcyA9IElPOjpTb2NrZXQ6OklORVQtPm5ldyhQZWVyQWRkcj0+JGFwaSxUaW1lb3V0PT41KSBvciByZXR1cm4gKDAsImNvbm5lY3QgZmFpbGVkIik7CiAgbXkgJHJlcSA9ICIkbWV0aG9kICRwYXRoIEhUVFAvMS4wXHJcbkhvc3Q6ICRhcGlcclxuQXV0aG9yaXphdGlvbjogQmVhcmVyICR0b2tlblxyXG4iOwogIGlmICgkYm9keSkgeyAkcmVxIC49ICJDb250ZW50LVR5cGU6IGFwcGxpY2F0aW9uL2pzb25cclxuQ29udGVudC1MZW5ndGg6ICIubGVuZ3RoKCRib2R5KS4iXHJcblxyXG4kYm9keSI7IH0KICBlbHNlIHsgJHJlcSAuPSAiXHJcbiI7IH0KICBwcmludCAkcyAkcmVxOwogIG15ICRyZXNwID0gam9pbiAiIiwgPCRzPjsKICBjbG9zZSAkczsKICAkcmVzcCA9fiAvXkhUVFBcL1xTK1xzKyhcZCspL3Mgb3IgcmV0dXJuICgwLCJubyBzdGF0dXMiKTsKICByZXR1cm4gKCQxLCAkcmVzcCk7Cn0Kc3ViIGNoZWNrIHsKICBteSAoJG5hbWUsJGV4cGVjdCwkZ290KSA9IEBfOwogIGlmICgkZ290ID09ICRleHBlY3QpIHsgcHJpbnQgIlBBU1M6ICRuYW1lIChIVFRQICRnb3QpXG4iOyAkcGFzcysrOyB9CiAgZWxzZSB7IHByaW50ICJGQUlMOiAkbmFtZSAtIGV4cGVjdGVkIEhUVFAgJGV4cGVjdCwgZ290ICRnb3RcbiI7ICRmYWlsKys7IH0KfQpteSAkaGVhbHRoeSA9IDA7CmZvciAoMS4uNSkgewogIG15ICRzID0gSU86OlNvY2tldDo6SU5FVC0+bmV3KFBlZXJBZGRyPT4ibG9jYWxob3N0OiRwb3J0IixUaW1lb3V0PT4xKTsKICBpZiAoJHMpIHsgcHJpbnQgJHMgIkdFVCAvaGVhbHRoIEhUVFAvMS4wXHJcbkhvc3Q6IGxvY2FsaG9zdFxyXG5cclxuIjsgbXkgJHI9am9pbiIiLCRzLT5nZXRsaW5lczsgY2xvc2UgJHM7IGlmICgkcj1+L29rLykgeyAkaGVhbHRoeT0xOyBsYXN0OyB9IH0KICBzbGVlcCAxOwp9CmlmICgkaGVhbHRoeSkgeyBwcmludCAiUEFTUzogc2lkZWNhciBoZWFsdGggY2hlY2tcbiI7ICRwYXNzKys7IH0KZWxzZSB7IGRpZSAiRkFJTDogc2lkZWNhciBoZWFsdGggY2hlY2sgbm90IHJlc3BvbmRpbmcgYWZ0ZXIgNXNcbiI7IH0KbXkgKCRjLCRyKSA9IGh0dHBfcmVxKCJQT1NUIiwiL2FwaS9tY3AvcHJvZ3Jlc3MiLHEoeyJwZXJjZW50YWdlIjoyNSwibWVzc2FnZSI6Im1jcC10ZXN0LXNoZWxsIn0pKTsKY2hlY2soIlBPU1QgL3Byb2dyZXNzIiwyMDAsJGMpOwooJGMsJHIpID0gaHR0cF9yZXEoIlBPU1QiLCIvYXBpL21jcC9hcnRpZmFjdHMiLHEoeyJuYW1lIjoibWNwLXRlc3Qtc2hlbGwudHh0IiwiY29udGVudCI6ImhlbGxvIGZyb20gc2hlbGwifSkpOwpjaGVjaygiUE9TVCAvYXJ0aWZhY3RzIiwyMDEsJGMpOwooJGMsJHIpID0gaHR0cF9yZXEoIkdFVCIsIi9hcGkvbWNwL3J1biIsdW5kZWYpOwpjaGVjaygiR0VUIC9ydW4iLDIwMCwkYyk7CigkYywkcikgPSBodHRwX3JlcSgiUE9TVCIsIi9hcGkvbWNwL2tub3dsZWRnZSIscSh7InR5cGUiOiJwYXR0ZXJuIiwic3VtbWFyeSI6Im1jcC10ZXN0LWxlYXJuaW5nIiwiZGV0YWlscyI6ImludGVncmF0aW9uIHRlc3QifSkpOwpjaGVjaygiUE9TVCAva25vd2xlZGdlIiwyMDEsJGMpOwooJGMsJHIpID0gaHR0cF9yZXEoIkdFVCIsIi9hcGkvbWNwL2tub3dsZWRnZS9zZWFyY2g/cT1tY3AtdGVzdCZtYXg9NSIsdW5kZWYpOwpjaGVjaygiR0VUIC9rbm93bGVkZ2Uvc2VhcmNoIiwyMDAsJGMpOwooJGMsJHIpID0gaHR0cF9yZXEoIkdFVCIsIi9hcGkvbWNwL2tub3dsZWRnZT9tYXg9NSIsdW5kZWYpOwpjaGVjaygiR0VUIC9rbm93bGVkZ2UiLDIwMCwkYyk7CigkYywkcikgPSBodHRwX3JlcSgiR0VUIiwiL2FwaS9tY3Avc3RlcHMvbm9uZXhpc3RlbnQvb3V0cHV0Iix1bmRlZik7CmNoZWNrKCJHRVQgL3N0ZXBzL25vbmV4aXN0ZW50L291dHB1dCIsNDA0LCRjKTsKcHJpbnQgIlxuUmVzdWx0czogJHBhc3MgcGFzc2VkLCAkZmFpbCBmYWlsZWRcbiI7CmV4aXQgMSBpZiAkZmFpbCA+IDA7CnByaW50ICJtY3AtZW5kcG9pbnRzOiBBTEwgUEFTU0VEXG4iOwo= | base64 -d > /tmp/mcp_test.pl
@@ -32,16 +28,16 @@ steps:
     title: Agent uses MCP tools
     depends_on:
       - verify_mcp_endpoints
-    sandbox_group: mcp-test
     mode: report
     execution:
-      agent: shell
+      agent: claude-code
       prompt: |
-        if [ "{{ .Params.include_agent_step }}" != "true" ]; then echo "agent step skipped"; exit 0; fi
-        . /etc/profile.d/fleetlift-mcp.sh 2>/dev/null || true
-        test -n "${FLEETLIFT_MCP_PORT:-}" || { echo "FAIL: FLEETLIFT_MCP_PORT not set"; exit 1; }
-        mkdir -p /workspace
-        printf "{\"mcpServers\":{\"fleetlift\":{\"type\":\"sse\",\"url\":\"http://localhost:%s/sse\"}}}" "$FLEETLIFT_MCP_PORT" > /workspace/.mcp.json
-        cd /workspace
-        claude -p "You have MCP tools available from the fleetlift server. Do these in order: (1) Use the progress.update tool to report 75 percent progress with message agent-mcp-test. (2) Use the artifact.create tool to create an artifact named mcp-test-agent.txt with content hello from agent mcp. (3) Print DONE." --output-format stream-json --dangerously-skip-permissions --max-turns 10 2>&1 || true
-        echo "agent-mcp-step-complete"
+        You are running an MCP connectivity test for the fleetlift platform.
+
+        Please do the following steps in order — do not skip any:
+
+        1. Call mcp__fleetlift__progress__update with percentage=75 and message="agent-mcp-test"
+        2. Call mcp__fleetlift__artifact__create with name="mcp-test-agent.txt", content="hello from claude-code agent", and content_type="text/plain"
+        3. Print "AGENT-MCP-TEST: DONE" when both calls succeed.
+
+        If any MCP tool call fails, print "AGENT-MCP-TEST: FAILED - <reason>" and exit.

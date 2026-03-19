@@ -36,6 +36,8 @@ steps:
       - url: "{{ .Params.repo_url }}"
     execution:
       agent: claude-code
+      credentials:
+        - GITHUB_TOKEN
       prompt: |
         Analyze these logs and the codebase to identify the root cause of this incident.
 

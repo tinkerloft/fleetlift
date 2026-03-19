@@ -69,6 +69,16 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Apply defaults for optional parameters not supplied by the caller.
+	if req.Parameters == nil {
+		req.Parameters = make(map[string]any)
+	}
+	for _, p := range def.Parameters {
+		if _, ok := req.Parameters[p.Name]; !ok && p.Default != nil {
+			req.Parameters[p.Name] = p.Default
+		}
+	}
+
 	if errs := workflow.ValidateWorkflow(def, req.Parameters); len(errs) > 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]any{
 			"error":             "workflow validation failed",

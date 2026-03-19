@@ -533,6 +533,7 @@ func resolveStep(step model.StepDef, params map[string]any, outputs map[string]*
 	}
 	opts.Verifiers = step.Execution.Verifiers
 	opts.Credentials = step.Execution.Credentials
+	opts.MaxTurns = step.Execution.MaxTurns
 	opts.PRConfig = step.PullRequest
 
 	// Resolve repositories
