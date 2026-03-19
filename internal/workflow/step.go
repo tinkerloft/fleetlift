@@ -100,9 +100,31 @@ type RunPreflightOutput struct {
 }
 
 // StepWorkflow orchestrates a single step: provision sandbox, run agent, handle HITL signals, optionally create PR.
-func StepWorkflow(ctx workflow.Context, input StepInput) (*model.StepOutput, error) {
+func StepWorkflow(ctx workflow.Context, input StepInput) (retOut *model.StepOutput, retErr error) {
 	logger := workflow.GetLogger(ctx)
 	respondCh := workflow.GetSignalChannel(ctx, "respond")
+
+	// If the workflow returns an error after the step_run record exists, mark it
+	// failed in the DB. Use a disconnected context so this runs even if ctx is
+	// cancelled (e.g. worker restart, parent cancellation).
+	defer func() {
+		if retErr != nil && input.StepRunID != "" {
+			dCtx, _ := workflow.NewDisconnectedContext(ctx)
+			ao := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second, RetryPolicy: dbRetry}
+			if err := workflow.ExecuteActivity(
+				workflow.WithActivityOptions(dCtx, ao),
+				CompleteStepRunActivity,
+				input.StepRunID,
+				string(model.StepStatusFailed),
+				map[string]any(nil),
+				"",
+				retErr.Error(),
+				0.0,
+			).Get(dCtx, nil); err != nil {
+				logger.Error("failed to mark step run as failed", "step_run_id", input.StepRunID, "error", err)
+			}
+		}
+	}()
 
 	// 1. Provision sandbox (unless reusing from group)
 	var sandboxID string
