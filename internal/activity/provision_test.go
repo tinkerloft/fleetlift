@@ -210,10 +210,10 @@ func TestProvisionSandbox_MCPSetup(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "sb-mcp", sandboxID)
 
-	// Verify binary was uploaded
-	assert.Contains(t, sb.writtenFiles, "/tmp/fleetlift-mcp")
+	// Verify binary was uploaded to the staging path before install
+	assert.Contains(t, sb.writtenFiles, "/tmp/fleetlift-mcp-upload")
 
-	// Verify chmod, test -x, start cmd, health check, and profile.d write were called
+	// Verify install cmd, test -x, start cmd, health check, and profile.d write were called
 	assert.True(t, len(sb.execCmds) >= 5, "expected at least 5 exec calls, got %d", len(sb.execCmds))
 
 	// Verify the nohup command does NOT contain --token flag

@@ -152,18 +152,21 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 				"TOKEN_ISSUE_FAILED", err)
 		}
 
-		if err := a.Sandbox.WriteBytes(ctx, sandboxID, "/tmp/fleetlift-mcp", mcpData); err != nil {
+		// Upload to a temporary path, then atomically move into a 700-permission
+		// directory so the binary is not world-writable while it sits in /tmp.
+		if err := a.Sandbox.WriteBytes(ctx, sandboxID, "/tmp/fleetlift-mcp-upload", mcpData); err != nil {
 			_ = a.Sandbox.Kill(ctx, sandboxID)
 			return "", fmt.Errorf("upload MCP binary: %w", err)
 		}
-		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, "chmod +x /tmp/fleetlift-mcp", "/"); err != nil {
+		installCmd := "mkdir -m 700 /tmp/fleetlift-sidecar && mv /tmp/fleetlift-mcp-upload /tmp/fleetlift-sidecar/mcp && chmod 500 /tmp/fleetlift-sidecar/mcp"
+		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, installCmd, "/"); err != nil {
 			_ = a.Sandbox.Kill(ctx, sandboxID)
-			return "", fmt.Errorf("chmod MCP binary: %w", err)
+			return "", fmt.Errorf("install MCP binary: %w", err)
 		}
-		// Verify chmod took effect using POSIX-portable test.
-		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, "test -x /tmp/fleetlift-mcp", "/"); err != nil {
+		// Verify the binary is executable using POSIX-portable test.
+		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, "test -x /tmp/fleetlift-sidecar/mcp", "/"); err != nil {
 			_ = a.Sandbox.Kill(ctx, sandboxID)
-			return "", fmt.Errorf("MCP binary is not executable after chmod")
+			return "", fmt.Errorf("MCP binary is not executable after install")
 		}
 
 		apiURL := os.Getenv("FLEETLIFT_API_URL")
@@ -174,7 +177,7 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 
 		// Pass token exclusively via env var — avoid exposing it in /proc/cmdline.
 		startCmd := fmt.Sprintf(
-			"FLEETLIFT_MCP_TOKEN=%s nohup /tmp/fleetlift-mcp --api-url %s --port %s > /tmp/fleetlift-mcp.log 2>&1 &",
+			"FLEETLIFT_MCP_TOKEN=%s nohup /tmp/fleetlift-sidecar/mcp --api-url %s --port %s > /tmp/fleetlift-mcp.log 2>&1 &",
 			shellquote.Quote(mcpToken),
 			shellquote.Quote(apiURL), shellquote.Quote(mcpPort),
 		)

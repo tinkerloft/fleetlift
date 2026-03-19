@@ -479,10 +479,28 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 						logger.Error("failed to create fan-out partial failure inbox item", "error", err)
 					}
 
-					// Wait for fan_out_resolve signal.
+					// Wait for fan_out_resolve signal with a 48-hour timeout.
+					// Using a selector prevents the workflow from blocking forever if the
+					// operator never responds to the inbox item.
 					resolveCh := workflow.GetSignalChannel(gCtx, SignalFanOutResolve)
 					var resolvePayload FanOutResolvePayload
-					resolveCh.Receive(gCtx, &resolvePayload)
+					timedOut := false
+					sel := workflow.NewSelector(gCtx)
+					sel.AddReceive(resolveCh, func(c workflow.ReceiveChannel, _ bool) {
+						c.Receive(gCtx, &resolvePayload)
+					})
+					sel.AddFuture(workflow.NewTimer(gCtx, 48*time.Hour), func(_ workflow.Future) {
+						timedOut = true
+					})
+					sel.Select(gCtx)
+					if timedOut {
+						results[i] = &model.StepOutput{
+							StepID: step.ID,
+							Status: model.StepStatusFailed,
+							Error:  fmt.Sprintf("fan-out partial failure timed out after 48h waiting for operator decision (%d/%d repos failed)", fanFailures, len(repos)),
+						}
+						return
+					}
 
 					if resolvePayload.Action == "terminate" {
 						results[i] = &model.StepOutput{

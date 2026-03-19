@@ -28,6 +28,7 @@ steps:
     title: Agent uses MCP tools
     depends_on:
       - verify_mcp_endpoints
+    sandbox_group: mcp-test
     mode: report
     execution:
       agent: claude-code

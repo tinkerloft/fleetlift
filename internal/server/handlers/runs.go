@@ -523,7 +523,7 @@ func (h *RunsHandler) ResolveFanOut(w http.ResponseWriter, r *http.Request) {
 		Action string `json:"action"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || (req.Action != "proceed" && req.Action != "terminate") {
-		http.Error(w, "invalid action", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid action")
 		return
 	}
 
