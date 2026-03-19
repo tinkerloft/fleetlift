@@ -30,16 +30,16 @@ function NavLink({ href, label, icon: Icon, active, badge }: {
     <Link
       to={href}
       className={cn(
-        'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+        'flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[12px] transition-colors',
         active
-          ? 'bg-sidebar-accent text-foreground font-medium'
-          : 'text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground',
+          ? 'bg-accent/10 text-accent font-medium'
+          : 'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground',
       )}
     >
-      <Icon className="h-4 w-4 shrink-0" />
+      <Icon className="h-3.5 w-3.5 shrink-0" />
       <span className="flex-1">{label}</span>
       {badge != null && badge > 0 && (
-        <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 text-[10px] font-medium text-white">
+        <span className="ml-auto flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[9px] font-medium text-white font-mono">
           {badge}
         </span>
       )}
@@ -65,17 +65,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen bg-background">
       {/* Sidebar */}
-      <aside className="sticky top-0 flex h-screen w-56 shrink-0 flex-col border-r bg-sidebar">
+      <aside className="sticky top-0 flex h-screen w-52 shrink-0 flex-col border-r bg-sidebar">
         {/* Logo */}
-        <div className="flex h-14 items-center gap-2 border-b px-4">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground">
-            <span className="text-xs font-bold text-background">FL</span>
+        <div className="flex h-12 items-center gap-2.5 border-b px-4">
+          <div className="flex h-6 w-6 items-center justify-center rounded bg-accent">
+            <span className="text-[10px] font-bold text-white font-mono tracking-tight">FL</span>
           </div>
-          <span className="text-sm font-semibold tracking-tight">Fleetlift</span>
+          <span className="text-[13px] font-semibold tracking-tight text-foreground">Fleetlift</span>
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 space-y-1 px-3 py-3">
+        <nav className="flex-1 space-y-0.5 px-2 py-2.5">
           {NAV_ITEMS.map(({ href, label, icon }) => (
             <NavLink
               key={href}
@@ -89,7 +89,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         </nav>
 
         {/* Footer */}
-        <div className="border-t px-3 py-3 flex flex-col gap-1">
+        <div className="border-t px-2 py-2.5 flex flex-col gap-0.5">
           <ThemeToggle />
           <UserMenu />
         </div>

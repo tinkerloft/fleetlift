@@ -73,10 +73,10 @@ export function DAGGraph({ steps, stepRuns, onSelectStep, selectedStepId }: DAGG
 
     const n: Node[] = []
     const e: Edge[] = []
-    const NODE_W = 210
-    const NODE_H = 60
-    const GAP_X = 24
-    const GAP_Y = 100
+    const NODE_W = 150
+    const NODE_H = 44
+    const GAP_X = 12
+    const GAP_Y = 80
 
     for (const step of steps) {
       const level = levels.get(step.id) ?? 0
@@ -172,10 +172,11 @@ export function DAGGraph({ steps, stepRuns, onSelectStep, selectedStepId }: DAGG
         nodeTypes={nodeTypes}
         onNodeClick={onNodeClick}
         fitView
+        fitViewOptions={{ padding: 0.1, maxZoom: 1.0 }}
         proOptions={{ hideAttribution: true }}
         nodesDraggable={false}
         nodesConnectable={false}
-        minZoom={0.5}
+        minZoom={0.3}
         maxZoom={1.5}
       >
         <Controls showInteractive={false} />

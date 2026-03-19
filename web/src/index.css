@@ -1,7 +1,6 @@
 @import "tailwindcss";
 
-/* Map shadcn/ui CSS variables to Tailwind v4 color utilities.
-   @theme inline passes the value through as-is so hsl(var(--x)) resolves at runtime. */
+/* Map shadcn/ui CSS variables to Tailwind v4 color utilities. */
 @theme inline {
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
@@ -26,6 +25,9 @@
   --color-sidebar-foreground: hsl(var(--sidebar-foreground));
   --color-sidebar-border: hsl(var(--sidebar-border));
   --color-sidebar-accent: hsl(var(--sidebar-accent));
+  /* Typography */
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Fira Code', ui-monospace, monospace;
 }
 
 @layer base {
@@ -42,17 +44,17 @@
     --secondary-foreground: 220 14% 16%;
     --muted: 220 14% 96%;
     --muted-foreground: 220 9% 46%;
-    --accent: 220 14% 96%;
-    --accent-foreground: 220 14% 16%;
+    --accent: 234 89% 62%;
+    --accent-foreground: 0 0% 100%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --success: 142 71% 45%;
+    --success: 142 71% 38%;
     --success-foreground: 0 0% 98%;
-    --warning: 38 92% 50%;
+    --warning: 38 92% 46%;
     --warning-foreground: 0 0% 9%;
     --border: 220 13% 91%;
     --input: 220 13% 91%;
-    --ring: 220 14% 16%;
+    --ring: 234 89% 62%;
     --chart-1: 221 83% 53%;
     --chart-2: 142 71% 45%;
     --chart-3: 38 92% 50%;
@@ -64,39 +66,46 @@
     --sidebar-border: 220 13% 91%;
     --sidebar-accent: 220 14% 93%;
   }
+
   .dark {
-    --background: 220 13% 16%;
-    --foreground: 210 20% 95%;
-    --card: 220 13% 19%;
-    --card-foreground: 210 20% 95%;
-    --popover: 220 13% 19%;
-    --popover-foreground: 210 20% 95%;
-    --primary: 210 20% 95%;
-    --primary-foreground: 220 13% 16%;
-    --secondary: 220 10% 23%;
-    --secondary-foreground: 210 20% 95%;
-    --muted: 220 10% 23%;
-    --muted-foreground: 220 10% 60%;
-    --accent: 220 10% 23%;
-    --accent-foreground: 210 20% 95%;
-    --destructive: 0 62% 30%;
+    /* Surfaces — deep near-black stack */
+    --background:    222 21%  7%;   /* #0B0D11 */
+    --foreground:    220 12% 87%;   /* #D4D7DE */
+    --card:          225 18% 11%;   /* #13151A */
+    --card-foreground: 220 12% 87%;
+    --popover:       225 18% 11%;
+    --popover-foreground: 220 12% 87%;
+    --primary:       220 12% 87%;
+    --primary-foreground: 222 21% 7%;
+    --secondary:     223 16% 14%;   /* #181B22 — hover surface */
+    --secondary-foreground: 220 12% 87%;
+    --muted:         223 16% 14%;
+    --muted-foreground: 224 12% 50%;  /* #7B8099 */
+    /* Indigo accent replaces neutral grey */
+    --accent:        234 89% 73%;   /* #818CF8 */
+    --accent-foreground: 0 0% 100%;
+    /* Status — vivid for dark backgrounds */
+    --destructive:   351 75% 60%;   /* #F43F5E */
     --destructive-foreground: 0 0% 98%;
-    --success: 142 60% 35%;
+    --success:       142 76% 45%;   /* #22C55E */
     --success-foreground: 0 0% 98%;
-    --warning: 38 80% 45%;
+    --warning:        38 92% 50%;   /* #F59E0B */
     --warning-foreground: 0 0% 98%;
-    --border: 220 10% 26%;
-    --input: 220 10% 26%;
-    --ring: 210 20% 85%;
-    --chart-1: 221 70% 60%;
-    --chart-2: 142 60% 50%;
-    --chart-3: 38 80% 55%;
-    --chart-4: 262 70% 65%;
-    --chart-5: 0 60% 55%;
-    --sidebar: 220 13% 14%;
-    --sidebar-foreground: 210 20% 95%;
-    --sidebar-border: 220 10% 26%;
-    --sidebar-accent: 220 10% 21%;
+    /* Borders — very subtle */
+    --border:        224 15% 16%;   /* #1D2028 */
+    --input:         224 15% 16%;
+    --ring:          234 89% 73%;
+    /* Charts */
+    --chart-1: 221 83% 63%;
+    --chart-2: 142 76% 50%;
+    --chart-3:  38 92% 55%;
+    --chart-4: 262 83% 68%;
+    --chart-5: 351 75% 60%;
+    /* Sidebar — fractionally lighter than background */
+    --sidebar:         222 21%  9%;
+    --sidebar-foreground: 220 12% 87%;
+    --sidebar-border:  224 15% 14%;
+    --sidebar-accent:  223 16% 14%;
   }
 }
 
@@ -107,13 +116,62 @@
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
+    font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* IBM Plex Sans optical features */
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  code, kbd, pre, .font-mono {
+    font-family: 'IBM Plex Mono', 'Fira Code', ui-monospace, monospace;
   }
 }
 
+/* ── Status dot glows ─────────────────────────────────────────────────────── */
+/*
+  Used by DAGNode and StepTimeline. Defined here so the glow colours stay
+  in sync with the design tokens without duplicating HSL values in JS.
+*/
 @layer utilities {
+  .status-dot {
+    display: inline-block;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .dot-complete {
+    background: hsl(142 76% 45%);
+    box-shadow: 0 0 0 2px hsl(142 76% 45% / 0.15), 0 0 8px hsl(142 76% 45% / 0.35);
+  }
+  .dot-running, .dot-cloning {
+    background: hsl(221 83% 63%);
+    box-shadow: 0 0 0 2px hsl(221 83% 63% / 0.15), 0 0 8px hsl(221 83% 63% / 0.35);
+    animation: dot-pulse 1.4s ease-in-out infinite;
+  }
+  .dot-verifying {
+    background: hsl(262 83% 68%);
+    box-shadow: 0 0 0 2px hsl(262 83% 68% / 0.15), 0 0 8px hsl(262 83% 68% / 0.3);
+    animation: dot-pulse 1.4s ease-in-out infinite;
+  }
+  .dot-awaiting_input {
+    background: hsl(38 92% 50%);
+    box-shadow: 0 0 0 2px hsl(38 92% 50% / 0.15), 0 0 8px hsl(38 92% 50% / 0.3);
+    animation: dot-pulse 1.4s ease-in-out infinite;
+  }
+  .dot-failed {
+    background: hsl(351 75% 60%);
+    box-shadow: 0 0 0 2px hsl(351 75% 60% / 0.15), 0 0 8px hsl(351 75% 60% / 0.3);
+  }
+  .dot-pending, .dot-skipped {
+    background: hsl(224 12% 32%);
+  }
+
+  @keyframes dot-pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.45; }
+  }
+
+  /* Edge animation (DAG) */
   @keyframes dash-flow {
     to { stroke-dashoffset: -12; }
   }
