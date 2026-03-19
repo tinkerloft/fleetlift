@@ -294,7 +294,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 					var stepRunID string
 					if err = workflow.ExecuteActivity(
 						workflow.WithActivityOptions(gCtx, createAO),
-						CreateStepRunActivity, input.RunID, step.ID, step.Title, "",
+						CreateStepRunActivity, input.RunID, step.ID, step.Title, "", map[string]any(nil),
 					).Get(gCtx, &stepRunID); err != nil {
 						results[i] = &model.StepOutput{
 							StepID: step.ID,
@@ -348,9 +348,13 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 					childWFID := fmt.Sprintf("%s-%s", input.RunID, step.ID)
 					createAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second, RetryPolicy: dbRetry}
 					var stepRunID string
+					var singleStepInput map[string]any
+					if len(repos) == 1 {
+						singleStepInput = map[string]any{"repo_url": repos[0].URL, "ref": repos[0].Ref}
+					}
 					if err = workflow.ExecuteActivity(
 						workflow.WithActivityOptions(gCtx, createAO),
-						CreateStepRunActivity, input.RunID, step.ID, step.Title, childWFID,
+						CreateStepRunActivity, input.RunID, step.ID, step.Title, childWFID, singleStepInput,
 					).Get(gCtx, &stepRunID); err != nil {
 						results[i] = &model.StepOutput{
 							StepID: step.ID,
@@ -411,6 +415,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 						if err := workflow.ExecuteActivity(
 							workflow.WithActivityOptions(rCtx, createAO),
 							CreateStepRunActivity, input.RunID, fanStepID, step.Title, fanChildWFID,
+							map[string]any{"repo_url": repo.URL, "ref": repo.Ref},
 						).Get(rCtx, &stepRunID); err != nil {
 							fanResults[j] = &model.StepOutput{
 								StepID: step.ID,

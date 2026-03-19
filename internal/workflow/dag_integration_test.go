@@ -29,7 +29,7 @@ func (m *dagMockActivities) UpdateRunStatus(_ context.Context, runID, status, er
 	return args.Error(0)
 }
 
-func (m *dagMockActivities) CreateStepRun(_ context.Context, runID, stepID, stepTitle, temporalWorkflowID string) (string, error) {
+func (m *dagMockActivities) CreateStepRun(_ context.Context, runID, stepID, stepTitle, temporalWorkflowID string, input map[string]any) (string, error) {
 	args := m.Called(runID, stepID, stepTitle, temporalWorkflowID)
 	return args.String(0), args.Error(1)
 }

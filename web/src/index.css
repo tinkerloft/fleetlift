@@ -171,6 +171,26 @@
     50%       { opacity: 0.45; }
   }
 
+  /* DAG node active-state border animations */
+  .dag-node-running {
+    border-color: hsl(221 83% 63% / 0.8);
+    box-shadow: 0 0 0 1px hsl(221 83% 63% / 0.2), 0 0 14px hsl(221 83% 63% / 0.15);
+    animation: node-border-pulse 1.8s ease-in-out infinite;
+  }
+  .dag-node-waiting {
+    border-color: hsl(38 92% 50% / 0.8);
+    box-shadow: 0 0 0 1px hsl(38 92% 50% / 0.2), 0 0 14px hsl(38 92% 50% / 0.15);
+    animation: node-border-pulse-amber 1.8s ease-in-out infinite;
+  }
+  @keyframes node-border-pulse {
+    0%, 100% { border-color: hsl(221 83% 63% / 0.7); box-shadow: 0 0 0 1px hsl(221 83% 63% / 0.2), 0 0 14px hsl(221 83% 63% / 0.15); }
+    50%       { border-color: hsl(221 83% 63%);       box-shadow: 0 0 0 1px hsl(221 83% 63% / 0.35), 0 0 20px hsl(221 83% 63% / 0.25); }
+  }
+  @keyframes node-border-pulse-amber {
+    0%, 100% { border-color: hsl(38 92% 50% / 0.7); box-shadow: 0 0 0 1px hsl(38 92% 50% / 0.2), 0 0 14px hsl(38 92% 50% / 0.15); }
+    50%       { border-color: hsl(38 92% 50%);       box-shadow: 0 0 0 1px hsl(38 92% 50% / 0.35), 0 0 20px hsl(38 92% 50% / 0.25); }
+  }
+
   /* Edge animation (DAG) */
   @keyframes dash-flow {
     to { stroke-dashoffset: -12; }

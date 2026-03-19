@@ -83,6 +83,7 @@ export interface StepRun {
   parent_step_run_id?: string
   checkpoint_branch?: string
   cost_usd?: number
+  input?: Record<string, unknown>
 }
 
 export interface StepRunLog {

@@ -63,8 +63,7 @@ function StepTimelineItem({ sr, selectedStepId, onSelect, isResume }: {
 }) {
   const elapsed = useLiveDuration(sr.started_at, sr.completed_at)
   const isSelected = selectedStepId === sr.step_id
-  // Phase 1: repo URL will live in sr.input?.repo_url once that data lands
-  const inputRepoUrl = (sr as unknown as { input?: { repo_url?: string } }).input?.repo_url
+  const inputRepoUrl = sr.input?.repo_url as string | undefined
   const inputRepoName = inputRepoUrl ? repoName(inputRepoUrl) : null
 
   return (

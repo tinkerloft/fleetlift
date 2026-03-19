@@ -18,6 +18,8 @@ export interface DAGNodeData {
   [key: string]: unknown
 }
 
+const ACTIVE = new Set(['running', 'cloning', 'verifying', 'awaiting_input'])
+
 const DOT: Record<string, string> = {
   pending:        'dot-pending',
   cloning:        'dot-cloning',
@@ -40,10 +42,18 @@ function DAGNodeInner({ data }: NodeProps) {
       <div className={cn(
         'relative w-[150px] rounded border bg-card px-2 py-1.5',
         'transition-all duration-150 cursor-pointer select-none',
-        'hover:border-white/[0.14] hover:shadow-[0_2px_12px_rgba(0,0,0,0.5)]',
-        d.selected
-          ? 'border-accent shadow-[0_0_0_1px_hsl(var(--accent)/0.4),0_2px_16px_hsl(var(--accent)/0.12)]'
-          : 'border-border',
+        // Selected overrides everything
+        d.selected && 'border-accent shadow-[0_0_0_1px_hsl(var(--accent)/0.4),0_2px_16px_hsl(var(--accent)/0.12)]',
+        // Active: animated blue border glow
+        !d.selected && ACTIVE.has(d.status) && d.status !== 'awaiting_input' && 'dag-node-running',
+        !d.selected && d.status === 'awaiting_input' && 'dag-node-waiting',
+        // Complete: subtle green border
+        !d.selected && d.status === 'complete' && 'border-green-500/30',
+        // Failed: subtle red border
+        !d.selected && d.status === 'failed' && 'border-red-500/30',
+        // Default
+        !d.selected && !ACTIVE.has(d.status) && d.status !== 'complete' && d.status !== 'failed' && 'border-border',
+        'hover:brightness-110',
       )}>
 
         {/* Title row */}
