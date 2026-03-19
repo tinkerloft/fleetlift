@@ -1,0 +1,269 @@
+version: 1
+id: doc-assessment
+title: Documentation Assessment
+description: >
+  Assess documentation quality and AI-readiness across repositories,
+  optionally fixing issues and raising PRs where quality falls below threshold.
+tags:
+  - documentation
+  - fleet
+  - report
+  - transform
+
+parameters:
+  - name: repos
+    type: json
+    required: true
+    description: "JSON array of {url, branch?} objects to assess"
+
+  - name: mode
+    type: string
+    required: false
+    default: report
+    description: "'report' to assess only, or 'fix' to also raise PRs for repos below the score threshold"
+
+  - name: focus
+    type: string
+    required: false
+    default: balanced
+    description: "Scoring emphasis: 'balanced', 'accuracy', 'completeness', 'currency', or 'agent-readiness'"
+
+  - name: fix_threshold
+    type: int
+    required: false
+    default: 3
+    description: "Overall weighted score (1-5) below which fix PRs are raised. Only used when mode=fix"
+
+  - name: delta_context
+    type: string
+    required: false
+    default: ""
+    description: "When set, narrows assessment to recent changes (e.g. 'Only assess docs against changes from the last 7 days')"
+
+  - name: max_parallel
+    type: int
+    required: false
+    default: 20
+    description: "Maximum concurrent repo assessments"
+
+  - name: draft_prs
+    type: boolean
+    required: false
+    default: true
+    description: "When true, fix PRs are created as drafts"
+
+steps:
+  - id: assess
+    title: Assess repository documentation
+    mode: report
+    repositories: "{{ .Params.repos }}"
+    max_parallel: 20
+    execution:
+      agent: claude-code
+      credentials:
+        - GITHUB_TOKEN
+      output:
+        schema:
+          repo: "string"
+          scores: "object"
+          focus: "string"
+          findings: "array"
+          summary: "string"
+          fix_applied: "boolean"
+          pr_url: "string"
+          files_modified: "array"
+      prompt: |
+        You are a documentation quality assessor. Your job is to evaluate the documentation
+        in this repository for accuracy, completeness, currency, and agent-readiness.
+
+        ## Focus
+
+        Scoring focus: {{ .Params.focus }}
+
+        Focus weighting (used to compute the overall score):
+        - balanced:        accuracy 25%, completeness 25%, currency 25%, agent-readiness 25%
+        - accuracy:        accuracy 40%, completeness 20%, currency 20%, agent-readiness 20%
+        - completeness:    accuracy 20%, completeness 40%, currency 20%, agent-readiness 20%
+        - currency:        accuracy 20%, completeness 20%, currency 40%, agent-readiness 20%
+        - agent-readiness: accuracy 20%, completeness 20%, currency 20%, agent-readiness 40%
+
+        ## Delta context
+
+        {{ if .Params.delta_context -}}
+        IMPORTANT: This is a delta assessment. {{ .Params.delta_context }}
+
+        Use `git log --oneline -50` to identify recent commits. Focus your assessment
+        only on documentation that may have been affected by those changes. Set scores
+        to null for dimensions not relevant to the changes. If no relevant changes are
+        found, output: { "repo": "<name>", "summary": "No relevant changes found", "scores": {} }
+        {{- else -}}
+        Assess all documentation in the repository.
+        {{- end }}
+
+        ## Instructions
+
+        ### Step 1 — Understand the repository
+
+        Run `ls -la` and `find . -name "*.md" -not -path "*/node_modules/*" -not -path "*/.git/*"`,
+        and examine the directory structure. Understand:
+        - What does this project do?
+        - What language/build system does it use?
+        - What documentation files exist?
+
+        ### Step 2 — Assess documentation quality
+
+        Examine these documentation files (if they exist):
+        - README.md
+        - CLAUDE.md / AGENTS.md (agent guidance files)
+        - docs/**/*.md
+        - Any API spec files (openapi.yaml, swagger.json, etc.)
+        - Any architecture docs
+
+        For each claim in the documentation, **verify it against the code**:
+        - Referenced commands: check package.json scripts, Makefile targets, shell scripts
+        - Referenced directories/files: run `ls` to confirm they exist
+        - Referenced modules/packages: verify they exist in the actual codebase
+        - API endpoint descriptions: cross-check against router/handler definitions
+        - Configuration keys: verify against actual config loading code
+
+        ### Step 3 — Score each dimension (1-5)
+
+        Score definitions:
+        - 1 = Actively harmful — misleading information that would cause wrong actions
+        - 2 = Poor — major gaps or inaccuracies, docs are unreliable
+        - 3 = Adequate — covers basics but has some gaps or stale content
+        - 4 = Good — accurate and fairly complete, minor improvements possible
+        - 5 = Excellent — accurate, complete, well-structured for both humans and agents
+
+        Score these four dimensions:
+        - **accuracy**: Do the docs match the actual codebase? Are referenced commands, paths, and APIs real?
+        - **completeness**: Do the docs cover setup, architecture, API surface, and key conventions?
+        - **currency**: Are docs up to date with the current codebase? No references to removed things?
+        - **agent_readiness**: Can an AI agent navigate and work in this repo using only the docs? Is there a CLAUDE.md or AGENTS.md? Are file layout, conventions, and entry points described?
+
+        Compute the overall weighted score based on the focus parameter above.
+
+        ### Step 4 — Fix mode (only if applicable)
+
+        Mode: {{ .Params.mode }}
+        Fix threshold: {{ .Params.fix_threshold }}
+
+        If mode == "fix" AND overall_score < {{ .Params.fix_threshold }}:
+
+        1. Fix the documentation issues you found. Rules:
+           - Fix what's wrong; don't rewrite what's adequate
+           - Preserve the repo's existing documentation style and voice
+           - Add CLAUDE.md only if none exists AND agent-readiness score is 2 or below
+           - Do not add verbose boilerplate; be concise and accurate
+           - Only modify .md files and documentation files — never source code
+
+        2. Create a branch and commit:
+           ```
+           git checkout -b docs/fleetlift-assessment-$(git rev-parse --short HEAD)
+           git add -A
+           git commit -m "docs: fix documentation issues (Fleetlift assessment)"
+           ```
+
+        3. Create a PR using gh CLI:
+           ```
+           gh pr create \
+             --title "docs: fix documentation issues (Fleetlift assessment)" \
+             --body "Automated documentation fixes by Fleetlift doc-assessment workflow.
+
+        **Overall score: <score>/5**
+
+        Issues addressed:
+        <bullet list of key findings>
+
+        Files modified: <list>" \
+             --label "documentation" \
+             --label "automated"{{ if .Params.draft_prs }} \
+             --draft{{ end }}
+           ```
+
+        4. Record the PR URL from the output of `gh pr create`.
+
+        ### Step 5 — Save per-repo report
+
+        Write a detailed markdown report to /workspace/repo-report.md covering:
+        - Repo name and URL
+        - Scores table (all four dimensions + overall)
+        - Findings list (each with dimension, severity, file, description)
+        - Summary paragraph
+        - PR URL (if created)
+
+        Then save it using:
+        mcp__fleetlift__artifact__create with name="repo-report" and content_type="text/markdown"
+
+        ### Step 6 — Output structured JSON
+
+        Output a JSON object with this exact schema:
+        ```json
+        {
+          "repo": "<owner/repo-name>",
+          "scores": {
+            "accuracy": <1-5 integer>,
+            "completeness": <1-5 integer>,
+            "currency": <1-5 integer>,
+            "agent_readiness": <1-5 integer>,
+            "overall": <weighted float>
+          },
+          "focus": "{{ .Params.focus }}",
+          "findings": [
+            {
+              "dimension": "<accuracy|completeness|currency|agent_readiness>",
+              "severity": "<high|medium|low>",
+              "file": "<filename or null>",
+              "description": "<what is wrong>"
+            }
+          ],
+          "summary": "<1-2 sentence prose summary>",
+          "fix_applied": <true|false>,
+          "pr_url": "<url or empty string>",
+          "files_modified": ["<list of files changed, or empty array>"]
+        }
+        ```
+
+  - id: collate
+    title: Collate fleet documentation summary
+    depends_on:
+      - assess
+    mode: report
+    execution:
+      agent: claude-code
+      prompt: |
+        You are collating per-repository documentation assessment results into a
+        fleet-wide summary report.
+
+        Per-repository results:
+        {{ .Steps.assess.Outputs | toJSON }}
+
+        ## Instructions
+
+        Produce a fleet-wide summary report in markdown covering:
+
+        1. **Score Distribution** — How many repos scored at each level (1-5) overall.
+           Include a simple text histogram.
+
+        2. **Repos Needing Attention** — Ranked list of the 10 worst-scoring repos
+           (by overall score), with their scores and one-line summary of key issues.
+
+        3. **Common Issues** — The most frequently occurring issues across the fleet.
+           For example: "23 repos have no CLAUDE.md", "17 repos reference commands that don't exist".
+           Group by dimension (accuracy, completeness, currency, agent-readiness).
+
+        4. **Dimension Breakdown** — Fleet-wide average score per dimension. Which
+           dimension is weakest across the fleet?
+
+        5. **PRs Raised** (if any repos have pr_url set) — List of all PRs created,
+           with repo name and PR URL.
+
+        6. **Fleet Health** — One paragraph executive summary of documentation health
+           across the fleet and the highest-priority action to take.
+
+        After writing the report, save it using:
+        mcp__fleetlift__artifact__create with name="fleet-summary" and content_type="text/markdown"
+
+        Then notify the team using:
+        mcp__fleetlift__inbox__notify with urgency="low" and a brief message summarising
+        the fleet health score and how many repos need attention.

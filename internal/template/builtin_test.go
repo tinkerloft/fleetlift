@@ -15,7 +15,7 @@ func TestBuiltinProviderLoadsAll(t *testing.T) {
 	require.NoError(t, err)
 	templates, err := p.List(context.Background(), "")
 	require.NoError(t, err)
-	assert.Len(t, templates, 13)
+	assert.Len(t, templates, 14)
 	slugs := map[string]bool{}
 	for _, tmpl := range templates {
 		slugs[tmpl.Slug] = true
@@ -23,7 +23,7 @@ func TestBuiltinProviderLoadsAll(t *testing.T) {
 	for _, expected := range []string{
 		"fleet-research", "fleet-transform", "bug-fix", "dependency-update",
 		"pr-review", "migration", "triage", "audit", "incident-response",
-		"sandbox-test", "mcp-test", "clone-test",
+		"sandbox-test", "mcp-test", "clone-test", "doc-assessment",
 	} {
 		assert.True(t, slugs[expected], "missing builtin: %s", expected)
 	}
