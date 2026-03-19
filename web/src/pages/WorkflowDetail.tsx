@@ -111,33 +111,35 @@ export function WorkflowDetailPage() {
         </div>
       )}
 
-      {/* Parameters form */}
-      {def?.parameters && def.parameters.length > 0 && (
-        <div className="rounded-lg border bg-card p-4 space-y-4">
-          <h2 className="text-sm font-semibold">Parameters</h2>
-          {def.parameters.map((p: ParameterDef) => (
-            <div key={p.name} className="space-y-1">
-              <label className="text-sm font-medium">
-                {p.name}
-                {p.required && <span className="text-red-400 ml-1">*</span>}
-                <span className="ml-2 text-xs text-muted-foreground">{p.type}</span>
-              </label>
-              {p.description && <p className="text-xs text-muted-foreground">{p.description}</p>}
-              <input
-                type="text"
-                className="w-full rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder={p.default != null ? String(p.default) : ''}
-                value={params[p.name] ?? ''}
-                onChange={(e) => setParams({ ...params, [p.name]: e.target.value })}
-              />
-            </div>
-          ))}
-          <Button onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
-            {runMutation.isPending ? 'Starting…' : 'Run Workflow'}
-          </Button>
-          {runMutation.isError && <p className="text-sm text-red-400">{runMutation.error.message}</p>}
-        </div>
-      )}
+      {/* Parameters + Run */}
+      <div className="rounded-lg border bg-card p-4 space-y-4">
+        {def?.parameters && def.parameters.length > 0 && (
+          <>
+            <h2 className="text-sm font-semibold">Parameters</h2>
+            {def.parameters.map((p: ParameterDef) => (
+              <div key={p.name} className="space-y-1">
+                <label className="text-sm font-medium">
+                  {p.name}
+                  {p.required && <span className="text-red-400 ml-1">*</span>}
+                  <span className="ml-2 text-xs text-muted-foreground">{p.type}</span>
+                </label>
+                {p.description && <p className="text-xs text-muted-foreground">{p.description}</p>}
+                <input
+                  type="text"
+                  className="w-full rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder={p.default != null ? String(p.default) : ''}
+                  value={params[p.name] ?? ''}
+                  onChange={(e) => setParams({ ...params, [p.name]: e.target.value })}
+                />
+              </div>
+            ))}
+          </>
+        )}
+        <Button onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
+          {runMutation.isPending ? 'Starting…' : 'Run Workflow'}
+        </Button>
+        {runMutation.isError && <p className="text-sm text-red-400">{runMutation.error.message}</p>}
+      </div>
 
       {/* YAML viewer */}
       <div className="rounded-lg border bg-card overflow-hidden">
