@@ -11,8 +11,11 @@ import {
 import '@xyflow/react/dist/style.css'
 import type { StepDef, StepRun, StepStatus } from '@/api/types'
 import { DAGNode, type DAGNodeData } from './DAGNode'
+import { DAGNodeCollapsed } from './DAGNodeCollapsed'
 
-const nodeTypes: NodeTypes = { dagNode: DAGNode }
+const FAN_OUT_COLLAPSE_THRESHOLD = 6
+
+const nodeTypes: NodeTypes = { dagNode: DAGNode, dagNodeCollapsed: DAGNodeCollapsed }
 
 interface DAGGraphProps {
   steps: StepDef[]
@@ -53,10 +56,11 @@ export function DAGGraph({ steps, stepRuns, onSelectStep, selectedStepId }: DAGG
     const levels = computeLevels(steps)
     const maxLevel = Math.max(0, ...levels.values())
 
-    // Build the expanded node list: fan-out steps produce N nodes, others produce 1.
+    // Build the expanded node list: fan-out steps produce N nodes (or 1 collapsed), others produce 1.
     // nodeIds(stepId) returns the list of graph node IDs for a given StepDef id.
     const nodeIdsFor = (stepId: string): string[] => {
       const runs = fanOutMap.get(stepId)
+      if (runs && runs.length > FAN_OUT_COLLAPSE_THRESHOLD) return [stepId]
       return runs ? runs.map(r => r.step_id) : [stepId]
     }
 
@@ -85,23 +89,52 @@ export function DAGGraph({ steps, stepRuns, onSelectStep, selectedStepId }: DAGG
       const totalWidth = siblingsAtLevel.length * NODE_W + (siblingsAtLevel.length - 1) * GAP_X
       const offsetX = (800 - totalWidth) / 2
 
-      if (fanRuns) {
-        // Expand fan-out: one node per repo run
-        fanRuns.forEach((sr) => {
+      if (fanRuns && fanRuns.length > FAN_OUT_COLLAPSE_THRESHOLD) {
+        // Collapsed fan-out: single node representing all runs
+        const col = siblingsAtLevel.indexOf(step.id)
+        const statusCounts: Record<string, number> = {}
+        for (const sr of fanRuns) {
+          statusCounts[sr.status] = (statusCounts[sr.status] ?? 0) + 1
+        }
+        const STATUS_PRIORITY: StepStatus[] = [
+          'failed', 'awaiting_input', 'running', 'cloning', 'verifying', 'pending', 'skipped', 'complete',
+        ]
+        const worstStatus: StepStatus =
+          STATUS_PRIORITY.find(s => (statusCounts[s] ?? 0) > 0) ?? 'pending'
+        n.push({
+          id: step.id,
+          type: 'dagNodeCollapsed',
+          position: { x: offsetX + col * (NODE_W + GAP_X), y: level * (NODE_H + GAP_Y) + 20 },
+          data: {
+            label: step.title || step.id,
+            count: fanRuns.length,
+            statusCounts,
+            worstStatus,
+            selected: selectedStepId === step.id,
+          },
+          sourcePosition: Position.Bottom,
+          targetPosition: Position.Top,
+        })
+      } else if (fanRuns) {
+        // Expanded fan-out: one node per repo run
+        fanRuns.forEach((sr, idx) => {
           const col = siblingsAtLevel.indexOf(sr.step_id)
           const status: StepStatus = (sr.status as StepStatus) ?? 'pending'
-          const idx = fanRuns.indexOf(sr)
+          const rawRepo = sr.input?.repo_url as string | undefined
+          const repoName = rawRepo ? rawRepo.split('/').filter(Boolean).pop() : undefined
           n.push({
             id: sr.step_id,
             type: 'dagNode',
             position: { x: offsetX + col * (NODE_W + GAP_X), y: level * (NODE_H + GAP_Y) + 20 },
             data: {
-              label: `${step.title || step.id} (${idx + 1}/${fanRuns.length})`,
+              label: step.title || step.id,
               status,
               mode: step.mode,
               startedAt: sr.started_at,
               completedAt: sr.completed_at,
               selected: selectedStepId === step.id || selectedStepId === sr.step_id,
+              repoName,
+              repoIndex: `(${idx + 1}/${fanRuns.length})`,
             } satisfies DAGNodeData,
             sourcePosition: Position.Bottom,
             targetPosition: Position.Top,

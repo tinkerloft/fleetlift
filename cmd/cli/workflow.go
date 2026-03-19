@@ -44,7 +44,7 @@ func workflowListCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "SLUG\tTITLE\tBUILTIN\tTAGS")
+			_, _ = fmt.Fprintln(w, "SLUG\tTITLE\tBUILTIN\tTAGS")
 			for _, wf := range workflows {
 				slug, _ := wf["slug"].(string)
 				title, _ := wf["title"].(string)
@@ -55,7 +55,7 @@ func workflowListCmd() *cobra.Command {
 				if builtin {
 					bi = "yes"
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", slug, title, bi, tagStr)
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", slug, title, bi, tagStr)
 			}
 			return w.Flush()
 		},

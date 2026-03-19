@@ -141,6 +141,7 @@ func NewRouter(deps Deps) (http.Handler, error) {
 		r.Post("/api/runs/{id}/reject", deps.Runs.Reject)
 		r.Post("/api/runs/{id}/steer", deps.Runs.Steer)
 		r.Post("/api/runs/{id}/cancel", deps.Runs.Cancel)
+		r.Post("/api/runs/{id}/resolve-fanout", deps.Runs.ResolveFanOut)
 
 		// Inbox
 		r.Get("/api/inbox", deps.Inbox.List)
@@ -247,7 +248,7 @@ func spaHandler() (http.Handler, error) {
 		}
 		f, err := fsys.Open(path)
 		if err == nil {
-			f.Close()
+			_ = f.Close()
 			fileServer.ServeHTTP(w, r)
 			return
 		}

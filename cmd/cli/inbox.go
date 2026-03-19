@@ -46,7 +46,7 @@ func inboxListCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tKIND\tTITLE\tCREATED")
+			_, _ = fmt.Fprintln(w, "ID\tKIND\tTITLE\tCREATED")
 			for _, item := range items {
 				id, _ := item["id"].(string)
 				kind, _ := item["kind"].(string)
@@ -58,7 +58,7 @@ func inboxListCmd() *cobra.Command {
 				if t, err := time.Parse(time.RFC3339Nano, created); err == nil {
 					created = t.Format("2006-01-02 15:04")
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", id, kind, title, created)
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", id, kind, title, created)
 			}
 			return w.Flush()
 		},

@@ -85,8 +85,8 @@ func TestStreamSSE_LargeDataLine(t *testing.T) {
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		fmt.Fprintf(w, "event: log\ndata: %s\n\n", largeData)
-		fmt.Fprintf(w, "event: done\ndata: end\n\n")
+		_, _ = fmt.Fprintf(w, "event: log\ndata: %s\n\n", largeData)
+		_, _ = fmt.Fprintf(w, "event: done\ndata: end\n\n")
 	}))
 	defer ts.Close()
 

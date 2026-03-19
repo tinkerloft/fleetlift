@@ -341,9 +341,10 @@ func TestDAGWorkflow_FanOutParallelSteps(t *testing.T) {
 	assert.NoError(t, env.GetWorkflowError())
 }
 
-// TestDAGWorkflow_FanOutPartialFailure verifies that when one fan-out child fails,
-// aggregateFanOut marks the step as failed and the overall workflow returns an error.
-func TestDAGWorkflow_FanOutPartialFailure(t *testing.T) {
+// TestDAGWorkflow_FanOutPartialFailure_Terminate verifies that when one fan-out child
+// fails and the operator sends a "terminate" resolve signal, the workflow fails with
+// an error mentioning the step.
+func TestDAGWorkflow_FanOutPartialFailure_Terminate(t *testing.T) {
 	env, mocks := newDAGTestEnv(t)
 
 	mocks.On("ProvisionSandbox", mock.Anything).Return("sb-1", nil)
@@ -358,7 +359,12 @@ func TestDAGWorkflow_FanOutPartialFailure(t *testing.T) {
 		temporal.NewNonRetryableApplicationError("repo2 failed", "ExecutionError", nil),
 	).Once()
 
-	def := model.WorkflowDef{
+	// After the partial failure inbox item is created, send a "terminate" signal to the parent DAGWorkflow.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(SignalFanOutResolve, FanOutResolvePayload{Action: "terminate"}) //nolint:errcheck
+	}, time.Second)
+
+	fanoutPartialFailureDef := model.WorkflowDef{
 		ID:    "test-fanout-fail-wf",
 		Title: "Fan-Out Partial Failure",
 		Steps: []model.StepDef{
@@ -380,7 +386,7 @@ func TestDAGWorkflow_FanOutPartialFailure(t *testing.T) {
 	env.ExecuteWorkflow(DAGWorkflow, DAGInput{
 		RunID:       "run-fanout-fail-1",
 		TeamID:      "team-1",
-		WorkflowDef: def,
+		WorkflowDef: fanoutPartialFailureDef,
 		Parameters:  map[string]any{},
 	})
 
@@ -388,6 +394,59 @@ func TestDAGWorkflow_FanOutPartialFailure(t *testing.T) {
 	err := env.GetWorkflowError()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "step-1")
+}
+
+// TestDAGWorkflow_FanOutPartialFailure_Proceed verifies that when one fan-out child
+// fails and the operator sends a "proceed" resolve signal, the workflow succeeds using
+// only the successful results.
+func TestDAGWorkflow_FanOutPartialFailure_Proceed(t *testing.T) {
+	env, mocks := newDAGTestEnv(t)
+
+	mocks.On("ProvisionSandbox", mock.Anything).Return("sb-1", nil)
+	// First child call succeeds.
+	mocks.On("ExecuteStep", mock.Anything).Return(&model.StepOutput{
+		StepID: "step-1",
+		Status: model.StepStatusComplete,
+		Output: map[string]any{"summary": "done"},
+	}, nil).Once()
+	// Second child call fails.
+	mocks.On("ExecuteStep", mock.Anything).Return(nil,
+		temporal.NewNonRetryableApplicationError("repo2 failed", "ExecutionError", nil),
+	).Once()
+
+	// After the partial failure inbox item is created, send a "proceed" signal.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(SignalFanOutResolve, FanOutResolvePayload{Action: "proceed"}) //nolint:errcheck
+	}, time.Second)
+
+	def := model.WorkflowDef{
+		ID:    "test-fanout-proceed-wf",
+		Title: "Fan-Out Partial Failure Proceed",
+		Steps: []model.StepDef{
+			{
+				ID:    "step-1",
+				Title: "Fan-Out Agent Step",
+				Execution: &model.ExecutionDef{
+					Agent:  "claude-code",
+					Prompt: "do something",
+				},
+				Repositories: []any{
+					map[string]any{"url": "https://github.com/test/repo1"},
+					map[string]any{"url": "https://github.com/test/repo2"},
+				},
+			},
+		},
+	}
+
+	env.ExecuteWorkflow(DAGWorkflow, DAGInput{
+		RunID:       "run-fanout-proceed-1",
+		TeamID:      "team-1",
+		WorkflowDef: def,
+		Parameters:  map[string]any{},
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	assert.NoError(t, env.GetWorkflowError())
 }
 
 // TestDAGWorkflow_ConditionFalseSkipsStep verifies that when a step's condition evaluates

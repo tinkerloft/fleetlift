@@ -120,7 +120,7 @@ func openTestDB(t *testing.T) *sqlx.DB {
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { _ = db.Close() })
 	return db
 }
 

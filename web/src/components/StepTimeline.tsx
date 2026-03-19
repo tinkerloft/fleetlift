@@ -21,6 +21,11 @@ const DOT: Record<string, string> = {
   skipped:        'dot-skipped',
 }
 
+/** Strip fan-out index suffix, e.g. "assess-0" → "assess". */
+function baseStepId(id: string): string {
+  return id.replace(/-\d+$/, '')
+}
+
 /** Extract the last path segment of a GitHub URL as a short repo name. */
 function repoName(url: string): string {
   try { return new URL(url).pathname.split('/').filter(Boolean).pop() ?? url }
@@ -62,7 +67,7 @@ function StepTimelineItem({ sr, selectedStepId, onSelect, isResume }: {
   isResume?: boolean
 }) {
   const elapsed = useLiveDuration(sr.started_at, sr.completed_at)
-  const isSelected = selectedStepId === sr.step_id
+  const isSelected = selectedStepId === sr.step_id || selectedStepId === baseStepId(sr.step_id)
   const inputRepoUrl = sr.input?.repo_url as string | undefined
   const inputRepoName = inputRepoUrl ? repoName(inputRepoUrl) : null
 

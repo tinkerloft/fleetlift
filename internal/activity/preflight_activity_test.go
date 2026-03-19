@@ -31,7 +31,7 @@ func (s *preflightRecordingSandbox) Exec(_ context.Context, _, cmd, _ string) (s
 func (s *preflightRecordingSandbox) ExecStream(_ context.Context, _, _, _ string, _ func(string)) error {
 	return nil
 }
-func (s *preflightRecordingSandbox) WriteFile(_ context.Context, _, _, _ string) error   { return nil }
+func (s *preflightRecordingSandbox) WriteFile(_ context.Context, _, _, _ string) error { return nil }
 func (s *preflightRecordingSandbox) WriteBytes(_ context.Context, _, _ string, _ []byte) error {
 	return nil
 }

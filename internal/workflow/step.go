@@ -55,6 +55,14 @@ const (
 	SignalCancel  StepSignal = "cancel"
 )
 
+// SignalFanOutResolve is sent by an operator to resolve a partial fan-out failure.
+const SignalFanOutResolve = "fan_out_resolve"
+
+// FanOutResolvePayload is the payload for the fan_out_resolve signal.
+type FanOutResolvePayload struct {
+	Action string `json:"action"` // "proceed" or "terminate"
+}
+
 // SteerPayload is the payload for a steer signal.
 type SteerPayload struct {
 	Prompt string `json:"prompt"`

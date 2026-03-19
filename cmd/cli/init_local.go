@@ -181,7 +181,7 @@ func ensureFleetliftDB() error {
 	if err != nil {
 		return fmt.Errorf("open admin db: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Wait for Postgres to be ready
 	deadline := time.Now().Add(30 * time.Second)
@@ -229,7 +229,7 @@ func runMigrations(appDSN string) error {
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if err := fldb.Migrate(conn); err != nil {
 		return fmt.Errorf("migrate: %w", err)
 	}
@@ -241,7 +241,7 @@ func seedDevIdentity(dbURL string) error {
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	_, err = db.Exec(`INSERT INTO teams (id, name, slug) VALUES ($1, 'dev-team', 'dev-team') ON CONFLICT (slug) DO NOTHING`, devTeamID)
 	if err != nil {
@@ -269,7 +269,7 @@ func checkExistingGitHubToken(dbURL string) (bool, error) {
 	if err != nil {
 		return false, nil //nolint:nilerr
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	var exists bool
 	err = db.QueryRow(
@@ -296,7 +296,7 @@ func seedGitHubToken(dbURL, encKey, token string) error {
 	if err != nil {
 		return fmt.Errorf("open db: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	_, err = db.Exec(`
 		INSERT INTO credentials (team_id, name, value_enc)
@@ -317,7 +317,7 @@ func runPreflight() error {
 		return fmt.Errorf("run init-local from the repository root (go.mod not found in current directory)")
 	}
 	if err := exec.Command("docker", "info").Run(); err != nil {
-		return fmt.Errorf("Docker is not running — start Docker Desktop and re-run")
+		return fmt.Errorf("docker is not running — start Docker Desktop and re-run")
 	}
 	if _, err := exec.LookPath("go"); err != nil {
 		return fmt.Errorf("'go' not found — install Go: brew install go")
@@ -337,7 +337,7 @@ func port8080InUse() bool {
 	if err != nil {
 		return false
 	}
-	conn.Close()
+	_ = conn.Close()
 	return true
 }
 
@@ -494,7 +494,7 @@ func tailLogLines(path string, n int) string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	size, err := f.Seek(0, io.SeekEnd)
 	if err != nil || size == 0 {
@@ -534,7 +534,7 @@ func startAndVerify() error {
 
 	resp, err := http.Get("http://localhost:8080/health") //nolint:noctx
 	if err == nil && resp.StatusCode == http.StatusOK {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		fmt.Println()
 		fmt.Println("┌─────────────────────────────────────────┐")
 		fmt.Println("│   Fleetlift is running!                 │")
@@ -544,7 +544,7 @@ func startAndVerify() error {
 		return nil
 	}
 	if resp != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 
 	if logLines := tailLogLines("/tmp/fleetlift-server.log", 20); logLines != "" {
@@ -564,7 +564,7 @@ func waitForHTTP(url string, timeout time.Duration) error {
 	for time.Now().Before(deadline) {
 		resp, err := client.Get(url) //nolint:noctx
 		if err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode < 300 {
 				return nil
 			}

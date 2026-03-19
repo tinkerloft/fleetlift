@@ -455,6 +455,54 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 					})
 				}
 				fanWg.Wait(gCtx)
+
+				// Check for partial fan-out failure: some repos succeeded, some failed.
+				fanSuccesses := 0
+				fanFailures := 0
+				for _, fr := range fanResults {
+					if fr != nil && fr.Status == model.StepStatusFailed {
+						fanFailures++
+					} else if fr != nil {
+						fanSuccesses++
+					}
+				}
+
+				if fanSuccesses > 0 && fanFailures > 0 {
+					// Partial failure: raise inbox item and wait for operator decision.
+					inboxAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second, RetryPolicy: dbRetry}
+					title := fmt.Sprintf("Fan-out partial failure: %s (%d/%d repos failed)", step.ID, fanFailures, len(repos))
+					summary := buildFanOutFailureSummary(fanResults)
+					if err := workflow.ExecuteActivity(
+						workflow.WithActivityOptions(gCtx, inboxAO),
+						CreateInboxItemActivity, input.TeamID, input.RunID, "", "fan_out_partial_failure", title, summary,
+					).Get(gCtx, nil); err != nil {
+						logger.Error("failed to create fan-out partial failure inbox item", "error", err)
+					}
+
+					// Wait for fan_out_resolve signal.
+					resolveCh := workflow.GetSignalChannel(gCtx, SignalFanOutResolve)
+					var resolvePayload FanOutResolvePayload
+					resolveCh.Receive(gCtx, &resolvePayload)
+
+					if resolvePayload.Action == "terminate" {
+						results[i] = &model.StepOutput{
+							StepID: step.ID,
+							Status: model.StepStatusFailed,
+							Error:  fmt.Sprintf("operator terminated after partial failure (%d/%d repos failed)", fanFailures, len(repos)),
+						}
+						return
+					}
+					// proceed: collect only successful results and aggregate them
+					var successResults []*model.StepOutput
+					for _, fr := range fanResults {
+						if fr != nil && fr.Status != model.StepStatusFailed {
+							successResults = append(successResults, fr)
+						}
+					}
+					results[i] = aggregateFanOut(step.ID, successResults)
+					return
+				}
+
 				results[i] = aggregateFanOut(step.ID, fanResults)
 			})
 		}
@@ -590,6 +638,21 @@ func resolveRepos(raw any, params map[string]any, outputs map[string]*model.Step
 		return nil, fmt.Errorf("parse repositories as []RepoRef: %w", err)
 	}
 	return repos, nil
+}
+
+// buildFanOutFailureSummary returns a newline-joined list of failed fan-out repo errors.
+func buildFanOutFailureSummary(results []*model.StepOutput) string {
+	var lines []string
+	for _, r := range results {
+		if r != nil && r.Status == model.StepStatusFailed {
+			line := r.StepID
+			if r.Error != "" {
+				line += ": " + r.Error
+			}
+			lines = append(lines, line)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // aggregateFanOut merges per-repo StepOutput results into one aggregate StepOutput.

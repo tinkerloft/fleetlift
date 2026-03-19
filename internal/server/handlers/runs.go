@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -300,7 +301,7 @@ func (h *RunsHandler) streamFlush(w http.ResponseWriter, r *http.Request, flushe
 		 WHERE s.run_id = $1 AND l.id > $2 ORDER BY l.id`, runID, *cursor)
 	if err == nil {
 		for _, log := range logs {
-			fmt.Fprintf(w, "data: %s\n\n", mustJSON(log))
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", mustJSON(log))
 			if log.ID > *cursor {
 				*cursor = log.ID
 			}
@@ -313,7 +314,7 @@ func (h *RunsHandler) streamFlush(w http.ResponseWriter, r *http.Request, flushe
 	// Send status update
 	var run model.Run
 	if h.db.GetContext(r.Context(), &run, `SELECT * FROM runs WHERE id = $1`, runID) == nil {
-		fmt.Fprintf(w, "event: status\ndata: %s\n\n", mustJSON(map[string]string{
+		_, _ = fmt.Fprintf(w, "event: status\ndata: %s\n\n", mustJSON(map[string]string{
 			"status": string(run.Status),
 		}))
 		flusher.Flush()
@@ -388,7 +389,7 @@ func (h *RunsHandler) stepLogsFlush(w http.ResponseWriter, r *http.Request, flus
 		stepRunID, *cursor)
 	if err == nil {
 		for _, log := range logs {
-			fmt.Fprintf(w, "data: %s\n\n", mustJSON(log))
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", mustJSON(log))
 			if log.ID > *cursor {
 				*cursor = log.ID
 			}
@@ -447,7 +448,7 @@ func (h *RunsHandler) StepLogs(w http.ResponseWriter, r *http.Request) {
 	// Send an SSE comment immediately so the HTTP response headers are flushed
 	// to the client. Without this, Go buffers the headers until the first real
 	// write, leaving EventSource in a pending state with no onopen event.
-	fmt.Fprintf(w, ": connected\n\n")
+	_, _ = fmt.Fprintf(w, ": connected\n\n")
 	flusher.Flush()
 
 	var cursor int64
@@ -498,6 +499,52 @@ func (h *RunsHandler) Steer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.signalRun(w, r, string(workflow.SignalSteer), payload)
+}
+
+// ResolveFanOut signals an operator decision to proceed or terminate after a partial fan-out failure.
+func (h *RunsHandler) ResolveFanOut(w http.ResponseWriter, r *http.Request) {
+	claims := auth.ClaimsFromContext(r.Context())
+	if claims == nil {
+		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	teamID := teamIDFromRequest(w, r, claims)
+	if teamID == "" {
+		return // error already written
+	}
+	runID := chi.URLParam(r, "id")
+
+	run := getRunForTeam(r.Context(), h.db, w, runID, teamID)
+	if run == nil {
+		return
+	}
+
+	var req struct {
+		Action string `json:"action"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || (req.Action != "proceed" && req.Action != "terminate") {
+		http.Error(w, "invalid action", http.StatusBadRequest)
+		return
+	}
+
+	payload := workflow.FanOutResolvePayload{Action: req.Action}
+	if err := h.temporal.SignalWorkflow(r.Context(), run.TemporalID, "", workflow.SignalFanOutResolve, payload); err != nil {
+		slog.Error("failed to send fan_out_resolve signal", "error", err, "run_id", runID, "temporal_id", run.TemporalID)
+		writeJSONError(w, http.StatusInternalServerError, "failed to signal workflow")
+		return
+	}
+
+	// Mark the inbox item as answered so the UI clears the action buttons.
+	if _, err := h.db.ExecContext(r.Context(),
+		`UPDATE inbox_items SET answer=$1, answered_at=$2, answered_by=$3
+		 WHERE run_id=$4 AND kind='fan_out_partial_failure' AND answer IS NULL`,
+		req.Action, time.Now().UTC(), claims.UserID, runID,
+	); err != nil {
+		slog.Warn("failed to mark fan_out_partial_failure inbox item answered", "error", err, "run_id", runID)
+		// Non-fatal: signal already sent; workflow will proceed correctly.
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // Cancel signals cancellation for a run.

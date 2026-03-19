@@ -26,7 +26,7 @@ func (a *Activities) CollectArtifacts(ctx context.Context, sandboxID, stepRunID 
 
 	for _, art := range artifacts {
 		if !strings.HasPrefix(art.Path, "/workspace/") || strings.Contains(art.Path, "..") {
-			return fmt.Errorf("artifact path %q must be within /workspace/ and must not contain ..", art.Path)
+			return fmt.Errorf("artifact path %q must be within /workspace/ and must not use path traversal", art.Path)
 		}
 		activity.RecordHeartbeat(ctx, "collecting "+art.Name)
 

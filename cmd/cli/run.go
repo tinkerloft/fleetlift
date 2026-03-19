@@ -99,7 +99,7 @@ func runListCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tWORKFLOW\tSTATUS\tCREATED")
+			_, _ = fmt.Fprintln(w, "ID\tWORKFLOW\tSTATUS\tCREATED")
 			for _, r := range runs {
 				id, _ := r["id"].(string)
 				wfTitle, _ := r["workflow_title"].(string)
@@ -111,7 +111,7 @@ func runListCmd() *cobra.Command {
 				if t, err := time.Parse(time.RFC3339Nano, created); err == nil {
 					created = t.Format("2006-01-02 15:04")
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", id, wfTitle, status, created)
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", id, wfTitle, status, created)
 			}
 			return w.Flush()
 		},
@@ -144,15 +144,15 @@ func runGetCmd() *cobra.Command {
 
 			if len(steps) > 0 {
 				w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-				fmt.Fprintln(w, "STEP\tSTATUS\tPR")
+				_, _ = fmt.Fprintln(w, "STEP\tSTATUS\tPR")
 				for _, s := range steps {
 					step, _ := s.(map[string]any)
 					stepID, _ := step["step_id"].(string)
 					status, _ := step["status"].(string)
 					pr, _ := step["pr_url"].(string)
-					fmt.Fprintf(w, "%s\t%s\t%s\n", stepID, status, pr)
+					_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", stepID, status, pr)
 				}
-				w.Flush()
+				_ = w.Flush()
 			}
 			return nil
 		},

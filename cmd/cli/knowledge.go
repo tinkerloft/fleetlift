@@ -47,7 +47,7 @@ func knowledgeListCmd() *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-			fmt.Fprintln(w, "ID\tTYPE\tSTATUS\tSUMMARY")
+			_, _ = fmt.Fprintln(w, "ID\tTYPE\tSTATUS\tSUMMARY")
 			for _, item := range items {
 				id, _ := item["id"].(string)
 				typ, _ := item["type"].(string)
@@ -59,7 +59,7 @@ func knowledgeListCmd() *cobra.Command {
 				if len(summary) > 60 {
 					summary = summary[:57] + "..."
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", id, typ, st, summary)
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", id, typ, st, summary)
 			}
 			return w.Flush()
 		},
