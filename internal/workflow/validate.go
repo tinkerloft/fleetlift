@@ -87,6 +87,7 @@ func ValidateWorkflow(def model.WorkflowDef, params map[string]any) []Validation
 	errs = append(errs, validateParameters(def, params)...)
 	errs = append(errs, validateActionTypes(def)...)
 	errs = append(errs, validateAgentTypes(def)...)
+	errs = append(errs, validateSandboxGroups(def)...)
 	errs = append(errs, validateCredentialNames(def)...)
 	errs = append(errs, validateTemplateRefs(def)...)
 	errs = append(errs, validateJSONParamsInRepositories(def)...)
@@ -282,6 +283,23 @@ func validateAgentTypes(def model.WorkflowDef) []ValidationError {
 		}
 		if !validAgentTypes[step.Execution.Agent] {
 			errs = append(errs, ValidationError{StepID: step.ID, Field: "execution.agent", Message: fmt.Sprintf("unknown agent type %q", step.Execution.Agent)})
+		}
+	}
+	return errs
+}
+
+// validateSandboxGroups checks that steps inside a sandbox group do not also specify a step-level
+// sandbox image. The group image (defined under sandbox_groups) is authoritative for all steps in
+// the group; per-step overrides are not allowed and would silently be ignored.
+func validateSandboxGroups(def model.WorkflowDef) []ValidationError {
+	var errs []ValidationError
+	for _, step := range def.Steps {
+		if step.SandboxGroup != "" && step.Sandbox != nil && step.Sandbox.Image != "" {
+			errs = append(errs, ValidationError{
+				StepID:  step.ID,
+				Field:   "sandbox.image",
+				Message: "steps inside a sandbox_group must not specify sandbox.image; set the image on the sandbox group instead",
+			})
 		}
 	}
 	return errs

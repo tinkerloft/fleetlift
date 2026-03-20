@@ -71,8 +71,12 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 		env["GIT_USER_NAME"] = DefaultGitName
 	}
 
+	image := input.ResolvedOpts.SandboxGroupImage
+	if image == "" {
+		image = agentImage(input.ResolvedOpts.Agent)
+	}
 	sandboxID, err := a.Sandbox.Create(ctx, sandbox.CreateOpts{
-		Image:       agentImage(input.ResolvedOpts.Agent),
+		Image:       image,
 		Env:         env,
 		TimeoutMins: 120,
 	})

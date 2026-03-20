@@ -815,3 +815,118 @@ func TestValidateWorkflow_ActionConfigTemplateSkipsType(t *testing.T) {
 			"template value should skip type check, got %v", e)
 	}
 }
+
+// --- Sandbox group validation tests ---
+
+func TestValidateWorkflow_SandboxGroupValid(t *testing.T) {
+	def := model.WorkflowDef{
+		SandboxGroups: map[string]model.SandboxGroupDef{
+			"test-group": {Image: "claude-code:latest"},
+		},
+		Steps: []model.StepDef{
+			{
+				ID:           "step-one",
+				SandboxGroup: "test-group",
+				Execution: &model.ExecutionDef{
+					Agent:  "claude-code",
+					Prompt: "do something",
+				},
+			},
+		},
+	}
+	errs := ValidateWorkflow(def, nil)
+	found := false
+	for _, e := range errs {
+		if e.Field == "sandbox.image" {
+			found = true
+			break
+		}
+	}
+	assert.False(t, found, "expected no sandbox.image error for valid sandbox group usage, got %v", errs)
+}
+
+func TestValidateWorkflow_SandboxGroupWithStepImageConflict(t *testing.T) {
+	def := model.WorkflowDef{
+		SandboxGroups: map[string]model.SandboxGroupDef{
+			"test-group": {Image: "claude-code:latest"},
+		},
+		Steps: []model.StepDef{
+			{
+				ID:           "step-one",
+				SandboxGroup: "test-group",
+				Sandbox: &model.SandboxSpec{
+					Image: "different-image:latest",
+				},
+				Execution: &model.ExecutionDef{
+					Agent:  "claude-code",
+					Prompt: "do something",
+				},
+			},
+		},
+	}
+	errs := ValidateWorkflow(def, nil)
+	found := false
+	for _, e := range errs {
+		if e.StepID == "step-one" && e.Field == "sandbox.image" && strings.Contains(e.Message, "sandbox_group") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected sandbox.image conflict error, got %v", errs)
+}
+
+func TestValidateWorkflow_SandboxGroupEmptyImageAllowed(t *testing.T) {
+	// A step in a sandbox_group with Sandbox but empty Image should be allowed
+	def := model.WorkflowDef{
+		SandboxGroups: map[string]model.SandboxGroupDef{
+			"test-group": {Image: "claude-code:latest"},
+		},
+		Steps: []model.StepDef{
+			{
+				ID:           "step-one",
+				SandboxGroup: "test-group",
+				Sandbox:      &model.SandboxSpec{},
+				Execution: &model.ExecutionDef{
+					Agent:  "claude-code",
+					Prompt: "do something",
+				},
+			},
+		},
+	}
+	errs := ValidateWorkflow(def, nil)
+	found := false
+	for _, e := range errs {
+		if e.Field == "sandbox.image" {
+			found = true
+			break
+		}
+	}
+	assert.False(t, found, "expected no sandbox.image error when Image is empty, got %v", errs)
+}
+
+func TestValidateWorkflow_NoSandboxGroupWithStepImage(t *testing.T) {
+	// A step not in a sandbox_group can specify its own image
+	def := model.WorkflowDef{
+		Steps: []model.StepDef{
+			{
+				ID: "step-one",
+				Sandbox: &model.SandboxSpec{
+					Image: "custom-image:latest",
+				},
+				Execution: &model.ExecutionDef{
+					Agent:  "claude-code",
+					Prompt: "do something",
+				},
+			},
+		},
+	}
+	errs := ValidateWorkflow(def, nil)
+	found := false
+	for _, e := range errs {
+		if e.Field == "sandbox.image" {
+			found = true
+			break
+		}
+	}
+	assert.False(t, found, "expected no sandbox.image error when not in a group, got %v", errs)
+}

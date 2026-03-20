@@ -10,6 +10,9 @@ parameters:
     type: string
     required: true
     description: "Repository URL to clone (can be private)"
+sandbox_groups:
+  main:
+    image: claude-code:latest
 steps:
   - id: clone_and_verify
     title: Clone repository

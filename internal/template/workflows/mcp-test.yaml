@@ -9,6 +9,9 @@ tags:
   - test
   - diagnostic
   - mcp
+sandbox_groups:
+  mcp-test:
+    image: claude-code:latest
 steps:
   - id: verify_mcp_endpoints
     title: Verify MCP sidecar and API endpoints

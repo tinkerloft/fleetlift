@@ -23,19 +23,28 @@ type WorkflowTemplate struct {
 	UpdatedAt   time.Time      `db:"updated_at" json:"updated_at"`
 }
 
+// SandboxGroupDef defines shared sandbox configuration for a named sandbox group.
+type SandboxGroupDef struct {
+	// Image overrides the sandbox container image for all steps in this group.
+	// When set, all steps in the group run in a sandbox created from this image
+	// regardless of each step's execution.agent type.
+	Image string `yaml:"image,omitempty" json:"image,omitempty"`
+}
+
 // WorkflowDef is the parsed form of a WorkflowTemplate's YAML.
 // WARNING: This struct is serialized into Temporal's workflow history as part of DAGInput.
 // Never add or change json: tags — the field names in history must remain stable.
 // Use workflow_yaml (raw YAML string) for API responses to the frontend.
 type WorkflowDef struct {
-	Version      int            `yaml:"version"`
-	ID           string         `yaml:"id"`
-	Title        string         `yaml:"title"`
-	Description  string         `yaml:"description"`
-	Tags         []string       `yaml:"tags"`
-	Parameters   []ParameterDef `yaml:"parameters"`
-	Steps        []StepDef      `yaml:"steps"`
-	AgentProfile string         `yaml:"agent_profile,omitempty"`
+	Version       int                        `yaml:"version"`
+	ID            string                     `yaml:"id"`
+	Title         string                     `yaml:"title"`
+	Description   string                     `yaml:"description"`
+	Tags          []string                   `yaml:"tags"`
+	Parameters    []ParameterDef             `yaml:"parameters"`
+	Steps         []StepDef                  `yaml:"steps"`
+	AgentProfile  string                     `yaml:"agent_profile,omitempty"`
+	SandboxGroups map[string]SandboxGroupDef `yaml:"sandbox_groups,omitempty" json:"sandbox_groups,omitempty"`
 }
 
 type ParameterDef struct {

@@ -19,6 +19,9 @@ parameters:
     type: string
     required: true
     description: "Body of the issue"
+sandbox_groups:
+  main:
+    image: claude-code:latest
 steps:
   - id: analyze
     title: Analyze issue

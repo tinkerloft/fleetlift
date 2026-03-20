@@ -16,6 +16,9 @@ parameters:
     required: false
     default: "echo received-from-step1"
     description: "Shell command to run in step 2 (step 1 output available via template)"
+sandbox_groups:
+  test:
+    image: ubuntu:22.04
 steps:
   - id: run_command
     title: Run shell command

@@ -249,11 +249,15 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 					RunID:  input.RunID,
 					TeamID: input.TeamID,
 				}
+				groupImage := input.WorkflowDef.SandboxGroups[step.SandboxGroup].Image
 				if step.Execution != nil {
 					provisionInput.ResolvedOpts = ResolvedStepOpts{
-						Agent:       step.Execution.Agent,
-						Credentials: step.Execution.Credentials,
+						Agent:             step.Execution.Agent,
+						Credentials:       step.Execution.Credentials,
+						SandboxGroupImage: groupImage,
 					}
+				} else {
+					provisionInput.ResolvedOpts = ResolvedStepOpts{SandboxGroupImage: groupImage}
 				}
 				var sandboxID string
 				err := workflow.ExecuteActivity(

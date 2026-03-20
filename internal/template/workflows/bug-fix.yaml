@@ -23,6 +23,9 @@ parameters:
     type: string
     required: false
     description: "Slack channel for notifications"
+sandbox_groups:
+  main:
+    image: claude-code:latest
 steps:
   - id: analyze
     title: Analyze bug
