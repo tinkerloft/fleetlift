@@ -15,7 +15,7 @@ func TestBuiltinProviderLoadsAll(t *testing.T) {
 	require.NoError(t, err)
 	templates, err := p.List(context.Background(), "")
 	require.NoError(t, err)
-	assert.Len(t, templates, 14)
+	assert.Len(t, templates, 15)
 	slugs := map[string]bool{}
 	for _, tmpl := range templates {
 		slugs[tmpl.Slug] = true
@@ -24,6 +24,7 @@ func TestBuiltinProviderLoadsAll(t *testing.T) {
 		"fleet-research", "fleet-transform", "bug-fix", "dependency-update",
 		"pr-review", "migration", "triage", "audit", "incident-response",
 		"sandbox-test", "mcp-test", "clone-test", "doc-assessment",
+		"auto-debt-slayer",
 	} {
 		assert.True(t, slugs[expected], "missing builtin: %s", expected)
 	}
@@ -58,6 +59,54 @@ func TestSandboxTestWorkflowTemplate_Parses(t *testing.T) {
 	assert.Equal(t, []string{"run_command"}, def.Steps[1].DependsOn)
 	assert.Equal(t, "test", def.Steps[0].SandboxGroup)
 	assert.Equal(t, "test", def.Steps[1].SandboxGroup)
+}
+
+func TestAutoDebtSlayerWorkflowTemplate_Parses(t *testing.T) {
+	p, err := NewBuiltinProvider()
+	require.NoError(t, err)
+
+	tmpl, err := p.Get(context.Background(), "", "auto-debt-slayer")
+	require.NoError(t, err)
+	assert.Equal(t, "Auto Debt Slayer", tmpl.Title)
+
+	var def model.WorkflowDef
+	require.NoError(t, model.ParseWorkflowYAML([]byte(tmpl.YAMLBody), &def))
+
+	// 4 steps in correct order
+	require.Len(t, def.Steps, 4)
+	assert.Equal(t, "enrich", def.Steps[0].ID)
+	assert.Equal(t, "assess", def.Steps[1].ID)
+	assert.Equal(t, "execute", def.Steps[2].ID)
+	assert.Equal(t, "notify", def.Steps[3].ID)
+
+	// enrich: report mode, has execution and repositories
+	assert.Equal(t, "report", def.Steps[0].Mode)
+	assert.NotNil(t, def.Steps[0].Execution)
+
+	// assess: report mode, depends on enrich
+	assert.Equal(t, "report", def.Steps[1].Mode)
+	assert.Contains(t, def.Steps[1].DependsOn, "enrich")
+
+	// execute: transform, has condition and pull_request
+	assert.Equal(t, "transform", def.Steps[2].Mode)
+	assert.NotEmpty(t, def.Steps[2].Condition)
+	assert.NotNil(t, def.Steps[2].PullRequest)
+	assert.NotEmpty(t, def.Steps[2].PullRequest.BranchPrefix)
+	assert.Contains(t, def.Steps[2].DependsOn, "assess")
+
+	// notify: optional action step
+	assert.True(t, def.Steps[3].Optional)
+	assert.NotNil(t, def.Steps[3].Action)
+	assert.Equal(t, "slack_notify", def.Steps[3].Action.Type)
+
+	// required parameters
+	paramNames := make([]string, len(def.Parameters))
+	for i, p := range def.Parameters {
+		paramNames[i] = p.Name
+	}
+	assert.Contains(t, paramNames, "ticket_key")
+	assert.Contains(t, paramNames, "jira_base_url")
+	assert.Contains(t, paramNames, "github_repo")
 }
 
 func TestBuiltinProviderReadOnly(t *testing.T) {
