@@ -627,35 +627,47 @@ func findReady(pending map[string]model.StepDef, done map[string]*model.StepOutp
 func resolveStep(step model.StepDef, params map[string]any, outputs map[string]*model.StepOutput) (ResolvedStepOpts, error) {
 	var opts ResolvedStepOpts
 
-	if step.Execution == nil {
-		return opts, nil
-	}
+	if step.Execution != nil {
+		renderCtx := fltemplate.RenderContext{Params: params, Steps: outputs}
 
-	prompt, err := fltemplate.RenderPrompt(step.Execution.Prompt, fltemplate.RenderContext{
-		Params: params,
-		Steps:  outputs,
-	})
-	if err != nil {
-		return opts, fmt.Errorf("render prompt for step %s: %w", step.ID, err)
-	}
-
-	opts.Prompt = prompt
-	opts.Agent = step.Execution.Agent
-	if opts.Agent == "" {
-		opts.Agent = "claude-code"
-	}
-	opts.Verifiers = step.Execution.Verifiers
-	opts.Credentials = step.Execution.Credentials
-	opts.MaxTurns = step.Execution.MaxTurns
-	opts.PRConfig = step.PullRequest
-
-	// Resolve repositories
-	if step.Repositories != nil {
-		repos, err := resolveRepos(step.Repositories, params, outputs)
+		prompt, err := fltemplate.RenderPrompt(step.Execution.Prompt, renderCtx)
 		if err != nil {
-			return opts, fmt.Errorf("resolve repos for step %s: %w", step.ID, err)
+			return opts, fmt.Errorf("render prompt for step %s: %w", step.ID, err)
 		}
-		opts.Repos = repos
+
+		opts.Prompt = prompt
+		opts.Agent = step.Execution.Agent
+		if opts.Agent == "" {
+			opts.Agent = "claude-code"
+		}
+		opts.Verifiers = step.Execution.Verifiers
+		opts.Credentials = step.Execution.Credentials
+		opts.MaxTurns = step.Execution.MaxTurns
+
+		if step.Repositories != nil {
+			repos, err := resolveRepos(step.Repositories, params, outputs)
+			if err != nil {
+				return opts, fmt.Errorf("resolve repos for step %s: %w", step.ID, err)
+			}
+			opts.Repos = repos
+		}
+	}
+
+	// Render pull_request config fields — applies regardless of whether Execution is set.
+	if step.PullRequest != nil {
+		renderCtx := fltemplate.RenderContext{Params: params, Steps: outputs}
+		pr := *step.PullRequest // shallow copy — do not mutate the original StepDef
+		var err error
+		if pr.BranchPrefix, err = fltemplate.RenderPrompt(pr.BranchPrefix, renderCtx); err != nil {
+			return opts, fmt.Errorf("render pull_request.branch_prefix for step %s: %w", step.ID, err)
+		}
+		if pr.Title, err = fltemplate.RenderPrompt(pr.Title, renderCtx); err != nil {
+			return opts, fmt.Errorf("render pull_request.title for step %s: %w", step.ID, err)
+		}
+		if pr.Body, err = fltemplate.RenderPrompt(pr.Body, renderCtx); err != nil {
+			return opts, fmt.Errorf("render pull_request.body for step %s: %w", step.ID, err)
+		}
+		opts.PRConfig = &pr
 	}
 
 	return opts, nil

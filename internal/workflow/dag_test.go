@@ -368,3 +368,96 @@ func TestFanOutApprovalPolicyOverride(t *testing.T) {
 	// The guard in DAGWorkflow enforces this at runtime.
 	t.Log("fan-out HITL guard is enforced in DAGWorkflow — see dag.go fan-out section")
 }
+
+func TestResolveStep_PRConfig_TemplateRendered(t *testing.T) {
+	step := model.StepDef{
+		ID: "execute",
+		Execution: &model.ExecutionDef{
+			Agent:  "claude-code",
+			Prompt: "Fix the issue",
+		},
+		PullRequest: &model.PRDef{
+			BranchPrefix: "agent/{{ .Params.ticket_key }}",
+			Title:        "fix: {{ .Params.ticket_key }} automated fix",
+			Body:         "Fixes {{ .Params.ticket_key }}",
+		},
+	}
+	params := map[string]any{"ticket_key": "AFX-1234"}
+
+	opts, err := resolveStep(step, params, map[string]*model.StepOutput{})
+	require.NoError(t, err)
+	require.NotNil(t, opts.PRConfig)
+	assert.Equal(t, "agent/AFX-1234", opts.PRConfig.BranchPrefix)
+	assert.Equal(t, "fix: AFX-1234 automated fix", opts.PRConfig.Title)
+	assert.Equal(t, "Fixes AFX-1234", opts.PRConfig.Body)
+}
+
+func TestResolveStep_PRConfig_FromPriorStepOutput(t *testing.T) {
+	step := model.StepDef{
+		ID: "execute",
+		Execution: &model.ExecutionDef{
+			Agent:  "claude-code",
+			Prompt: "Fix the issue",
+		},
+		PullRequest: &model.PRDef{
+			BranchPrefix: "agent/fix",
+			Title:        `{{ (index .Steps "assess").Output.pr_title_hint }}`,
+			Body:         `{{ (index .Steps "assess").Output.pr_body_draft }}`,
+		},
+	}
+	outputs := map[string]*model.StepOutput{
+		"assess": {
+			Status: model.StepStatusComplete,
+			Output: map[string]any{
+				"pr_title_hint": "fix(AFX-1234): null pointer in auth handler",
+				"pr_body_draft": "Automated fix for AFX-1234",
+			},
+		},
+	}
+
+	opts, err := resolveStep(step, map[string]any{}, outputs)
+	require.NoError(t, err)
+	require.NotNil(t, opts.PRConfig)
+	assert.Equal(t, "fix(AFX-1234): null pointer in auth handler", opts.PRConfig.Title)
+	assert.Equal(t, "Automated fix for AFX-1234", opts.PRConfig.Body)
+}
+
+func TestResolveStep_PRConfig_NoExecution(t *testing.T) {
+	// A step with pull_request but no execution block — PRConfig must still be rendered.
+	step := model.StepDef{
+		ID: "action-with-pr",
+		PullRequest: &model.PRDef{
+			BranchPrefix: "fix/{{ .Params.ticket_key }}",
+			Title:        "fix: {{ .Params.ticket_key }}",
+		},
+	}
+	params := map[string]any{"ticket_key": "AFX-9999"}
+
+	opts, err := resolveStep(step, params, map[string]*model.StepOutput{})
+	require.NoError(t, err)
+	require.NotNil(t, opts.PRConfig)
+	assert.Equal(t, "fix/AFX-9999", opts.PRConfig.BranchPrefix)
+	assert.Equal(t, "fix: AFX-9999", opts.PRConfig.Title)
+}
+
+func TestResolveStep_PRConfig_OriginalNotMutated(t *testing.T) {
+	original := &model.PRDef{
+		BranchPrefix: "agent/{{ .Params.ticket_key }}",
+		Title:        "fix: {{ .Params.ticket_key }}",
+	}
+	step := model.StepDef{
+		ID: "execute",
+		Execution: &model.ExecutionDef{
+			Agent:  "claude-code",
+			Prompt: "Fix it",
+		},
+		PullRequest: original,
+	}
+	params := map[string]any{"ticket_key": "AFX-1234"}
+
+	_, err := resolveStep(step, params, map[string]*model.StepOutput{})
+	require.NoError(t, err)
+	// Original PRDef must be unchanged
+	assert.Equal(t, "agent/{{ .Params.ticket_key }}", original.BranchPrefix)
+	assert.Equal(t, "fix: {{ .Params.ticket_key }}", original.Title)
+}
