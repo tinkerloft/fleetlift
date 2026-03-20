@@ -3,6 +3,7 @@
 **Date:** 2026-03-18
 **Status:** Draft
 **Source:** Design friction encountered building the `doc-assessment` builtin workflow
+**Also required by:** [Auto-Debt-Slayer workflow plan](./auto-debt-slayer-workflow.md) — Improvements 1 and 2 are hard blockers for that workflow
 
 ---
 
