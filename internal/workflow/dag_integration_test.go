@@ -1328,3 +1328,177 @@ func removeCall(calls []*mock.Call, methodName string) []*mock.Call {
 	}
 	return filtered
 }
+
+// adsWorkflowDef returns a WorkflowDef that mirrors the auto-debt-slayer workflow
+// structure: enrich (report) → assess (report) → execute (transform, conditional) →
+// notify (action, optional). Used by DAG routing tests.
+func adsWorkflowDef() model.WorkflowDef {
+	return model.WorkflowDef{
+		ID:    "auto-debt-slayer",
+		Title: "Auto Debt Slayer",
+		Steps: []model.StepDef{
+			{
+				ID:    "enrich",
+				Title: "Enrich ticket context",
+				Mode:  "report",
+				Execution: &model.ExecutionDef{
+					Agent:  "claude-code",
+					Prompt: "Enrich ticket {{ .Params.ticket_key }}",
+				},
+			},
+			{
+				ID:        "assess",
+				Title:     "Assess ticket feasibility",
+				Mode:      "report",
+				DependsOn: []string{"enrich"},
+				Execution: &model.ExecutionDef{
+					Agent:  "claude-code",
+					Prompt: "Assess {{ .Steps.enrich.Output | toJSON }}",
+				},
+			},
+			{
+				ID:        "execute",
+				Title:     "Implement fix",
+				Mode:      "transform",
+				DependsOn: []string{"assess"},
+				Condition: `{{eq (index .steps "assess").output.decision "execute"}}`,
+				Execution: &model.ExecutionDef{
+					Agent:  "claude-code",
+					Prompt: "Fix the issue",
+				},
+			},
+			{
+				ID:        "notify",
+				Title:     "Send Slack notification",
+				DependsOn: []string{"execute"},
+				Optional:  true,
+				Action: &model.ActionDef{
+					Type: "slack_notify",
+					Config: map[string]any{
+						"channel": "C123",
+						"message": "done",
+					},
+				},
+			},
+		},
+	}
+}
+
+// TestDAGWorkflow_ADS_ExecutePath verifies the auto-debt-slayer workflow DAG routing
+// when assess returns decision="execute": all four steps run in order and the workflow
+// completes successfully.
+func TestDAGWorkflow_ADS_ExecutePath(t *testing.T) {
+	env, mocks := newDAGTestEnv(t)
+
+	mocks.On("ProvisionSandbox", mock.Anything).Return("sb-ads", nil)
+
+	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
+		return ei.StepInput.StepDef.ID == "enrich"
+	})).Return(&model.StepOutput{
+		StepID: "enrich",
+		Status: model.StepStatusComplete,
+		Output: map[string]any{
+			"ticket_summary": "Fix null pointer in auth handler",
+			"related_files":  []string{"internal/auth/handler.go"},
+		},
+	}, nil)
+
+	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
+		return ei.StepInput.StepDef.ID == "assess"
+	})).Return(&model.StepOutput{
+		StepID: "assess",
+		Status: model.StepStatusComplete,
+		Output: map[string]any{
+			"decision":        "execute",
+			"pr_title_hint":   "fix(AFX-1234): null pointer in auth handler",
+			"pr_body_draft":   "Automated fix for AFX-1234",
+			"decision_reasons": []string{},
+			"caveats":         []string{},
+			"risks":           []string{},
+		},
+	}, nil)
+
+	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
+		return ei.StepInput.StepDef.ID == "execute"
+	})).Return(&model.StepOutput{
+		StepID: "execute",
+		Status: model.StepStatusComplete,
+		Output: map[string]any{
+			"agent_summary":   "Fixed null pointer by adding nil check",
+			"review_approved": true,
+			"total_cost_usd":  1.85,
+		},
+	}, nil)
+
+	mocks.On("ExecuteAction", mock.Anything, "slack_notify", mock.Anything, mock.Anything, mock.Anything).
+		Return(map[string]any{"status": "sent"}, nil)
+
+	env.ExecuteWorkflow(DAGWorkflow, DAGInput{
+		RunID:       "run-ads-execute-1",
+		TeamID:      "team-1",
+		WorkflowDef: adsWorkflowDef(),
+		Parameters: map[string]any{
+			"ticket_key":   "AFX-1234",
+			"jira_base_url": "https://myorg.atlassian.net",
+			"github_repo":  "https://github.com/org/repo",
+		},
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	assert.NoError(t, env.GetWorkflowError())
+	// All three agent steps ran
+	mocks.AssertNumberOfCalls(t, "ExecuteStep", 3)
+	// Notify action ran
+	mocks.AssertNumberOfCalls(t, "ExecuteAction", 1)
+}
+
+// TestDAGWorkflow_ADS_ManualNeededPath verifies the auto-debt-slayer DAG routing when
+// assess returns decision="manual_needed": execute is skipped (condition false), but
+// notify still runs because it is optional and a skipped dependency is treated as done.
+func TestDAGWorkflow_ADS_ManualNeededPath(t *testing.T) {
+	env, mocks := newDAGTestEnv(t)
+
+	mocks.On("ProvisionSandbox", mock.Anything).Return("sb-ads", nil)
+
+	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
+		return ei.StepInput.StepDef.ID == "enrich"
+	})).Return(&model.StepOutput{
+		StepID: "enrich",
+		Status: model.StepStatusComplete,
+		Output: map[string]any{"ticket_summary": "Unclear requirements"},
+	}, nil)
+
+	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
+		return ei.StepInput.StepDef.ID == "assess"
+	})).Return(&model.StepOutput{
+		StepID: "assess",
+		Status: model.StepStatusComplete,
+		Output: map[string]any{
+			"decision":         "manual_needed",
+			"decision_reasons": []string{"requirements unclear"},
+			"pr_title_hint":    "",
+			"pr_body_draft":    "",
+		},
+	}, nil)
+
+	mocks.On("ExecuteAction", mock.Anything, "slack_notify", mock.Anything, mock.Anything, mock.Anything).
+		Return(map[string]any{"status": "sent"}, nil)
+
+	env.ExecuteWorkflow(DAGWorkflow, DAGInput{
+		RunID:       "run-ads-manual-1",
+		TeamID:      "team-1",
+		WorkflowDef: adsWorkflowDef(),
+		Parameters: map[string]any{
+			"ticket_key":   "AFX-5678",
+			"jira_base_url": "https://myorg.atlassian.net",
+			"github_repo":  "https://github.com/org/repo",
+		},
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	assert.NoError(t, env.GetWorkflowError())
+	// Only enrich and assess ran — execute was skipped
+	mocks.AssertNumberOfCalls(t, "ExecuteStep", 2)
+	// Notify still ran despite execute being skipped
+	mocks.AssertNumberOfCalls(t, "ExecuteAction", 1)
+}

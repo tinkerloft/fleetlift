@@ -281,16 +281,19 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 			workflow.Go(ctx, func(gCtx workflow.Context) {
 				defer wg.Done()
 
-				// If any required dependency was skipped or failed, skip this step too
-				// rather than attempting to render templates against absent output.
-				for _, dep := range step.DependsOn {
-					if out, ok := outputs[dep]; ok && (out.Status == model.StepStatusSkipped || out.Status == model.StepStatusFailed) {
-						results[i] = &model.StepOutput{
-							StepID: step.ID,
-							Status: model.StepStatusSkipped,
-							Error:  fmt.Sprintf("skipped: dependency %s did not complete successfully", dep),
+				// If any dependency was skipped or failed, skip this step too —
+				// unless the step is optional, in which case it still attempts to run
+				// (e.g. a Slack notify that should report either outcome).
+				if !step.Optional {
+					for _, dep := range step.DependsOn {
+						if out, ok := outputs[dep]; ok && (out.Status == model.StepStatusSkipped || out.Status == model.StepStatusFailed) {
+							results[i] = &model.StepOutput{
+								StepID: step.ID,
+								Status: model.StepStatusSkipped,
+								Error:  fmt.Sprintf("skipped: dependency %s did not complete successfully", dep),
+							}
+							return
 						}
-						return
 					}
 				}
 
