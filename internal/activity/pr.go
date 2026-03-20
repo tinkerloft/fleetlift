@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/google/go-github/v62/github"
 	"go.temporal.io/sdk/activity"
@@ -16,36 +17,50 @@ import (
 // CreatePullRequest creates a PR from the changes in a sandbox.
 // It pushes the branch from the sandbox and creates a GitHub PR.
 func (a *Activities) CreatePullRequest(ctx context.Context, sandboxID string, input workflow.StepInput) (string, error) {
-	activity.RecordHeartbeat(ctx, "creating PR")
-
 	prDef := input.StepDef.PullRequest
 	if prDef == nil {
 		return "", fmt.Errorf("no PR configuration for step %s", input.StepDef.ID)
 	}
 
-	// Generate branch name
-	branchName := fmt.Sprintf("%s/%s", prDef.BranchPrefix, input.RunID)
-
-	// Create GitHub PR
 	if len(input.ResolvedOpts.Repos) == 0 {
 		return "", fmt.Errorf("no repos configured for PR creation")
 	}
 
+	branchName := fmt.Sprintf("%s/%s", prDef.BranchPrefix, input.RunID)
 	repoDir := "/workspace/" + repoName(input.ResolvedOpts.Repos[0])
 
-	// Create branch and push from sandbox
-	cmds := []string{
-		fmt.Sprintf("git -C %s checkout -b %s", shellquote.Quote(repoDir), shellquote.Quote(branchName)),
-		fmt.Sprintf("git -C %s add -A", shellquote.Quote(repoDir)),
-		fmt.Sprintf("git -C %s commit -m %s", shellquote.Quote(repoDir), shellquote.Quote(prDef.Title)),
-		fmt.Sprintf("git -C %s push origin %s", shellquote.Quote(repoDir), shellquote.Quote(branchName)),
-	}
-
-	for _, cmd := range cmds {
+	execGit := func(cmd string) error {
 		stdout, stderr, err := a.Sandbox.Exec(ctx, sandboxID, cmd, "/")
 		if err != nil {
-			return "", fmt.Errorf("git command %q: %w (stdout: %s, stderr: %s)", cmd, err, stdout, stderr)
+			return fmt.Errorf("git command %q: %w (stdout: %s, stderr: %s)", cmd, err, stdout, stderr)
 		}
+		return nil
+	}
+
+	if err := execGit(fmt.Sprintf("git -C %s checkout -b %s", shellquote.Quote(repoDir), shellquote.Quote(branchName))); err != nil {
+		return "", err
+	}
+	if err := execGit(fmt.Sprintf("git -C %s add -A", shellquote.Quote(repoDir))); err != nil {
+		return "", err
+	}
+
+	// Skip commit/push/PR if there are no changes.
+	statusOut, _, statusErr := a.Sandbox.Exec(ctx, sandboxID, fmt.Sprintf("git -C %s status --porcelain", shellquote.Quote(repoDir)), "/")
+	if statusErr != nil {
+		return "", fmt.Errorf("git status: %w", statusErr)
+	}
+	if strings.TrimSpace(statusOut) == "" {
+		return "", nil // clean working tree — nothing to commit
+	}
+
+	// Record heartbeat now that we know there is real work to do.
+	activity.RecordHeartbeat(ctx, "creating PR")
+
+	if err := execGit(fmt.Sprintf("git -C %s commit -m %s", shellquote.Quote(repoDir), shellquote.Quote(prDef.Title))); err != nil {
+		return "", err
+	}
+	if err := execGit(fmt.Sprintf("git -C %s push origin %s", shellquote.Quote(repoDir), shellquote.Quote(branchName))); err != nil {
+		return "", err
 	}
 
 	// Create GitHub PR
