@@ -1,0 +1,17 @@
+FROM claude-code-sandbox:latest
+
+# JRE required to run acli
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends openjdk-21-jre-headless && \
+    rm -rf /var/lib/apt/lists/*
+
+# acli — Atlassian CLI
+ARG ACLI_VERSION=10.1.0
+RUN curl -fsSL "https://acli.atlassian.com/acli-${ACLI_VERSION}.jar" \
+        -o /usr/local/bin/acli.jar && \
+    printf '#!/bin/sh\nexec java -jar /usr/local/bin/acli.jar "$@"\n' \
+        > /usr/local/bin/acli && \
+    chmod +x /usr/local/bin/acli
+
+# Inject fix rules into every agent context
+COPY docker/ads-fix-rules.md /agent/fix-rules.md

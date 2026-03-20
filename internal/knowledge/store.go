@@ -334,9 +334,9 @@ func FormatEnrichmentBlock(items []model.KnowledgeItem) string {
 	var sb strings.Builder
 	sb.WriteString("## Knowledge Base\n\nThe following insights from previous runs may be relevant:\n\n")
 	for _, item := range items {
-		sb.WriteString(fmt.Sprintf("**[%s]** %s\n", item.Type, item.Summary))
+		fmt.Fprintf(&sb, "**[%s]** %s\n", item.Type, item.Summary)
 		if item.Details != "" {
-			sb.WriteString(fmt.Sprintf("  %s\n", item.Details))
+			fmt.Fprintf(&sb, "  %s\n", item.Details)
 		}
 		sb.WriteString("\n")
 	}

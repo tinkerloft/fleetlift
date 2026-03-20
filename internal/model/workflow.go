@@ -43,7 +43,7 @@ type WorkflowDef struct {
 	Tags          []string                   `yaml:"tags"`
 	Parameters    []ParameterDef             `yaml:"parameters"`
 	Steps         []StepDef                  `yaml:"steps"`
-	AgentProfile  string                     `yaml:"agent_profile,omitempty"`
+	AgentProfile  string                     `yaml:"agent_profile,omitempty" json:"agent_profile,omitempty"`
 	SandboxGroups map[string]SandboxGroupDef `yaml:"sandbox_groups,omitempty" json:"sandbox_groups,omitempty"`
 }
 

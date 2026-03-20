@@ -1,6 +1,7 @@
 version: 1
 id: auto-debt-slayer
 title: Auto Debt Slayer
+agent_profile: superpowers
 description: >
   Autonomous ticket-to-PR pipeline. Enriches a Jira ticket with codebase context,
   assesses feasibility, runs a Claude Code fix with TDD/review loop, and creates
