@@ -88,8 +88,7 @@ func TestCreatePullRequest_CleanTree(t *testing.T) {
 	sb := &scriptingSandbox{
 		responses: []sandboxResponse{
 			{match: "checkout -b"},
-			{match: "add -A"},
-			{match: "status --porcelain", stdout: ""}, // empty = clean
+			{match: "status --porcelain", stdout: ""}, // empty = clean, returns early
 		},
 	}
 
@@ -125,8 +124,8 @@ func TestCreatePullRequest_DirtyTree(t *testing.T) {
 	sb := &scriptingSandbox{
 		responses: []sandboxResponse{
 			{match: "checkout -b"},
-			{match: "add -A"},
 			{match: "status --porcelain", stdout: "M  some/file.go\n"}, // dirty
+			{match: "add -A"},
 			{match: "commit"},
 			{match: "push"},
 		},

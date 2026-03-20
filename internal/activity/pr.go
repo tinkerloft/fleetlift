@@ -40,9 +40,6 @@ func (a *Activities) CreatePullRequest(ctx context.Context, sandboxID string, in
 	if err := execGit(fmt.Sprintf("git -C %s checkout -b %s", shellquote.Quote(repoDir), shellquote.Quote(branchName))); err != nil {
 		return "", err
 	}
-	if err := execGit(fmt.Sprintf("git -C %s add -A", shellquote.Quote(repoDir))); err != nil {
-		return "", err
-	}
 
 	// Skip commit/push/PR if there are no changes.
 	statusOut, _, statusErr := a.Sandbox.Exec(ctx, sandboxID, fmt.Sprintf("git -C %s status --porcelain", shellquote.Quote(repoDir)), "/")
@@ -55,6 +52,10 @@ func (a *Activities) CreatePullRequest(ctx context.Context, sandboxID string, in
 
 	// Record heartbeat now that we know there is real work to do.
 	activity.RecordHeartbeat(ctx, "creating PR")
+
+	if err := execGit(fmt.Sprintf("git -C %s add -A", shellquote.Quote(repoDir))); err != nil {
+		return "", err
+	}
 
 	if err := execGit(fmt.Sprintf("git -C %s commit -m %s", shellquote.Quote(repoDir), shellquote.Quote(prDef.Title))); err != nil {
 		return "", err
@@ -82,7 +83,7 @@ func (a *Activities) CreatePullRequest(ctx context.Context, sandboxID string, in
 	}
 
 	baseBranch := DefaultBranch
-	if len(input.ResolvedOpts.Repos) > 0 && input.ResolvedOpts.Repos[0].Branch != "" {
+	if input.ResolvedOpts.Repos[0].Branch != "" {
 		baseBranch = input.ResolvedOpts.Repos[0].Branch
 	}
 
