@@ -265,9 +265,11 @@ func TestExtractCostFromOutput(t *testing.T) {
 		raw      map[string]any
 		wantCost float64
 	}{
-		{"cost_usd field", map[string]any{"cost_usd": 0.05, "result": "done"}, 0.05},
+		{"total_cost_usd field", map[string]any{"total_cost_usd": 0.11, "result": "done"}, 0.11},
+		{"cost_usd fallback", map[string]any{"cost_usd": 0.05, "result": "done"}, 0.05},
+		{"total_cost_usd takes precedence", map[string]any{"total_cost_usd": 0.11, "cost_usd": 0.05, "result": "done"}, 0.11},
 		{"no cost field", map[string]any{"result": "done"}, 0.0},
-		{"zero cost", map[string]any{"cost_usd": 0.0, "result": "done"}, 0.0},
+		{"zero cost", map[string]any{"total_cost_usd": 0.0, "result": "done"}, 0.0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

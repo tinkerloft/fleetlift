@@ -481,8 +481,11 @@ func filterSchema(parsed map[string]any, schema map[string]any) map[string]any {
 }
 
 // extractCostUSD reads the agent cost from a Claude Code result event.
-// Claude Code CLI emits cost_usd in the result event.
+// Claude Code CLI emits total_cost_usd in the result event (older versions used cost_usd).
 func extractCostUSD(raw map[string]any) float64 {
+	if v, ok := raw["total_cost_usd"].(float64); ok {
+		return v
+	}
 	if v, ok := raw["cost_usd"].(float64); ok {
 		return v
 	}
