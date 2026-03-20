@@ -169,6 +169,36 @@ func TestEvalCondition_InvalidTemplate(t *testing.T) {
 	assert.False(t, runEvalCondition(t, "{{broken", nil))
 }
 
+func TestEvalCondition_StepOutput(t *testing.T) {
+	outputs := map[string]*model.StepOutput{
+		"assess": {
+			Status: model.StepStatusComplete,
+			Output: map[string]any{"decision": "execute"},
+		},
+	}
+	// Truthy: output field matches expected value
+	assert.True(t, runEvalCondition(t,
+		`{{eq (index .steps "assess").output.decision "execute"}}`,
+		outputs,
+	))
+	// Falsy: output field has different value
+	assert.False(t, runEvalCondition(t,
+		`{{eq (index .steps "assess").output.decision "manual_needed"}}`,
+		outputs,
+	))
+}
+
+func TestEvalCondition_MissingStepOutput(t *testing.T) {
+	// Step with no Output set — should not panic, condition evaluates to false
+	outputs := map[string]*model.StepOutput{
+		"assess": {Status: model.StepStatusComplete},
+	}
+	assert.False(t, runEvalCondition(t,
+		`{{eq (index .steps "assess").output.decision "execute"}}`,
+		outputs,
+	))
+}
+
 func TestResolveStep_NilExecution(t *testing.T) {
 	step := model.StepDef{ID: "action-step"}
 	opts, err := resolveStep(step, nil, nil)

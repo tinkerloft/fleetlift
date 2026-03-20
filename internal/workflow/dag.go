@@ -766,6 +766,7 @@ func evalCondition(ctx workflow.Context, condition string, params map[string]any
 			steps[id] = map[string]any{
 				"status": string(out.Status),
 				"error":  out.Error,
+				"output": out.Output,
 			}
 		}
 	}
