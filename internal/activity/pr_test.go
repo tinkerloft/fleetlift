@@ -114,11 +114,11 @@ func TestCreatePullRequest_DirtyTree(t *testing.T) {
 				HTMLURL: github.String("https://github.com/acme/repo/pull/42"),
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(pr)
+			_ = json.NewEncoder(w).Encode(pr)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, "[]")
+		_, _ = fmt.Fprint(w, "[]")
 	}))
 
 	sb := &scriptingSandbox{
