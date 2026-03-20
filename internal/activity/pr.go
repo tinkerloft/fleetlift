@@ -55,13 +55,16 @@ func (a *Activities) CreatePullRequest(ctx context.Context, sandboxID string, in
 		return "", fmt.Errorf("could not parse owner/repo from %s", repoURL)
 	}
 
-	token := os.Getenv("GITHUB_TOKEN")
-	if token == "" {
-		return "", fmt.Errorf("GITHUB_TOKEN not set")
+	ghClient := a.GitHubClient
+	if ghClient == nil {
+		token := os.Getenv("GITHUB_TOKEN")
+		if token == "" {
+			return "", fmt.Errorf("GITHUB_TOKEN not set")
+		}
+		ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
+		tc := oauth2.NewClient(ctx, ts)
+		ghClient = github.NewClient(tc)
 	}
-	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
-	tc := oauth2.NewClient(ctx, ts)
-	ghClient := github.NewClient(tc)
 
 	baseBranch := DefaultBranch
 	if len(input.ResolvedOpts.Repos) > 0 && input.ResolvedOpts.Repos[0].Branch != "" {
@@ -88,10 +91,12 @@ func (a *Activities) CreatePullRequest(ctx context.Context, sandboxID string, in
 	}
 
 	// Update step run with PR URL and branch
-	if _, err := a.DB.ExecContext(ctx,
-		`UPDATE step_runs SET pr_url = $1, branch_name = $2 WHERE id = $3`,
-		pr.GetHTMLURL(), branchName, input.StepRunID); err != nil {
-		activity.GetLogger(ctx).Warn("failed to record PR URL in step_run", "pr_url", pr.GetHTMLURL(), "error", err)
+	if a.DB != nil {
+		if _, err := a.DB.ExecContext(ctx,
+			`UPDATE step_runs SET pr_url = $1, branch_name = $2 WHERE id = $3`,
+			pr.GetHTMLURL(), branchName, input.StepRunID); err != nil {
+			activity.GetLogger(ctx).Warn("failed to record PR URL in step_run", "pr_url", pr.GetHTMLURL(), "error", err)
+		}
 	}
 
 	return pr.GetHTMLURL(), nil

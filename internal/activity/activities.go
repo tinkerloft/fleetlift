@@ -3,6 +3,7 @@ package activity
 import (
 	"context"
 
+	"github.com/google/go-github/v62/github"
 	"github.com/jmoiron/sqlx"
 	"github.com/tinkerloft/fleetlift/internal/agent"
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
@@ -23,4 +24,5 @@ type Activities struct {
 	CredStore    CredentialStore
 	AgentRunners map[string]agent.Runner
 	ProfileStore ProfileStore
+	GitHubClient *github.Client // if nil, constructed from GITHUB_TOKEN env var at call time
 }
