@@ -37,7 +37,22 @@ func templateFuncs() template.FuncMap {
 		"toJSON":   toJSON,
 		"truncate": truncate,
 		"join":     strings.Join,
+		"default":  defaultValue,
 	}
+}
+
+// defaultValue returns val if non-nil and non-empty, otherwise def.
+// Intended for use with the index built-in to safely handle optional params:
+//
+//	{{ index .Params "optional_key" | default "fallback" }}
+func defaultValue(def, val any) any {
+	if val == nil {
+		return def
+	}
+	if s, ok := val.(string); ok && s == "" {
+		return def
+	}
+	return val
 }
 
 func toJSON(v any) (string, error) {

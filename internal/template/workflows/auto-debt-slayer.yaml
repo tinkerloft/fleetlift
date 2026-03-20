@@ -75,7 +75,7 @@ steps:
         ## Ticket
         Key: {{ .Params.ticket_key }}
         Jira base URL: {{ .Params.jira_base_url }}
-        Budget: ${{ if .Params.per_task_budget_usd }}{{ .Params.per_task_budget_usd }}{{ else }}10.00{{ end }}
+        Budget: ${{ index .Params "per_task_budget_usd" | default "10.00" }}
 
         ## Instructions
 
@@ -124,7 +124,7 @@ steps:
         {{ .Steps.enrich.Output | toJSON }}
 
         ## Budget
-        Per-task budget: ${{ if .Params.per_task_budget_usd }}{{ .Params.per_task_budget_usd }}{{ else }}10.00{{ end }}
+        Per-task budget: ${{ index .Params "per_task_budget_usd" | default "10.00" }}
 
         ## Assessment questions
 
@@ -213,7 +213,7 @@ steps:
         Risks: {{ .Steps.assess.Output.risks | toJSON }}
 
         ## Budget
-        Soft cost cap: ${{ if .Params.per_task_budget_usd }}{{ .Params.per_task_budget_usd }}{{ else }}10.00{{ end }}.
+        Soft cost cap: ${{ index .Params "per_task_budget_usd" | default "10.00" }}.
         Stay within budget. If you project the run will significantly exceed this limit, stop and explain why.
 
         ## Workflow — follow this exactly
@@ -257,8 +257,8 @@ steps:
       credentials:
         - SLACK_BOT_TOKEN
       config:
-        channel: "{{ .Params.slack_channel_id }}"
-        thread_ts: "{{ .Params.slack_thread_ts }}"
+        channel: '{{ index .Params "slack_channel_id" | default "" }}'
+        thread_ts: '{{ index .Params "slack_thread_ts" | default "" }}'
         message: |
           {{ if eq .Steps.assess.Output.decision "execute" -}}
           PR created for {{ .Params.ticket_key }}: {{ .Steps.execute.Output.agent_summary }}
