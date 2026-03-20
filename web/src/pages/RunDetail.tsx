@@ -302,7 +302,6 @@ export function RunDetailPage() {
                 <StepPanel
                   stepRun={selectedStep}
                   runParameters={run.parameters}
-                  allStepRuns={stepRuns}
                   artifacts={allArtifacts.filter(a => a.step_run_id === selectedStep.id)}
                 />
               </div>

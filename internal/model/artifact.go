@@ -11,6 +11,6 @@ type Artifact struct {
 	ContentType string    `db:"content_type" json:"content_type"`
 	Storage     string    `db:"storage" json:"storage"` // "inline" | "object_store"
 	Data        []byte    `db:"data" json:"data,omitempty"`
-	ObjectKey   string    `db:"object_key" json:"object_key,omitempty"`
+	ObjectKey   *string   `db:"object_key" json:"object_key,omitempty"`
 	CreatedAt   time.Time `db:"created_at" json:"created_at"`
 }

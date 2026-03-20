@@ -24,16 +24,16 @@ type StepInput struct {
 
 // ResolvedStepOpts holds step options after template rendering.
 type ResolvedStepOpts struct {
-	Prompt           string                  `json:"prompt"`
-	Repos            []model.RepoRef         `json:"repos"`
-	Verifiers        any                     `json:"verifiers,omitempty"`
-	Credentials      []string                `json:"credentials,omitempty"`
-	PRConfig         *model.PRDef            `json:"pr_config,omitempty"`
+	Prompt            string                  `json:"prompt"`
+	Repos             []model.RepoRef         `json:"repos"`
+	Verifiers         any                     `json:"verifiers,omitempty"`
+	Credentials       []string                `json:"credentials,omitempty"`
+	PRConfig          *model.PRDef            `json:"pr_config,omitempty"`
 	Agent             string                  `json:"agent"`
 	MaxTurns          int                     `json:"max_turns,omitempty"`
 	SandboxGroupImage string                  `json:"sandbox_group_image,omitempty"`
-	EffectiveProfile *model.AgentProfileBody `json:"effective_profile,omitempty"`
-	EvalPluginURLs   []string                `json:"eval_plugin_urls,omitempty"`
+	EffectiveProfile  *model.AgentProfileBody `json:"effective_profile,omitempty"`
+	EvalPluginURLs    []string                `json:"eval_plugin_urls,omitempty"`
 }
 
 // ExecuteStepInput is the input to the ExecuteStep activity.

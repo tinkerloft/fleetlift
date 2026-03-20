@@ -9,32 +9,18 @@ import { ArtifactCard } from './ArtifactCard'
 interface StepPanelProps {
   stepRun: StepRun
   runParameters?: Record<string, unknown>
-  allStepRuns?: StepRun[]
   artifacts?: Artifact[]
 }
 
-/** Strip the fan-out index suffix (e.g. "assess-2" → "assess"). */
-function baseStepId(stepId: string): string {
-  return stepId.replace(/-\d+$/, '')
-}
 
-export function StepPanel({ stepRun, runParameters, allStepRuns, artifacts = [] }: StepPanelProps) {
+
+export function StepPanel({ stepRun, runParameters, artifacts = [] }: StepPanelProps) {
   const [outputExpanded, setOutputExpanded] = useState(artifacts.length === 0)
 
   // Reset output collapse state when the selected step or its artifacts change
   useEffect(() => {
     setOutputExpanded(artifacts.length === 0)
   }, [stepRun.id, artifacts.length])
-  const myBase = baseStepId(stepRun.step_id)
-
-  // Prior completed steps whose output is available as template context.
-  // Exclude fan-out siblings (same base step ID) — they're peers, not inputs.
-  const priorOutputs = (allStepRuns ?? [])
-    .filter(sr =>
-      baseStepId(sr.step_id) !== myBase &&
-      sr.output && Object.keys(sr.output).length > 0 &&
-      (sr.status === 'complete' || sr.status === 'failed'),
-    )
 
   const hasStepInput = stepRun.input && Object.keys(stepRun.input).length > 0
   const hasRunParams = runParameters && Object.keys(runParameters).length > 0
@@ -89,24 +75,6 @@ export function StepPanel({ stepRun, runParameters, allStepRuns, artifacts = [] 
         </div>
       )}
 
-      {/* Prior step outputs used as template context */}
-      {priorOutputs.length > 0 && (
-        <details>
-          <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Context from prior steps
-          </summary>
-          <div className="mt-2 space-y-2">
-            {priorOutputs.map(sr => (
-              <div key={sr.id}>
-                <span className="text-[10px] text-muted-foreground font-mono">{sr.step_title || sr.step_id}</span>
-                <pre className="mt-1 max-h-28 overflow-auto rounded border border-border bg-muted p-2 text-[10px] font-mono">
-                  {JSON.stringify(sr.output, null, 2)}
-                </pre>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
 
       {/* Workflow parameters (collapsed by default — for reference) */}
       {hasRunParams && (
