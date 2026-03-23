@@ -26,6 +26,47 @@ Broken contracts fixed, dead code removed, test coverage added. See [`archive/20
 
 ## Outstanding
 
+### Prioritized Improvement Plan
+
+#### P0 — Reliability and Operator Trust
+
+| Item | Why now |
+|---|---|
+| **Worker-restart-safe execution** | Highest production-risk gap. `ExecuteStep` can fail permanently if the worker restarts mid-run; add heartbeat-detail checkpointing and resume-or-skip behavior before expanding the platform surface. |
+| **Per-step failure visibility** | Operators should see failures as soon as a non-optional step fails, not only when the full run completes. This shortens response time and makes HITL operations more credible. |
+| **Output normalization + cost tracking** | Finish plain-text result normalization and repair `cost_usd` extraction so run output is clean, comparable, and trustworthy. |
+
+#### P1 — Workflow Product Completion
+
+| Item | Why now |
+|---|---|
+| **Bring Your Own Workflow UI** | The backend CRUD/fork APIs exist already; the highest-leverage product gap is the missing frontend authoring flow. |
+| **Validation-first workflow editing** | Surface workflow validation errors cleanly, support fork-from-builtin and import-from-YAML, and make custom workflow creation safe for operators. |
+| **Frontend docs cleanup** | Replace the stock Vite README with real web setup and contributor guidance to match the maturity of the backend/docs experience. |
+
+#### P1.5 — Platform Hardening
+
+| Item | Why now |
+|---|---|
+| **OpenAPI / contract hardening** | Reduce frontend-backend drift as the API surface grows and improve confidence in future UI work. |
+| **Correlation IDs + observability pass** | Make cross-service debugging easier across server, worker, SSE, and sandbox execution paths. |
+| **Real integration coverage** | Add live Temporal/PostgreSQL integration coverage beyond SDK testsuite mocks to catch production-shaped regressions earlier. |
+
+#### P2 — Capability Expansion
+
+| Item | Why later |
+|---|---|
+| **GitHub integration consolidation** | Valuable cleanup, but less urgent than reliability and authoring completeness. |
+| **Workflow expressiveness** | Conditional PR creation, templated PR fields, and per-repo fan-out filters improve ergonomics after the platform is more stable. |
+| **Knowledge loop evolution** | Semantic memory, dedup, and decay are useful multipliers, but should follow core workflow and platform hardening. |
+
+#### Recommended sequence
+
+1. Reliability polish — worker-restart-safe execution, per-step failure visibility, output normalization, cost tracking.
+2. Workflow product completion — BYOW UI, validation UX, workflow import/fork/edit flows, frontend docs.
+3. Platform hardening — OpenAPI, correlation IDs, real integration tests.
+4. Capability expansion — GitHub cleanup, workflow expressiveness, richer knowledge systems.
+
 ### Track F — Feature Completion
 
 | # | Item | Notes |

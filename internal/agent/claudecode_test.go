@@ -55,6 +55,11 @@ func wrapped(stream string, event map[string]any) string {
 	return string(outer)
 }
 
+func wrappedContent(stream, content string) string {
+	outer, _ := json.Marshal(map[string]string{"stream": stream, "content": content})
+	return string(outer)
+}
+
 func TestClaudeCodeRunner_RunUsesBridgeRequestFile(t *testing.T) {
 	sb := &runnerSandbox{
 		lines: []string{wrapped("stdout", map[string]any{"type": "complete", "result": "ok", "is_error": false})},
@@ -171,6 +176,27 @@ func TestParseClaudeEvent_WrappedNormalized(t *testing.T) {
 	ev := parseClaudeEvent(line)
 	assert.Equal(t, "stdout", ev.Type)
 	assert.Equal(t, "hello", ev.Content)
+}
+
+func TestClaudeCodeRunner_RunSplitsCombinedBridgeChunk(t *testing.T) {
+	sb := &runnerSandbox{
+		lines: []string{wrappedContent("stdout", strings.Join([]string{
+			`{"type":"assistant_text","content":"hello"}`,
+			`{"type":"tool_call","name":"Bash","description":"List files"}`,
+			`{"type":"complete","result":"Done","is_error":false}`,
+		}, "\n"))},
+	}
+	r := NewClaudeCodeRunner(sb)
+
+	ch, err := r.Run(context.Background(), "sb-1", RunOpts{Prompt: "hello", WorkDir: "/workspace"})
+	require.NoError(t, err)
+	got := collectEvents(ch, 2*time.Second)
+
+	require.Len(t, got, 3)
+	assert.Equal(t, Event{Type: "stdout", Content: "hello"}, got[0])
+	assert.Equal(t, Event{Type: "stdout", Content: "[tool] Bash: List files"}, got[1])
+	assert.Equal(t, "complete", got[2].Type)
+	assert.Equal(t, "Done", got[2].Output["result"])
 }
 
 func TestParseClaudeEvent_LegacyResultStillWorks(t *testing.T) {

@@ -12,7 +12,7 @@ parameters:
     description: "Repository URL to clone (can be private)"
 sandbox_groups:
   main:
-    image: claude-code:latest
+    image: claude-code-sandbox:latest
 steps:
   - id: clone_and_verify
     title: Clone repository

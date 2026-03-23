@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -154,4 +155,49 @@ func TestNewRouter_ProtectedEndpointsRequireAuth(t *testing.T) {
 		router.ServeHTTP(w, req)
 		assert.Equal(t, http.StatusUnauthorized, w.Code, "path %s should require auth", path)
 	}
+}
+
+func TestNewRouter_DevLoginSetsCookieForSSE(t *testing.T) {
+	t.Setenv("DEV_NO_AUTH", "1")
+	t.Setenv("DEV_USER_ID", "user-dev")
+	t.Setenv("DEV_TEAM_ID", "team-dev")
+
+	registry := template.NewRegistry()
+	deps := Deps{
+		JWTSecret:   []byte("test-secret"),
+		Auth:        handlers.NewAuthHandler(nil, nil, []byte("test-secret")),
+		Workflows:   handlers.NewWorkflowsHandler(registry),
+		Runs:        handlers.NewRunsHandler(nil, nil, registry, nil),
+		Inbox:       handlers.NewInboxHandler(nil, nil),
+		Reports:     handlers.NewReportsHandler(nil),
+		Credentials: newTestCredentialsHandler(),
+		Knowledge:   handlers.NewKnowledgeHandler(nil),
+	}
+
+	router, err := NewRouter(deps)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/dev-login", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.NotEmpty(t, body["token"])
+
+	resp := w.Result()
+	defer func() { _ = resp.Body.Close() }()
+	var foundTokenCookie bool
+	for _, c := range resp.Cookies() {
+		if c.Name == "fl_token" {
+			foundTokenCookie = true
+			assert.Equal(t, body["token"], c.Value)
+			assert.Equal(t, "/", c.Path)
+			assert.True(t, c.HttpOnly)
+			break
+		}
+	}
+	assert.True(t, foundTokenCookie, "dev-login should set fl_token cookie for SSE auth")
 }

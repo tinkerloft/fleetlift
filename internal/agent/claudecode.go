@@ -81,10 +81,12 @@ func (r *ClaudeCodeRunner) Run(ctx context.Context, sandboxID string, opts RunOp
 	go func() {
 		defer close(ch)
 		err := r.sandbox.ExecStream(ctx, sandboxID, cmd, workDir, func(line string) {
-			event := parseClaudeEvent(line)
-			select {
-			case ch <- event:
-			case <-ctx.Done():
+			for _, event := range parseClaudeStreamChunk(line) {
+				select {
+				case ch <- event:
+				case <-ctx.Done():
+					return
+				}
 			}
 		})
 		if err != nil {
@@ -95,6 +97,51 @@ func (r *ClaudeCodeRunner) Run(ctx context.Context, sandboxID string, opts RunOp
 		}
 	}()
 	return ch, nil
+}
+
+func parseClaudeStreamChunk(line string) []Event {
+	var outer struct {
+		Stream  string `json:"stream"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(line), &outer); err != nil || outer.Content == "" {
+		event := parseClaudeEvent(line)
+		if event.Type == "" && event.Content == "" {
+			return nil
+		}
+		return []Event{event}
+	}
+
+	parts := strings.Split(outer.Content, "\n")
+	if len(parts) == 1 {
+		event := parseClaudeEvent(line)
+		if event.Type == "" && event.Content == "" {
+			return nil
+		}
+		return []Event{event}
+	}
+
+	events := make([]Event, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		wrapped, err := json.Marshal(map[string]string{
+			"stream":  outer.Stream,
+			"content": part,
+		})
+		if err != nil {
+			events = append(events, Event{Type: outer.Stream, Content: part})
+			continue
+		}
+		event := parseClaudeEvent(string(wrapped))
+		if event.Type == "" && event.Content == "" {
+			continue
+		}
+		events = append(events, event)
+	}
+	return events
 }
 
 type bridgeRequest struct {

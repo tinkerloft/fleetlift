@@ -151,6 +151,11 @@ func TestProvisionSandbox_CreatesWorkspace(t *testing.T) {
 		"ProvisionSandbox must create /workspace so agent commands can use it as cwd")
 }
 
+func TestAgentImage_ClaudeCodeDefaultsToSandboxImage(t *testing.T) {
+	t.Setenv("AGENT_IMAGE", "")
+	assert.Equal(t, "claude-code-sandbox:latest", agentImage("claude-code"))
+}
+
 // mcpSandbox records exec calls and returns "ok" for health check requests.
 type mcpSandbox struct {
 	noopSandbox

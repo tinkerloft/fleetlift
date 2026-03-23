@@ -17,7 +17,7 @@ parameters:
     description: "Pull request number to review"
 sandbox_groups:
   main:
-    image: claude-code:latest
+    image: claude-code-sandbox:latest
 steps:
   - id: fetch_pr
     title: Fetch PR details
