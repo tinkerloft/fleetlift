@@ -29,7 +29,7 @@ parameters:
     description: "Slack channel for incident notifications"
 sandbox_groups:
   main:
-    image: claude-code:latest
+    image: claude-code-sandbox:latest
 steps:
   - id: analyze_logs
     title: Analyze logs

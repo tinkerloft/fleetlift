@@ -21,7 +21,7 @@ parameters:
     description: "Body of the issue"
 sandbox_groups:
   main:
-    image: claude-code:latest
+    image: claude-code-sandbox:latest
 steps:
   - id: analyze
     title: Analyze issue

@@ -22,13 +22,18 @@ RUN apt-get update && apt-get install -y \
 # Install Claude Code CLI
 RUN npm install -g @anthropic-ai/claude-code
 
+# Install Fleetlift Claude bridge script
+RUN mkdir -p /agent
+COPY docker/bridge.js /agent/bridge.js
+RUN chmod +x /agent/bridge.js
+
 # Create non-root user
 RUN useradd -m -s /bin/bash agent \
     && echo "agent ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/npm, /usr/bin/pip3" >> /etc/sudoers
 
 # Create workspace directory
 RUN mkdir -p /workspace /output \
-    && chown -R agent:agent /workspace /output
+    && chown -R agent:agent /workspace /output /agent
 
 USER agent
 WORKDIR /workspace

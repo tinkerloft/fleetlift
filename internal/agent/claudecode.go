@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/tinkerloft/fleetlift/internal/sandbox"
 	"github.com/tinkerloft/fleetlift/internal/shellquote"
 )
@@ -35,6 +36,38 @@ func (r *ClaudeCodeRunner) SandboxEnv() map[string]string {
 }
 
 func (r *ClaudeCodeRunner) Run(ctx context.Context, sandboxID string, opts RunOpts) (<-chan Event, error) {
+	runID := uuid.NewString()
+	promptPath := fmt.Sprintf("/tmp/fleetlift-prompt-%s.txt", runID)
+	requestPath := fmt.Sprintf("/tmp/fleetlift-request-%s.json", runID)
+	if err := r.sandbox.WriteFile(ctx, sandboxID, promptPath, opts.Prompt); err != nil {
+		return nil, fmt.Errorf("write prompt file: %w", err)
+	}
+
+	workDir := opts.WorkDir
+	if workDir == "" {
+		workDir = "/workspace"
+	}
+
+	req := bridgeRequest{
+		Version:    1,
+		PromptFile: promptPath,
+		WorkDir:    workDir,
+		MaxTurns:   effectiveMaxTurns(opts.MaxTurns),
+		MCP: bridgeMCPRequest{
+			Enabled:    true,
+			ConfigPath: "/workspace/.mcp.json",
+		},
+		PluginDirs: opts.EvalPluginDirs,
+		Env:        opts.Environment,
+	}
+	reqBytes, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal bridge request: %w", err)
+	}
+	if err := r.sandbox.WriteFile(ctx, sandboxID, requestPath, string(reqBytes)); err != nil {
+		return nil, fmt.Errorf("write bridge request file: %w", err)
+	}
+
 	// If MCP sidecar is available, source profile to pick up FLEETLIFT_MCP_PORT
 	// and write config so Claude discovers it via .mcp.json in the workspace.
 	mcpSetup := `. /tmp/fleetlift-mcp-env.sh 2>/dev/null; ` +
@@ -42,22 +75,18 @@ func (r *ClaudeCodeRunner) Run(ctx context.Context, sandboxID string, opts RunOp
 		`printf '{"mcpServers":{"fleetlift":{"type":"sse","url":"http://localhost:%s/sse"}}}' "$FLEETLIFT_MCP_PORT" > /workspace/.mcp.json; ` +
 		`fi`
 
-	pluginDirFlags := ""
-	for _, dir := range opts.EvalPluginDirs {
-		pluginDirFlags += " --plugin-dir " + shellquote.Quote(dir)
-	}
-
-	cmd := fmt.Sprintf("%s && cd %s && claude -p %s%s --output-format stream-json --verbose --dangerously-skip-permissions --max-turns %d",
-		mcpSetup, shellquote.Quote(opts.WorkDir), shellquote.Quote(opts.Prompt), pluginDirFlags, effectiveMaxTurns(opts.MaxTurns))
+	cmd := fmt.Sprintf("%s && node /agent/bridge.js %s", mcpSetup, shellquote.Quote(requestPath))
 
 	ch := make(chan Event, 64)
 	go func() {
 		defer close(ch)
-		err := r.sandbox.ExecStream(ctx, sandboxID, cmd, opts.WorkDir, func(line string) {
-			event := parseClaudeEvent(line)
-			select {
-			case ch <- event:
-			case <-ctx.Done():
+		err := r.sandbox.ExecStream(ctx, sandboxID, cmd, workDir, func(line string) {
+			for _, event := range parseClaudeStreamChunk(line) {
+				select {
+				case ch <- event:
+				case <-ctx.Done():
+					return
+				}
 			}
 		})
 		if err != nil {
@@ -68,6 +97,66 @@ func (r *ClaudeCodeRunner) Run(ctx context.Context, sandboxID string, opts RunOp
 		}
 	}()
 	return ch, nil
+}
+
+func parseClaudeStreamChunk(line string) []Event {
+	var outer struct {
+		Stream  string `json:"stream"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(line), &outer); err != nil || outer.Content == "" {
+		event := parseClaudeEvent(line)
+		if event.Type == "" && event.Content == "" {
+			return nil
+		}
+		return []Event{event}
+	}
+
+	parts := strings.Split(outer.Content, "\n")
+	if len(parts) == 1 {
+		event := parseClaudeEvent(line)
+		if event.Type == "" && event.Content == "" {
+			return nil
+		}
+		return []Event{event}
+	}
+
+	events := make([]Event, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		wrapped, err := json.Marshal(map[string]string{
+			"stream":  outer.Stream,
+			"content": part,
+		})
+		if err != nil {
+			events = append(events, Event{Type: outer.Stream, Content: part})
+			continue
+		}
+		event := parseClaudeEvent(string(wrapped))
+		if event.Type == "" && event.Content == "" {
+			continue
+		}
+		events = append(events, event)
+	}
+	return events
+}
+
+type bridgeRequest struct {
+	Version    int               `json:"version"`
+	PromptFile string            `json:"prompt_file"`
+	WorkDir    string            `json:"work_dir"`
+	MaxTurns   int               `json:"max_turns"`
+	MCP        bridgeMCPRequest  `json:"mcp,omitempty"`
+	PluginDirs []string          `json:"plugin_dirs,omitempty"`
+	Env        map[string]string `json:"env,omitempty"`
+}
+
+type bridgeMCPRequest struct {
+	Enabled    bool   `json:"enabled"`
+	ConfigPath string `json:"config_path,omitempty"`
 }
 
 // effectiveMaxTurns returns the max_turns to pass to claude. A configured value of 0
@@ -116,6 +205,76 @@ func parseClaudeEvent(line string) Event {
 		raw = inner
 	}
 
+	typ, _ := raw["type"].(string)
+	switch typ {
+	case "assistant_text":
+		content, _ := raw["content"].(string)
+		if content == "" {
+			return Event{}
+		}
+		return Event{Type: "stdout", Content: content}
+	case "tool_call":
+		return parseNormalizedToolCall(raw)
+	case "tool_result":
+		content, _ := raw["content"].(string)
+		if content == "" {
+			return Event{}
+		}
+		stream, _ := raw["stream"].(string)
+		if stream == "stderr" {
+			return Event{Type: "stderr", Content: content}
+		}
+		return Event{Type: "stdout", Content: content}
+	case "status":
+		content, _ := raw["content"].(string)
+		if content == "" {
+			return Event{}
+		}
+		return Event{Type: "stdout", Content: content}
+	case "complete":
+		return Event{Type: "complete", Output: raw}
+	case "error":
+		content, _ := raw["content"].(string)
+		if content == "" {
+			content = "agent bridge error"
+		}
+		return Event{Type: "error", Content: content}
+	case "needs_input":
+		if content, _ := raw["content"].(string); content != "" {
+			return Event{Type: "needs_input", Content: content}
+		}
+		return Event{Type: "needs_input", Content: fmt.Sprintf("%v", raw["message"])}
+	default:
+		return parseLegacyClaudeEvent(raw)
+	}
+}
+
+func parseNormalizedToolCall(raw map[string]any) Event {
+	name, _ := raw["name"].(string)
+	desc, _ := raw["description"].(string)
+	command, _ := raw["command"].(string)
+	if desc != "" {
+		if name != "" {
+			return Event{Type: "stdout", Content: fmt.Sprintf("[tool] %s: %s", name, desc)}
+		}
+		return Event{Type: "stdout", Content: fmt.Sprintf("[tool] %s", desc)}
+	}
+	if command != "" {
+		if len(command) > 120 {
+			command = command[:120] + "…"
+		}
+		if name != "" {
+			return Event{Type: "stdout", Content: fmt.Sprintf("[tool] %s: %s", name, command)}
+		}
+		return Event{Type: "stdout", Content: "[tool] " + command}
+	}
+	if name != "" {
+		return Event{Type: "stdout", Content: "[tool] " + name}
+	}
+	return Event{}
+}
+
+func parseLegacyClaudeEvent(raw map[string]any) Event {
 	typ, _ := raw["type"].(string)
 	switch typ {
 	case "result":

@@ -2,6 +2,7 @@ package template
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -115,4 +116,20 @@ func TestBuiltinProviderReadOnly(t *testing.T) {
 	assert.False(t, p.Writable())
 	assert.Error(t, p.Save(context.Background(), "", nil))
 	assert.Error(t, p.Delete(context.Background(), "", ""))
+}
+
+func TestBuiltinClaudeWorkflowsDoNotUseDeprecatedClaudeCodeImage(t *testing.T) {
+	p, err := NewBuiltinProvider()
+	require.NoError(t, err)
+
+	templates, err := p.List(context.Background(), "")
+	require.NoError(t, err)
+
+	for _, tmpl := range templates {
+		if !strings.Contains(tmpl.YAMLBody, "agent: claude-code") {
+			continue
+		}
+		assert.NotContainsf(t, tmpl.YAMLBody, "image: claude-code:latest",
+			"builtin %q should not pin deprecated claude-code image", tmpl.Slug)
+	}
 }

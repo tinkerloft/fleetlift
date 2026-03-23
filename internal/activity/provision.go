@@ -293,6 +293,6 @@ func agentImage(agentName string) string {
 		if img := os.Getenv("AGENT_IMAGE"); img != "" {
 			return img
 		}
-		return "claude-code:latest"
+		return "claude-code-sandbox:latest"
 	}
 }

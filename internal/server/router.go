@@ -71,6 +71,15 @@ func NewRouter(deps Deps) (http.Handler, error) {
 				http.Error(w, "failed to issue dev token", http.StatusInternalServerError)
 				return
 			}
+			http.SetCookie(w, &http.Cookie{
+				Name:     "fl_token",
+				Value:    token,
+				Path:     "/",
+				HttpOnly: true,
+				Secure:   r.TLS != nil,
+				SameSite: http.SameSiteStrictMode,
+				MaxAge:   3600,
+			})
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]string{"token": token})
 		})

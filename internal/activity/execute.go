@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
+	jsonschema "github.com/santhosh-tekuri/jsonschema/v5"
 	"go.temporal.io/sdk/activity"
 
 	"github.com/tinkerloft/fleetlift/internal/agent"
@@ -17,6 +20,8 @@ import (
 )
 
 var checkpointBranchRe = regexp.MustCompile(`^fleetlift/checkpoint/[a-zA-Z0-9_-]+$`)
+
+var compiledOutputSchemaCache sync.Map // map[string]*jsonschema.Schema
 
 // buildContinuationPrompt prepends the original prompt with continuation context.
 func buildContinuationPrompt(originalPrompt string, cc *model.ContinuationContext) string {
@@ -511,36 +516,101 @@ func extractCostUSD(raw map[string]any) float64 {
 // validateOutputSchema checks that all schema fields are present in output with the correct types.
 // Returns a sorted list of violation messages.
 func validateOutputSchema(output map[string]any, schema map[string]any) []string {
-	var violations []string
+	compiled, err := compileOutputSchema(schema)
+	if err != nil {
+		return []string{fmt.Sprintf("invalid output schema: %v", err)}
+	}
+
+	if err := compiled.Validate(output); err != nil {
+		violations := flattenSchemaValidationErrors(err)
+		sort.Strings(violations)
+		return violations
+	}
+
+	return nil
+}
+
+func buildJSONSchema(schema map[string]any) map[string]any {
+	if len(schema) == 0 {
+		return map[string]any{}
+	}
+
+	required := make([]string, 0, len(schema))
+	properties := make(map[string]any, len(schema))
 	for field, typVal := range schema {
-		val, ok := output[field]
-		if !ok {
-			violations = append(violations, fmt.Sprintf("missing required field %q", field))
-			continue
-		}
+		required = append(required, field)
 		typ, _ := typVal.(string)
 		switch typ {
-		case "string":
-			if _, ok := val.(string); !ok {
-				violations = append(violations, fmt.Sprintf("field %q must be a string, got %T", field, val))
-			}
-		case "array":
-			if _, ok := val.([]any); !ok {
-				violations = append(violations, fmt.Sprintf("field %q must be a array, got %T", field, val))
-			}
-		case "boolean":
-			if _, ok := val.(bool); !ok {
-				violations = append(violations, fmt.Sprintf("field %q must be a boolean, got %T", field, val))
-			}
-		case "number":
-			switch val.(type) {
-			case float64, int, int64:
-				// valid
-			default:
-				violations = append(violations, fmt.Sprintf("field %q must be a number, got %T", field, val))
-			}
+		case "string", "array", "boolean", "number", "object":
+			properties[field] = map[string]any{"type": typ}
+		default:
+			// Keep migration behavior compatible: unsupported type strings do not enforce type checks.
+			properties[field] = map[string]any{}
 		}
 	}
-	sort.Strings(violations)
+	sort.Strings(required)
+
+	return map[string]any{
+		"type":                 "object",
+		"properties":           properties,
+		"required":             required,
+		"additionalProperties": false,
+	}
+}
+
+func compileOutputSchema(schema map[string]any) (*jsonschema.Schema, error) {
+	jsonSchemaDoc := buildJSONSchema(schema)
+	data, err := json.Marshal(jsonSchemaDoc)
+	if err != nil {
+		return nil, fmt.Errorf("marshal output schema: %w", err)
+	}
+	cacheKey := string(data)
+	if cached, ok := compiledOutputSchemaCache.Load(cacheKey); ok {
+		if compiled, ok := cached.(*jsonschema.Schema); ok {
+			return compiled, nil
+		}
+	}
+
+	compiler := jsonschema.NewCompiler()
+	const schemaURL = "memory://fleetlift/output-schema.json"
+	if err := compiler.AddResource(schemaURL, io.NopCloser(strings.NewReader(string(data)))); err != nil {
+		return nil, fmt.Errorf("add output schema resource: %w", err)
+	}
+	compiled, err := compiler.Compile(schemaURL)
+	if err != nil {
+		return nil, fmt.Errorf("compile output schema: %w", err)
+	}
+	compiledOutputSchemaCache.Store(cacheKey, compiled)
+	return compiled, nil
+}
+
+func flattenSchemaValidationErrors(err error) []string {
+	validationErr, ok := err.(*jsonschema.ValidationError)
+	if !ok {
+		return []string{err.Error()}
+	}
+
+	var violations []string
+	var visit func(e *jsonschema.ValidationError)
+	visit = func(e *jsonschema.ValidationError) {
+		if e == nil {
+			return
+		}
+		if len(e.Causes) == 0 {
+			path := strings.TrimPrefix(e.InstanceLocation, "/")
+			if path == "" {
+				path = "(root)"
+			}
+			violations = append(violations, fmt.Sprintf("%s: %s", path, e.Message))
+			return
+		}
+		for _, cause := range e.Causes {
+			visit(cause)
+		}
+	}
+	visit(validationErr)
+	if len(violations) == 0 {
+		return []string{err.Error()}
+	}
 	return violations
 }
