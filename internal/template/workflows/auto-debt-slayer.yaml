@@ -1,7 +1,6 @@
 version: 1
 id: auto-debt-slayer
 title: Auto Debt Slayer
-agent_profile: superpowers
 description: >
   Autonomous ticket-to-PR pipeline. Enriches a Jira ticket with codebase context,
   assesses feasibility, runs a Claude Code fix with TDD/review loop, and creates
@@ -22,6 +21,11 @@ parameters:
     type: string
     required: true
     description: "Jira instance base URL, e.g. https://myorg.atlassian.net"
+
+  - name: jira_user_email
+    type: string
+    required: true
+    description: "Jira user email for acli authentication, e.g. user@example.com"
 
   - name: jira_project_key
     type: string
@@ -69,7 +73,7 @@ steps:
       credentials:
         - GITHUB_TOKEN
         - JIRA_API_TOKEN
-        - GLEAN_TOKEN
+        # TODO: add GLEAN_TOKEN once credential is configured
       prompt: |
         You are enriching a Jira ticket with codebase context to prepare for automated fixing.
 
@@ -80,9 +84,13 @@ steps:
 
         ## Instructions
 
-        1. Fetch the ticket using acli:
+        1. Authenticate acli and fetch the ticket:
            ```
-           JIRA_BASE_URL={{ .Params.jira_base_url }} acli jira issue get {{ .Params.ticket_key }} --output json
+           JIRA_SITE=$(echo "{{ .Params.jira_base_url }}" | sed 's|https://||')
+           printf '%s' "$JIRA_API_TOKEN" > /tmp/jira-token.txt
+           acli jira auth login --site "$JIRA_SITE" --email "{{ .Params.jira_user_email }}" --token < /tmp/jira-token.txt
+           rm /tmp/jira-token.txt
+           acli jira workitem view --key {{ .Params.ticket_key }}
            ```
            Extract: summary, description, acceptance criteria, comments, linked issues.
 
@@ -256,7 +264,7 @@ steps:
     action:
       type: slack_notify
       credentials:
-        - SLACK_BOT_TOKEN
+        # TODO: add SLACK_BOT_TOKEN once Slack bot is configured
       config:
         channel: '{{ index .Params "slack_channel_id" | default "" }}'
         thread_ts: '{{ index .Params "slack_thread_ts" | default "" }}'

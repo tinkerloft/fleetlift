@@ -31,7 +31,7 @@ export function StatusBadge({ status, className }: { status: AnyStatus; classNam
           <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-current" />
         </span>
       )}
-      {status.replaceAll('_', ' ')}
+      {status?.replaceAll('_', ' ')}
     </span>
   )
 }

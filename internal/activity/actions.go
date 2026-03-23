@@ -67,8 +67,13 @@ func actionNotifySlack(ctx context.Context, config map[string]any, _ map[string]
 		return nil, fmt.Errorf("slack_notify: missing required config (channel=%q, message=%q)", channel, message)
 	}
 
+	var threadTS *string
+	if ts, _ := config["thread_ts"].(string); ts != "" {
+		threadTS = &ts
+	}
+
 	slackActs := NewSlackActivities()
-	_, err := slackActs.NotifySlack(ctx, channel, message, nil)
+	_, err := slackActs.NotifySlack(ctx, channel, message, threadTS)
 	if err != nil {
 		return nil, err
 	}

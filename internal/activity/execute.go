@@ -393,9 +393,25 @@ func extractStructuredOutput(raw map[string]any) map[string]any {
 	if raw == nil {
 		return nil
 	}
-	// The agent's structured output may be nested under "result" or be the top-level map.
-	if result, ok := raw["result"].(map[string]any); ok {
-		return result
+	// The agent's structured output may be nested under "result" as a map (rare)
+	// or as a string containing a fenced JSON block (the common case).
+	switch r := raw["result"].(type) {
+	case map[string]any:
+		return r
+	case string:
+		// Try fenced ```json ... ``` block first, then bare {...}.
+		if matches := fencedJSONRe.FindAllStringSubmatch(r, -1); len(matches) > 0 {
+			var parsed map[string]any
+			if err := json.Unmarshal([]byte(matches[len(matches)-1][1]), &parsed); err == nil {
+				return parsed
+			}
+		}
+		if matches := bareJSONRe.FindAllString(r, -1); len(matches) > 0 {
+			var parsed map[string]any
+			if err := json.Unmarshal([]byte(matches[len(matches)-1]), &parsed); err == nil {
+				return parsed
+			}
+		}
 	}
 	return raw
 }

@@ -25,7 +25,7 @@ function isMarkdown(contentType: string, name: string): boolean {
 }
 
 function isText(contentType: string): boolean {
-  return contentType.startsWith('text/')
+  return contentType.startsWith('text/') || contentType === 'application/json'
 }
 
 async function downloadArtifact(artifact: Artifact): Promise<void> {

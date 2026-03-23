@@ -185,6 +185,7 @@ func DefaultActionRegistry() *ActionRegistry {
 		Inputs: []FieldContract{
 			{Name: "channel", Type: "string", Required: true, Description: "Slack channel"},
 			{Name: "message", Type: "string", Required: true, Description: "Message text"},
+			{Name: "thread_ts", Type: "string", Required: false, Description: "Thread timestamp to reply in"},
 		},
 		Outputs: []FieldContract{
 			{Name: "status", Type: "string", Required: true, Description: "sent | failed"},

@@ -7,6 +7,7 @@ export function ReportListPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['reports'],
     queryFn: () => api.listReports(),
+    refetchInterval: 5000,
   })
 
   return (

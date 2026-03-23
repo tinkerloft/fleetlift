@@ -129,6 +129,11 @@ func BuildPreflightScript(profile model.AgentProfileBody, marketplaceURL, market
 			continue
 		}
 		pluginName := path.Base(p.Plugin)
+		// Strip @version suffix — claude plugin install uses @ as a marketplace separator,
+		// not a version pin, so "superpowers@5.0.1" would be misinterpreted.
+		if at := strings.Index(pluginName, "@"); at != -1 {
+			pluginName = pluginName[:at]
+		}
 		fmt.Fprintf(&b, "claude plugin uninstall %s 2>/dev/null || true\n", shellquote.Quote(pluginName))
 		fmt.Fprintf(&b, "claude plugin install %s\n", shellquote.Quote(pluginName))
 	}

@@ -17,7 +17,12 @@ import (
 // CreatePullRequest creates a PR from the changes in a sandbox.
 // It pushes the branch from the sandbox and creates a GitHub PR.
 func (a *Activities) CreatePullRequest(ctx context.Context, sandboxID string, input workflow.StepInput) (string, error) {
-	prDef := input.StepDef.PullRequest
+	// Use the rendered PR config from ResolvedOpts (templates already evaluated).
+	// Fall back to StepDef.PullRequest only if ResolvedOpts.PRConfig is nil (e.g. in tests).
+	prDef := input.ResolvedOpts.PRConfig
+	if prDef == nil {
+		prDef = input.StepDef.PullRequest
+	}
 	if prDef == nil {
 		return "", fmt.Errorf("no PR configuration for step %s", input.StepDef.ID)
 	}
@@ -37,7 +42,9 @@ func (a *Activities) CreatePullRequest(ctx context.Context, sandboxID string, in
 		return nil
 	}
 
-	if err := execGit(fmt.Sprintf("git -C %s checkout -b %s", shellquote.Quote(repoDir), shellquote.Quote(branchName))); err != nil {
+	// Use -B to force-create or reset the branch — handles Temporal activity retries
+	// where a previous attempt may have already created the branch.
+	if err := execGit(fmt.Sprintf("git -C %s checkout -B %s", shellquote.Quote(repoDir), shellquote.Quote(branchName))); err != nil {
 		return "", err
 	}
 
@@ -57,7 +64,22 @@ func (a *Activities) CreatePullRequest(ctx context.Context, sandboxID string, in
 		return "", err
 	}
 
-	if err := execGit(fmt.Sprintf("git -C %s commit -m %s", shellquote.Quote(repoDir), shellquote.Quote(prDef.Title))); err != nil {
+	gitEmail := os.Getenv("GIT_USER_EMAIL")
+	if gitEmail == "" {
+		gitEmail = DefaultGitEmail
+	}
+	gitName := os.Getenv("GIT_USER_NAME")
+	if gitName == "" {
+		gitName = DefaultGitName
+	}
+	commitCmd := fmt.Sprintf(
+		"git -C %s -c user.email=%s -c user.name=%s commit -m %s",
+		shellquote.Quote(repoDir),
+		shellquote.Quote(gitEmail),
+		shellquote.Quote(gitName),
+		shellquote.Quote(prDef.Title),
+	)
+	if err := execGit(commitCmd); err != nil {
 		return "", err
 	}
 	if err := execGit(fmt.Sprintf("git -C %s push origin %s", shellquote.Quote(repoDir), shellquote.Quote(branchName))); err != nil {
