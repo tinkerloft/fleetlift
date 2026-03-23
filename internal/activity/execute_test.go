@@ -2,6 +2,7 @@ package activity
 
 import (
 	"context"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -132,6 +133,57 @@ func TestValidateOutputSchema_WrongType(t *testing.T) {
 	)
 	assert.Len(t, violations, 1)
 	assert.Contains(t, violations[0], "root_cause")
+}
+
+func TestValidateOutputSchema_RejectsUndeclaredField(t *testing.T) {
+	violations := validateOutputSchema(
+		map[string]any{"root_cause": "nil ptr", "extra": "not-allowed"},
+		map[string]any{"root_cause": "string"},
+	)
+	assert.NotEmpty(t, violations)
+	assert.Contains(t, violations[0], "additionalProperties")
+}
+
+func TestValidateOutputSchema_EmptySchemaPasses(t *testing.T) {
+	violations := validateOutputSchema(
+		map[string]any{"anything": "goes"},
+		map[string]any{},
+	)
+	assert.Empty(t, violations)
+}
+
+func TestBuildJSONSchema(t *testing.T) {
+	input := map[string]any{
+		"meta":       "object",
+		"count":      "number",
+		"is_flaky":   "boolean",
+		"files":      "array",
+		"summary":    "string",
+		"untyped_ok": "custom",
+	}
+
+	built := buildJSONSchema(input)
+	assert.Equal(t, "object", built["type"])
+	assert.Equal(t, false, built["additionalProperties"])
+
+	required, ok := built["required"].([]string)
+	if !ok {
+		requiredAny, okAny := built["required"].([]any)
+		require.True(t, okAny)
+		required = make([]string, 0, len(requiredAny))
+		for _, v := range requiredAny {
+			required = append(required, v.(string))
+		}
+	}
+	expectedRequired := []string{"count", "files", "is_flaky", "meta", "summary", "untyped_ok"}
+	sort.Strings(required)
+	assert.Equal(t, expectedRequired, required)
+
+	properties, ok := built["properties"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, map[string]any{"type": "string"}, properties["summary"])
+	assert.Equal(t, map[string]any{"type": "number"}, properties["count"])
+	assert.Equal(t, map[string]any{}, properties["untyped_ok"])
 }
 
 func TestExecuteStep_AcceptsHTTPS(t *testing.T) {
