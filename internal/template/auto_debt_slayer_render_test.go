@@ -29,9 +29,10 @@ func TestADS_EnrichPrompt_RequiredParamsOnly(t *testing.T) {
 
 	rendered, err := RenderPrompt(enrich.Execution.Prompt, RenderContext{
 		Params: map[string]any{
-			"ticket_key":   "AFX-1234",
-			"jira_base_url": "https://myorg.atlassian.net",
-			"github_repo":  "https://github.com/org/repo",
+			"ticket_key":      "AFX-1234",
+			"jira_base_url":   "https://myorg.atlassian.net",
+			"jira_user_email": "user@example.com",
+			"github_repo":     "https://github.com/org/repo",
 		},
 		Steps: map[string]*model.StepOutput{},
 	})
@@ -50,6 +51,7 @@ func TestADS_EnrichPrompt_WithBudgetParam(t *testing.T) {
 		Params: map[string]any{
 			"ticket_key":          "AFX-1234",
 			"jira_base_url":       "https://myorg.atlassian.net",
+			"jira_user_email":     "user@example.com",
 			"github_repo":         "https://github.com/org/repo",
 			"per_task_budget_usd": "25.00",
 		},
@@ -72,9 +74,9 @@ func TestADS_AssessPrompt_RendersEnrichOutput(t *testing.T) {
 
 	rendered, err := RenderPrompt(assess.Execution.Prompt, RenderContext{
 		Params: map[string]any{
-			"ticket_key":   "AFX-1234",
+			"ticket_key":    "AFX-1234",
 			"jira_base_url": "https://myorg.atlassian.net",
-			"github_repo":  "https://github.com/org/repo",
+			"github_repo":   "https://github.com/org/repo",
 		},
 		Steps: map[string]*model.StepOutput{
 			"enrich": {
@@ -94,11 +96,11 @@ func TestADS_ExecutePullRequest_RendersFromAssessOutput(t *testing.T) {
 	require.NotNil(t, execute.PullRequest)
 
 	assessOutput := map[string]any{
-		"decision":       "execute",
-		"pr_title_hint":  "fix(AFX-1234): null pointer in auth handler",
-		"pr_body_draft":  "## AFX-1234\n\nFixes null pointer...",
-		"caveats":        []string{},
-		"risks":          []string{},
+		"decision":             "execute",
+		"pr_title_hint":        "fix(AFX-1234): null pointer in auth handler",
+		"pr_body_draft":        "## AFX-1234\n\nFixes null pointer...",
+		"caveats":              []string{},
+		"risks":                []string{},
 		"estimated_complexity": "simple",
 	}
 	ctx := RenderContext{
@@ -147,8 +149,8 @@ func TestADS_NotifyMessage_ExecutePath(t *testing.T) {
 			"execute": {
 				Status: model.StepStatusComplete,
 				Output: map[string]any{
-					"agent_summary":   "Fixed null pointer in auth handler",
-					"total_cost_usd":  2.15,
+					"agent_summary":  "Fixed null pointer in auth handler",
+					"total_cost_usd": 2.15,
 				},
 			},
 		},

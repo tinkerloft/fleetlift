@@ -1409,12 +1409,12 @@ func TestDAGWorkflow_ADS_ExecutePath(t *testing.T) {
 		StepID: "assess",
 		Status: model.StepStatusComplete,
 		Output: map[string]any{
-			"decision":        "execute",
-			"pr_title_hint":   "fix(AFX-1234): null pointer in auth handler",
-			"pr_body_draft":   "Automated fix for AFX-1234",
+			"decision":         "execute",
+			"pr_title_hint":    "fix(AFX-1234): null pointer in auth handler",
+			"pr_body_draft":    "Automated fix for AFX-1234",
 			"decision_reasons": []string{},
-			"caveats":         []string{},
-			"risks":           []string{},
+			"caveats":          []string{},
+			"risks":            []string{},
 		},
 	}, nil)
 
@@ -1438,9 +1438,9 @@ func TestDAGWorkflow_ADS_ExecutePath(t *testing.T) {
 		TeamID:      "team-1",
 		WorkflowDef: adsWorkflowDef(),
 		Parameters: map[string]any{
-			"ticket_key":   "AFX-1234",
+			"ticket_key":    "AFX-1234",
 			"jira_base_url": "https://myorg.atlassian.net",
-			"github_repo":  "https://github.com/org/repo",
+			"github_repo":   "https://github.com/org/repo",
 		},
 	})
 
@@ -1489,9 +1489,9 @@ func TestDAGWorkflow_ADS_ManualNeededPath(t *testing.T) {
 		TeamID:      "team-1",
 		WorkflowDef: adsWorkflowDef(),
 		Parameters: map[string]any{
-			"ticket_key":   "AFX-5678",
+			"ticket_key":    "AFX-5678",
 			"jira_base_url": "https://myorg.atlassian.net",
-			"github_repo":  "https://github.com/org/repo",
+			"github_repo":   "https://github.com/org/repo",
 		},
 	})
 
