@@ -1,0 +1,191 @@
+# Minion-Parity Design Spec
+
+**Date:** 2026-03-25
+**Status:** Approved for implementation planning
+
+---
+
+## Goal
+
+Add individual-developer task delegation to Fleetlift so it serves both fleet-wide operations (existing) and ad-hoc toil tasks (new), making it the single agentic platform for an SMB engineering organisation.
+
+---
+
+## Decisions
+
+| Topic | Decision |
+|---|---|
+| Target audience | SMB — individual devs + platform teams, unified platform |
+| UX entry point | Prompt-first Home screen at `/`; templates navigate to existing workflow pages |
+| Quick run backend | New builtin `quick-run.yaml` passthrough workflow |
+| Prompt improvement | Opt-in button → Minion-style side-by-side modal with quality scores |
+| Prompt presets | Personal + team tiers, stored in DB |
+| Co-author attribution | Automatic — always inject triggering user's GitHub identity into sandbox |
+| Implementation strategy | Phased — four independently shippable PRs |
+
+---
+
+## Phases
+
+### Phase 1 — Home + Quick Run
+
+**New page: `HomePage` at `/`**
+
+- Top zone: prompt textarea, repo URL input, branch input (default `main`), optional "Open PR if changes made" checkbox, "✦ Improve" button, "Run →" button.
+- Bottom zone: template grid — existing builtin workflows as clickable cards. Clicking navigates to `/workflows/:id` unchanged. "View all →" link for custom workflows.
+- Right/below: recent tasks list — last 10 runs scoped to `created_by = current user`, showing status badge, title, repo, elapsed time, Retry button per item.
+- Nav change: add "Home" item at top; keep "Workflows" for platform teams.
+- Current `/` redirect (`/` → `/workflows`) replaced by `HomePage`.
+
+**New builtin workflow: `internal/template/workflows/quick-run.yaml`**
+
+- Slug: `quick-run`
+- Required params: `prompt` (string), `repo_url` (string)
+- Optional params: `branch` (string, default `main`), `create_pr` (bool, default false)
+- Single execution step: runs Claude Code agent with the user's prompt against the cloned repo.
+- If `create_pr` is true: step includes a `pull_request` block with `branch_prefix: agent/quick-run`, title and body templated from agent output.
+- No output schema, no fan-out, no HITL.
+- Frontend calls `api.createRun('quick-run', { prompt, repo_url, branch, create_pr })` — the `quick-run` slug is looked up by the Home page directly.
+
+**API additions**
+- `GET /api/runs?created_by=me&limit=10` — existing runs endpoint gains `created_by=me` filter (resolves to JWT subject). Used by the recent tasks list.
+
+**Retry**
+- "Retry" on the recent tasks list re-POSTs the original run's params to `POST /api/runs`. No new API needed — just a frontend mutation that reads `run.params` and resubmits.
+- Retry also added to the existing `RunDetail` page as a button alongside Cancel.
+
+**Log search**
+- Frontend-only enhancement to the existing `LogStream` component on `RunDetail`.
+- A search input appears above the log stream. As the user types, log lines that don't match the filter are hidden (case-insensitive substring match). Matching text is highlighted.
+- No backend change. Works on both live (SSE) and completed (historical) log streams.
+
+---
+
+### Phase 2 — Prompt Improvement
+
+**New server endpoint: `POST /api/prompt/improve`**
+
+Request:
+```json
+{ "prompt": "Fix the null pointer in auth/handler.go line 42" }
+```
+Response:
+```json
+{
+  "improved": "<task>Fix null pointer...</task><context>...</context>",
+  "scores": {
+    "clarity":   { "rating": "good",      "reason": "..." },
+    "context":   { "rating": "good",      "reason": "..." },
+    "structure": { "rating": "poor",      "reason": "..." },
+    "guidance":  { "rating": "poor",      "reason": "..." }
+  },
+  "summary": "The rewritten prompt adds explicit role, context, and success criteria."
+}
+```
+- Calls Claude API server-side (uses `ANTHROPIC_API_KEY` from env). Never exposes the key to the browser.
+- Ratings: `excellent | good | poor`. Four dimensions: clarity, context, structure, guidance.
+- Responds in < 5 s for typical prompts (target).
+
+**Prompt improvement modal (frontend)**
+
+- Triggered by "✦ Improve" button on Home page.
+- Full-screen overlay. Two columns: Original (left, red header) | Improved (right, green header).
+- Each column shows the prompt text and score badges below it (colour-coded by rating).
+- Bottom bar: summary sentence + "Decline" (closes modal, keeps original) + "Use improved →" (replaces textarea content, closes modal).
+- If the API call fails or times out: toast error, modal does not open, textarea unchanged.
+
+---
+
+### Phase 3 — Prompt Presets + Saved Repos
+
+**New DB migration: `NNN_prompt_presets.up.sql`**
+
+```sql
+CREATE TABLE prompt_presets (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    team_id     UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    created_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+    scope       TEXT NOT NULL CHECK (scope IN ('personal', 'team')),
+    title       TEXT NOT NULL,
+    prompt      TEXT NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX ON prompt_presets (team_id, scope, created_by);
+```
+
+**API routes**
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/presets` | List presets for current user (personal + team) |
+| POST | `/api/presets` | Create a preset (`scope: personal\|team`) |
+| PUT | `/api/presets/:id` | Update title or prompt |
+| DELETE | `/api/presets/:id` | Delete (own presets only; team presets require admin) |
+
+**Frontend**
+
+- Presets sidebar on Home page: two sections — "My Presets" and "Team Presets".
+- Clicking a preset populates the textarea.
+- "Save as preset" option appears below the textarea after typing (or after using an improved prompt).
+- On save: modal asks for title + scope (personal / team).
+- Team presets: visible to all team members, editable only by creator or team admin.
+
+**Saved repos**
+
+New DB migration alongside presets:
+```sql
+CREATE TABLE user_repos (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    team_id    UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    url        TEXT NOT NULL,
+    label      TEXT,                    -- optional display name, e.g. "backend"
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, url)
+);
+```
+
+API routes:
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/saved-repos` | List saved repos for current user |
+| POST | `/api/saved-repos` | Add a repo (`url`, optional `label`) |
+| DELETE | `/api/saved-repos/:id` | Remove a saved repo |
+
+Frontend:
+- Repo URL input on Home page becomes a combobox: dropdown lists saved repos (showing label or URL), with a "Add new URL..." option at the bottom that falls back to free-text entry.
+- When a user successfully runs against a repo not yet saved, a subtle prompt appears: "Save this repo for quick access?" with a one-click confirm.
+- Repos are per-user (not team-shared) — each dev manages their own list.
+
+---
+
+### Phase 4 — Co-Author Attribution
+
+**Where:** `internal/activity/execute.go` — sandbox env injection before agent execution.
+
+**How:**
+- Add `CreatedBy string` to `workflow.StepInput` so the activity receives the user ID directly (avoids an extra DB round-trip to look up `run.created_by`). The DAGWorkflow already has this value from the run record and passes it through.
+- Add a `LookupUserGitIdentity(ctx, userID)` DB query that returns `(name, email)` from the `users` table (populated during GitHub OAuth).
+- Inject two env vars into the sandbox before agent execution:
+  - `GIT_AUTHOR_NAME` = user's GitHub display name
+  - `GIT_AUTHOR_EMAIL` = user's GitHub email (or `<login>@users.noreply.github.com` if private)
+- The `CreatePullRequest` activity's commit step inherits these env vars — no change needed there.
+- If `LookupUserGitIdentity` returns no result (service account runs, scheduled runs): fall back to existing `GIT_USER_NAME` / `GIT_USER_EMAIL` env vars. No failure.
+
+---
+
+## Follow Up (out of scope for this spec)
+
+- Inbound Slack trigger (`/fleetlift run ...`)
+- GitHub webhook trigger (PR comment `@fleetlift fix this`)
+- Model selection per run (dropdown on Home page)
+- "Follow Up" button on RunDetail (pre-populates Home with context from completed run)
+
+---
+
+## Resolved Decisions
+
+1. **Team preset deletion:** Creator-only. No role system exists; adding one is out of scope. Team admins can delete via direct DB if needed until a role system exists.
+2. **`quick-run` in Workflows list:** Hidden. Add a `hidden: true` top-level field to builtin YAML (requires a one-line model change in `internal/template/builtin.go` to skip hidden slugs when listing templates). Only accessible via Home's Run button.
+3. **Recent tasks scope:** All runs by the current user, not just quick-run runs. Gives a unified view of their work across both ad-hoc and workflow-triggered runs.
