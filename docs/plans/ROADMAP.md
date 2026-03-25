@@ -1,6 +1,6 @@
 # FleetLift Roadmap
 
-**Last updated:** 2026-03-19
+**Last updated:** 2026-03-25
 
 ---
 
@@ -21,6 +21,7 @@ Broken contracts fixed, dead code removed, test coverage added. See [`archive/20
 - **Fan-out reliability (PR #47, 2026-03-19):** Per-step input tracking, DAG visual redesign (IBM Plex, dark mode tokens, status glows, border animations), DAG fan-out collapse (threshold 6, collapsed node with status bar), partial fan-out failure → inbox item + proceed/terminate signal, stuck `running` step records fixed.
 - **Artifact & output UX (PR #48, 2026-03-19):** `GET /api/artifacts/{id}/content` endpoint (auth, Content-Disposition, download mode, content-type allowlist); `ArtifactCard` component (expand/collapse, markdown rendering, download); `ReportViewer` redesigned artifact-first; `StepPanel` surfaces artifacts above output JSON; `RunDetail` hero panel auto-expands primary artifact above DAG; inbox `output_ready`/`notify` items get "View Report →" links; `artifact_id` stored on inbox items via `GetPrimaryRunArtifactID` activity. See [`2026-03-19-artifact-ux-plan.md`](2026-03-19-artifact-ux-plan.md).
 - **Post-PR #47 bug fixes (2026-03-19):** DB CHECK constraint extended for `fan_out_partial_failure` kind (migration 007); `max_turns` default logic fixed (0 = runner default, not a floor); concurrent fan-out signal routing fixed (per-step channels, StepID in payload); `StepWorkflow` defer double-write on `finalizeStep` failure prevented (`stepRunFinalized` flag); MCP env file write verified in sandbox before continuing.
+- **Platform fixes + ADS workflow (2026-03-20, PRs #49–#50):** `evalCondition` exposes step output; `pull_request` config fields template-rendered via `RenderPrompt`; `CreatePullRequest` skips commit/push/PR on clean working tree; `extractCostUSD` checks `total_cost_usd` then falls back to `cost_usd`; `auto-debt-slayer` builtin workflow added; ADS agent Dockerfile + superpowers agent profile (migration 010); improved Claude Code output handling (fenced JSON extraction, plain-text normalization partial).
 
 ---
 
@@ -33,8 +34,8 @@ Broken contracts fixed, dead code removed, test coverage added. See [`archive/20
 | Item | Why now |
 |---|---|
 | **Worker-restart-safe execution** | Highest production-risk gap. `ExecuteStep` can fail permanently if the worker restarts mid-run; add heartbeat-detail checkpointing and resume-or-skip behavior before expanding the platform surface. |
-| **Per-step failure visibility** | Operators should see failures as soon as a non-optional step fails, not only when the full run completes. This shortens response time and makes HITL operations more credible. |
-| **Output normalization + cost tracking** | Finish plain-text result normalization and repair `cost_usd` extraction so run output is clean, comparable, and trustworthy. |
+| **Per-step failure visibility** (F6) | Operators should see failures as soon as a non-optional step fails, not only when the full run completes. This shortens response time and makes HITL operations more credible. |
+| **Output normalization — plain-text result** (F7) | `extractStructuredOutput` handles JSON results correctly but still returns the full raw Claude event map when `result` is a plain string. |
 
 #### P1 — Workflow Product Completion
 
@@ -62,18 +63,18 @@ Broken contracts fixed, dead code removed, test coverage added. See [`archive/20
 
 #### Recommended sequence
 
-1. Reliability polish — worker-restart-safe execution, per-step failure visibility, output normalization, cost tracking.
-2. Workflow product completion — BYOW UI, validation UX, workflow import/fork/edit flows, frontend docs.
+1. Reliability polish — worker-restart-safe execution, F6 per-step failure notifications, F7 plain-text output normalization.
+2. Workflow product completion — BYOW UI (K1), validation UX, workflow import/fork/edit flows, frontend docs.
 3. Platform hardening — OpenAPI, correlation IDs, real integration tests.
-4. Capability expansion — GitHub cleanup, workflow expressiveness, richer knowledge systems.
+4. Capability expansion — GitHub cleanup, workflow expressiveness (J3/J4), richer knowledge systems.
 
 ### Track F — Feature Completion
 
 | # | Item | Notes |
 |---|------|-------|
-| F5 | **Cost tracking broken** — `cost_usd` is NULL for all steps despite `extractCostUSD` being called | `extractCostUSD` looks for `cost_usd` in the raw result event but the field is absent; Claude Code CLI may use a different field name (`total_cost_usd`, `usage.cost_usd`, etc.) — needs inspection of actual CLI output |
+| F5 | ~~**Cost tracking**~~ ✅ **Done** | `extractCostUSD` checks `total_cost_usd` first, falls back to `cost_usd`; `total_cost_usd` on runs computed as `SUM(cost_usd)` from step_runs. |
 | F6 | **Per-step failure notifications** — create inbox item immediately when a non-optional step fails | `CreateInboxItemActivity` in `dag.go` only fires in the run-completion defer; operators see nothing until the whole run ends |
-| F7 | **Agent output normalisation (text result)** — when no schema declared and `result` is a string, store it cleanly instead of the full raw Claude event map (`session_id`, `usage`, `modelUsage`, etc.) | `extractStructuredOutput` already handles the JSON-object case; only the text-string case remains |
+| F7 | **Agent output normalization (plain-text result)** — when `result` is a plain string with no JSON, store `{"result": "<string>"}` instead of the full raw Claude event map | `extractStructuredOutput` handles JSON-object and fenced/bare JSON-in-string cases; plain-text falls through to `return raw` |
 
 ### Track J — Workflow Expressiveness
 
@@ -81,8 +82,8 @@ Identified during `doc-assessment` workflow design. Full spec: [`2026-03-18-work
 
 | # | Item | Effort | Priority |
 |---|------|--------|----------|
-| J1 | **Conditional PR creation** — skip `git commit + push + PR` silently when working tree is clean | Low | P1 |
-| J2 | **Template rendering in `pull_request` fields** — apply `RenderPrompt` to `Title`, `Body`, `BranchPrefix`, `Draft` so params and step outputs can flow into PR config | Low | P1 |
+| J1 | ~~**Conditional PR creation**~~ ✅ **Done** — `CreatePullRequest` runs `git status --porcelain` after `git add -A` and returns early if tree is clean | Low | — |
+| J2 | ~~**Template rendering in `pull_request` fields**~~ ✅ **Done** — `resolveStep` in `dag.go` renders `BranchPrefix`, `Title`, `Body` through `RenderPrompt` | Low | — |
 | J3 | **Per-repo conditional fan-out (`filter` field)** — template expression evaluated per-repo against upstream fan-out outputs; only matching repos proceed | Medium | P2 |
 | J4 | **Sandbox group reuse across fan-out steps** — same sandbox instance shared by sibling fan-out steps operating on the same repo; eliminates re-clone penalty | High | P3 |
 
@@ -118,6 +119,18 @@ Users upload, author, and manage their own workflow YAML alongside builtins. The
 | G5 | Semantic memory (embeddings, dedup, decay) |
 
 > Note: schema migrations (golang-migrate v4) are already fully implemented — auto-applied at startup, embedded via `iofs`, tested in `db_test.go`.
+
+### Track L — Minion-Parity (individual dev task delegation)
+
+Full spec: [`docs/superpowers/specs/2026-03-25-minion-parity-design.md`](../superpowers/specs/2026-03-25-minion-parity-design.md)
+
+| Phase | Item | Status |
+|---|---|---|
+| L1 | Home page (prompt-first `/`), `quick-run` builtin workflow, `created_by=me` runs filter, Retry button, log search, model selection per run | Planned |
+| L2 | Prompt improvement — `POST /api/prompt/improve` server endpoint + Minion-style side-by-side modal | Planned |
+| L3 | Prompt presets (personal + team) + saved repo shortcuts | Planned |
+| L4 | Co-author attribution — inject triggering user's GitHub identity into sandbox env vars | Planned |
+| L5 | **Follow Up** — button on RunDetail that pre-populates Home prompt with completed run's context (output summary, repo, branch) | Planned |
 
 ### Track I — Future Enhancements
 

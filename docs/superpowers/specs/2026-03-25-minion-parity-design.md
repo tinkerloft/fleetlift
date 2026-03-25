@@ -21,6 +21,7 @@ Add individual-developer task delegation to Fleetlift so it serves both fleet-wi
 | Prompt improvement | Opt-in button → Minion-style side-by-side modal with quality scores |
 | Prompt presets | Personal + team tiers, stored in DB |
 | Co-author attribution | Automatic — always inject triggering user's GitHub identity into sandbox |
+| Model selection | Per-run override via run-level `model` param; applies to all workflows, not just quick-run |
 | Implementation strategy | Phased — four independently shippable PRs |
 
 ---
@@ -58,6 +59,20 @@ Add individual-developer task delegation to Fleetlift so it serves both fleet-wi
 - Frontend-only enhancement to the existing `LogStream` component on `RunDetail`.
 - A search input appears above the log stream. As the user types, log lines that don't match the filter are hidden (case-insensitive substring match). Matching text is highlighted.
 - No backend change. Works on both live (SSE) and completed (historical) log streams.
+
+**Model selection**
+
+Model is a run-level override, not a workflow-level param — it applies to any workflow, including quick-run and all builtins.
+
+Backend:
+- Add `model` (optional string) to `POST /api/runs` request body. Server stores it on the `runs` row (new nullable `model` column, migration required).
+- Add `ModelOverride string` to `workflow.StepInput`. DAGWorkflow reads `run.model` and populates it for every step.
+- `ClaudeCodeRunner.Run()` passes `--model <value>` to the Claude Code CLI when `ModelOverride` is set. If unset, CLI uses its own default.
+
+Frontend:
+- Home page: model dropdown next to branch input. Options: `claude-opus-4-6` (default label: "Opus 4.6"), `claude-sonnet-4-6` ("Sonnet 4.6"), `claude-haiku-4-5` ("Haiku 4.5"). Stored in a constant list in the frontend — no API needed.
+- WorkflowDetail run form: same model dropdown added alongside existing params.
+- Selected model persists in `localStorage` per user as a default for future runs.
 
 ---
 
@@ -175,12 +190,11 @@ Frontend:
 
 ---
 
-## Follow Up (out of scope for this spec)
+## Follow Up (out of scope for this spec — tracked in ROADMAP.md)
 
+- **"Follow Up" task chaining** — button on RunDetail that pre-populates the Home prompt box with context from the completed run (output summary, repo, branch). Tracked in roadmap as Track L.
 - Inbound Slack trigger (`/fleetlift run ...`)
 - GitHub webhook trigger (PR comment `@fleetlift fix this`)
-- Model selection per run (dropdown on Home page)
-- "Follow Up" button on RunDetail (pre-populates Home with context from completed run)
 
 ---
 
