@@ -10,10 +10,10 @@ configs:
 
       [runtime]
       type = "docker"
-      execd_image = "opensandbox/execd:v1.0.6"
+      execd_image = "opensandbox/execd:v1.0.9"
 
       [egress]
-      image = "opensandbox/egress:v1.0.1"
+      image = "opensandbox/egress:v1.0.4"
 
       [docker]
       network_mode = "bridge"
@@ -84,7 +84,7 @@ services:
 
   # OpenSandbox — sandbox execution environment for agent steps
   opensandbox-server:
-    image: opensandbox/server:latest
+    image: opensandbox/server:0.1.9
     container_name: opensandbox-server
     ports:
       - "8090:8080"

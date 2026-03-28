@@ -458,6 +458,106 @@ func TestProvisionSandbox_SkipsGitCredentialsWhenNoGithubToken(t *testing.T) {
 	}
 }
 
+// createOptsRecordingSandbox captures CreateOpts passed to Create.
+type createOptsRecordingSandbox struct {
+	noopSandbox
+	capturedOpts sandbox.CreateOpts
+}
+
+func (s *createOptsRecordingSandbox) Create(_ context.Context, opts sandbox.CreateOpts) (string, error) {
+	s.capturedOpts = opts
+	return "sb-spec", nil
+}
+
+func (s *createOptsRecordingSandbox) Exec(_ context.Context, _, _ , _ string) (string, string, error) {
+	return "", "", nil
+}
+
+func TestProvisionSandbox_SandboxSpecResources(t *testing.T) {
+	sb := &createOptsRecordingSandbox{}
+	a := &Activities{Sandbox: sb}
+
+	input := workflow.StepInput{
+		TeamID: "team-1",
+		ResolvedOpts: workflow.ResolvedStepOpts{
+			Agent: "shell",
+			SandboxSpec: &model.SandboxSpec{
+				Resources: model.SandboxResources{
+					CPU:    "2000m",
+					Memory: "4Gi",
+				},
+			},
+		},
+	}
+	_, err := a.ProvisionSandbox(context.Background(), input)
+	require.NoError(t, err)
+
+	require.NotNil(t, sb.capturedOpts.Resources)
+	assert.Equal(t, "2000m", sb.capturedOpts.Resources.CPU)
+	assert.Equal(t, "4Gi", sb.capturedOpts.Resources.Memory)
+}
+
+func TestProvisionSandbox_SandboxSpecEgressPolicy(t *testing.T) {
+	sb := &createOptsRecordingSandbox{}
+	a := &Activities{Sandbox: sb}
+
+	input := workflow.StepInput{
+		TeamID: "team-1",
+		ResolvedOpts: workflow.ResolvedStepOpts{
+			Agent: "shell",
+			SandboxSpec: &model.SandboxSpec{
+				Egress: model.EgressPolicy{
+					DenyAllByDefault: true,
+					Allow:            []string{"api.github.com", "*.pypi.org"},
+				},
+			},
+		},
+	}
+	_, err := a.ProvisionSandbox(context.Background(), input)
+	require.NoError(t, err)
+
+	require.NotNil(t, sb.capturedOpts.NetworkPolicy)
+	assert.Equal(t, "deny", sb.capturedOpts.NetworkPolicy.DefaultAction)
+	require.Len(t, sb.capturedOpts.NetworkPolicy.Egress, 2)
+	assert.Equal(t, "allow", sb.capturedOpts.NetworkPolicy.Egress[0].Action)
+	assert.Equal(t, "api.github.com", sb.capturedOpts.NetworkPolicy.Egress[0].Target)
+	assert.Equal(t, "*.pypi.org", sb.capturedOpts.NetworkPolicy.Egress[1].Target)
+}
+
+func TestProvisionSandbox_SandboxSpecTimeout(t *testing.T) {
+	sb := &createOptsRecordingSandbox{}
+	a := &Activities{Sandbox: sb}
+
+	input := workflow.StepInput{
+		TeamID: "team-1",
+		ResolvedOpts: workflow.ResolvedStepOpts{
+			Agent: "shell",
+			SandboxSpec: &model.SandboxSpec{
+				Timeout: "30m",
+			},
+		},
+	}
+	_, err := a.ProvisionSandbox(context.Background(), input)
+	require.NoError(t, err)
+	assert.Equal(t, 30, sb.capturedOpts.TimeoutMins)
+}
+
+func TestProvisionSandbox_NoSandboxSpecUsesDefaults(t *testing.T) {
+	sb := &createOptsRecordingSandbox{}
+	a := &Activities{Sandbox: sb}
+
+	input := workflow.StepInput{
+		TeamID:       "team-1",
+		ResolvedOpts: workflow.ResolvedStepOpts{Agent: "shell"},
+	}
+	_, err := a.ProvisionSandbox(context.Background(), input)
+	require.NoError(t, err)
+
+	assert.Nil(t, sb.capturedOpts.Resources, "Resources should be nil when SandboxSpec not set")
+	assert.Nil(t, sb.capturedOpts.NetworkPolicy, "NetworkPolicy should be nil when SandboxSpec not set")
+	assert.Equal(t, 120, sb.capturedOpts.TimeoutMins, "Default timeout should be 120 minutes")
+}
+
 func TestCleanupCheckpointBranch_EmptyBranch(t *testing.T) {
 	acts := &Activities{}
 	err := acts.CleanupCheckpointBranch(context.Background(), model.CleanupCheckpointInput{Branch: ""})

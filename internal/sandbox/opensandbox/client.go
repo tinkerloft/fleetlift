@@ -88,12 +88,39 @@ func (c *Client) sandboxProxyURL(id string) string {
 func (c *Client) Create(ctx context.Context, opts sandbox.CreateOpts) (string, error) {
 	timeoutSecs := opts.TimeoutMins * 60
 	timeoutSecs = max(timeoutSecs, 60)
+
+	// Resource limits: use caller-provided values or defaults.
+	rl := map[string]string{"cpu": "1000m", "memory": "2Gi"}
+	if opts.Resources != nil {
+		if opts.Resources.CPU != "" {
+			rl["cpu"] = opts.Resources.CPU
+		}
+		if opts.Resources.Memory != "" {
+			rl["memory"] = opts.Resources.Memory
+		}
+	}
+
 	body := map[string]any{
 		"image":          map[string]string{"uri": opts.Image},
 		"env":            opts.Env,
 		"timeout":        timeoutSecs,
-		"resourceLimits": map[string]string{"cpu": "1000m", "memory": "2Gi"},
+		"resourceLimits": rl,
 		"entrypoint":     []string{"sleep", "infinity"},
+	}
+
+	// Network policy: pass through to OpenSandbox egress sidecar.
+	if opts.NetworkPolicy != nil {
+		rules := make([]map[string]string, 0, len(opts.NetworkPolicy.Egress))
+		for _, r := range opts.NetworkPolicy.Egress {
+			rules = append(rules, map[string]string{
+				"action": r.Action,
+				"target": r.Target,
+			})
+		}
+		body["networkPolicy"] = map[string]any{
+			"defaultAction": opts.NetworkPolicy.DefaultAction,
+			"egress":        rules,
+		}
 	}
 	data, err := json.Marshal(body)
 	if err != nil {

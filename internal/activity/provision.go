@@ -75,11 +75,44 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 	if image == "" {
 		image = agentImage(input.ResolvedOpts.Agent)
 	}
-	sandboxID, err := a.Sandbox.Create(ctx, sandbox.CreateOpts{
+
+	createOpts := sandbox.CreateOpts{
 		Image:       image,
 		Env:         env,
 		TimeoutMins: 120,
-	})
+	}
+
+	// Apply per-step sandbox spec (resources, egress policy) if defined.
+	if spec := input.ResolvedOpts.SandboxSpec; spec != nil {
+		if spec.Resources.CPU != "" || spec.Resources.Memory != "" {
+			createOpts.Resources = &sandbox.ResourceLimits{
+				CPU:    spec.Resources.CPU,
+				Memory: spec.Resources.Memory,
+			}
+		}
+		if spec.Egress.DenyAllByDefault || len(spec.Egress.Allow) > 0 {
+			np := &sandbox.NetworkPolicy{}
+			if spec.Egress.DenyAllByDefault {
+				np.DefaultAction = "deny"
+			} else {
+				np.DefaultAction = "allow"
+			}
+			for _, target := range spec.Egress.Allow {
+				np.Egress = append(np.Egress, sandbox.NetworkRule{
+					Action: "allow",
+					Target: target,
+				})
+			}
+			createOpts.NetworkPolicy = np
+		}
+		if spec.Timeout != "" {
+			if d, err := time.ParseDuration(spec.Timeout); err == nil {
+				createOpts.TimeoutMins = int(d.Minutes())
+			}
+		}
+	}
+
+	sandboxID, err := a.Sandbox.Create(ctx, createOpts)
 	if err != nil {
 		return "", fmt.Errorf("create sandbox: %w", err)
 	}
