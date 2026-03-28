@@ -84,7 +84,6 @@ Workflow templates define DAG-based agentic jobs. They are stored as YAML and ca
 | `image` | string | Container image to use. Overrides `AGENT_IMAGE` env var. |
 | `resources.cpu` | string | CPU allocation (e.g. `"2"`). |
 | `resources.memory` | string | Memory allocation (e.g. `"4Gi"`). |
-| `resources.gpu` | bool | Request GPU access. |
 | `egress.allow` | []string | Allowlisted hostnames/CIDRs for outbound network. |
 | `egress.deny_all_by_default` | bool | Block all outbound unless listed in `allow`. |
 | `timeout` | string | Maximum wall-clock time for the sandbox. |

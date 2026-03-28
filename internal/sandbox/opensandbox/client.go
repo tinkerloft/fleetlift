@@ -109,6 +109,7 @@ func (c *Client) Create(ctx context.Context, opts sandbox.CreateOpts) (string, e
 	}
 
 	// Network policy: pass through to OpenSandbox egress sidecar.
+	// Field name "networkPolicy" matches OpenSandbox server v0.1.9 REST API.
 	if opts.NetworkPolicy != nil {
 		rules := make([]map[string]string, 0, len(opts.NetworkPolicy.Egress))
 		for _, r := range opts.NetworkPolicy.Egress {

@@ -524,6 +524,26 @@ func TestProvisionSandbox_SandboxSpecEgressPolicy(t *testing.T) {
 	assert.Equal(t, "*.pypi.org", sb.capturedOpts.NetworkPolicy.Egress[1].Target)
 }
 
+func TestProvisionSandbox_SandboxSpecEgressAllowOnlyNoPolicy(t *testing.T) {
+	sb := &createOptsRecordingSandbox{}
+	a := &Activities{Sandbox: sb}
+
+	input := workflow.StepInput{
+		TeamID: "team-1",
+		ResolvedOpts: workflow.ResolvedStepOpts{
+			Agent: "shell",
+			SandboxSpec: &model.SandboxSpec{
+				Egress: model.EgressPolicy{
+					Allow: []string{"api.github.com"},
+				},
+			},
+		},
+	}
+	_, err := a.ProvisionSandbox(context.Background(), input)
+	require.NoError(t, err)
+	assert.Nil(t, sb.capturedOpts.NetworkPolicy, "allow-only without deny_all_by_default should not create a NetworkPolicy")
+}
+
 func TestProvisionSandbox_SandboxSpecTimeout(t *testing.T) {
 	sb := &createOptsRecordingSandbox{}
 	a := &Activities{Sandbox: sb}
@@ -540,6 +560,41 @@ func TestProvisionSandbox_SandboxSpecTimeout(t *testing.T) {
 	_, err := a.ProvisionSandbox(context.Background(), input)
 	require.NoError(t, err)
 	assert.Equal(t, 30, sb.capturedOpts.TimeoutMins)
+}
+
+func TestProvisionSandbox_SandboxSpecTimeoutRoundsUp(t *testing.T) {
+	sb := &createOptsRecordingSandbox{}
+	a := &Activities{Sandbox: sb}
+
+	input := workflow.StepInput{
+		TeamID: "team-1",
+		ResolvedOpts: workflow.ResolvedStepOpts{
+			Agent: "shell",
+			SandboxSpec: &model.SandboxSpec{
+				Timeout: "90s",
+			},
+		},
+	}
+	_, err := a.ProvisionSandbox(context.Background(), input)
+	require.NoError(t, err)
+	assert.Equal(t, 2, sb.capturedOpts.TimeoutMins, "90s should round up to 2 minutes")
+}
+
+func TestProvisionSandbox_SandboxSpecTimeoutInvalidReturnsError(t *testing.T) {
+	a := &Activities{Sandbox: &createOptsRecordingSandbox{}}
+
+	input := workflow.StepInput{
+		TeamID: "team-1",
+		ResolvedOpts: workflow.ResolvedStepOpts{
+			Agent: "shell",
+			SandboxSpec: &model.SandboxSpec{
+				Timeout: "not-a-duration",
+			},
+		},
+	}
+	_, err := a.ProvisionSandbox(context.Background(), input)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid sandbox timeout")
 }
 
 func TestProvisionSandbox_NoSandboxSpecUsesDefaults(t *testing.T) {

@@ -3,6 +3,7 @@ package activity
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"os/exec"
@@ -90,13 +91,8 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 				Memory: spec.Resources.Memory,
 			}
 		}
-		if spec.Egress.DenyAllByDefault || len(spec.Egress.Allow) > 0 {
-			np := &sandbox.NetworkPolicy{}
-			if spec.Egress.DenyAllByDefault {
-				np.DefaultAction = "deny"
-			} else {
-				np.DefaultAction = "allow"
-			}
+		if spec.Egress.DenyAllByDefault {
+			np := &sandbox.NetworkPolicy{DefaultAction: "deny"}
 			for _, target := range spec.Egress.Allow {
 				np.Egress = append(np.Egress, sandbox.NetworkRule{
 					Action: "allow",
@@ -106,9 +102,15 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 			createOpts.NetworkPolicy = np
 		}
 		if spec.Timeout != "" {
-			if d, err := time.ParseDuration(spec.Timeout); err == nil {
-				createOpts.TimeoutMins = int(d.Minutes())
+			d, err := time.ParseDuration(spec.Timeout)
+			if err != nil {
+				return "", fmt.Errorf("invalid sandbox timeout %q: %w", spec.Timeout, err)
 			}
+			mins := int(math.Ceil(d.Minutes()))
+			if mins < 1 {
+				mins = 1
+			}
+			createOpts.TimeoutMins = mins
 		}
 	}
 

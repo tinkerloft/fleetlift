@@ -13,24 +13,24 @@ dev-web:
 
 # Build binaries
 build: build-web
-	go build -o bin/fleetlift-worker ./cmd/worker
-	go build -o bin/fleetlift ./cmd/cli
-	go build -o bin/fleetlift-server ./cmd/server
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bin/fleetlift-mcp-amd64 ./cmd/mcp-sidecar
-	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o bin/fleetlift-mcp-arm64 ./cmd/mcp-sidecar
+	go build -buildvcs=false -o bin/fleetlift-worker ./cmd/worker
+	go build -buildvcs=false -o bin/fleetlift ./cmd/cli
+	go build -buildvcs=false -o bin/fleetlift-server ./cmd/server
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -buildvcs=false -o bin/fleetlift-mcp-amd64 ./cmd/mcp-sidecar
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -buildvcs=false -o bin/fleetlift-mcp-arm64 ./cmd/mcp-sidecar
 
 # Build worker only
 fleetlift-worker:
-	go build -o bin/fleetlift-worker ./cmd/worker
+	go build -buildvcs=false -o bin/fleetlift-worker ./cmd/worker
 
 # Build CLI only
 fleetlift:
-	go build -o bin/fleetlift ./cmd/cli
+	go build -buildvcs=false -o bin/fleetlift ./cmd/cli
 
 # Build MCP sidecar (for sandbox upload) — both architectures
 mcp-sidecar:
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o bin/fleetlift-mcp-amd64 ./cmd/mcp-sidecar
-	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o bin/fleetlift-mcp-arm64 ./cmd/mcp-sidecar
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -buildvcs=false -o bin/fleetlift-mcp-amd64 ./cmd/mcp-sidecar
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -buildvcs=false -o bin/fleetlift-mcp-arm64 ./cmd/mcp-sidecar
 
 # Run tests
 test:

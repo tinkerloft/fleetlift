@@ -660,6 +660,8 @@ func resolveStep(step model.StepDef, params map[string]any, outputs map[string]*
 		}
 	}
 
+	opts.SandboxSpec = step.Sandbox
+
 	// Render pull_request config fields — applies regardless of whether Execution is set.
 	if step.PullRequest != nil {
 		renderCtx := fltemplate.RenderContext{Params: params, Steps: outputs}
