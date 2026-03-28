@@ -202,6 +202,7 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 		Prompt:         prompt,
 		WorkDir:        workDir,
 		MaxTurns:       stepInput.ResolvedOpts.MaxTurns,
+		Model:          stepInput.ModelOverride,
 		EvalPluginDirs: input.EvalPluginDirs,
 	})
 	if err != nil {

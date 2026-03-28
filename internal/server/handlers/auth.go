@@ -1,9 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -83,49 +86,27 @@ func (h *AuthHandler) HandleGitHubCallback(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Auto-provision a personal team on first login if the user has none.
-	var teamCount int
-	_ = h.db.GetContext(r.Context(), &teamCount,
-		`SELECT COUNT(*) FROM team_members WHERE user_id = $1`, userID)
-	if teamCount == 0 {
-		slug := identity.Name
-		if slug == "" {
-			slug = identity.Email
-		}
-		if _, err := h.db.ExecContext(r.Context(),
-			`WITH t AS (
-				INSERT INTO teams (name, slug)
-				VALUES ($1, $2)
-				ON CONFLICT (slug) DO UPDATE SET name = $1
-				RETURNING id
-			)
-			INSERT INTO team_members (team_id, user_id, role)
-			SELECT id, $3, 'admin' FROM t
-			ON CONFLICT DO NOTHING`,
-			identity.Name, slug, userID,
-		); err != nil {
-			slog.Error("auto-provision team error", "error", err, "user_id", userID)
-		}
+	if err := h.ensurePersonalTeam(r.Context(), userID, identity); err != nil {
+		slog.Error("personal team provisioning error", "error", err, "user_id", userID)
+		writeJSONError(w, http.StatusInternalServerError, "failed to provision personal team")
+		return
 	}
 
 	// Get team roles
-	teamRoles := map[string]string{}
-	rows, err := h.db.QueryxContext(r.Context(),
-		`SELECT team_id, role FROM team_members WHERE user_id = $1`, userID)
-	if err == nil {
-		defer func() { _ = rows.Close() }()
-		for rows.Next() {
-			var teamID, role string
-			if rows.Scan(&teamID, &role) == nil {
-				teamRoles[teamID] = role
-			}
-		}
+	teamRoles, err := h.loadFilteredTeamRoles(r.Context(), h.db, userID)
+	if err != nil {
+		slog.Error("failed to load team roles", "error", err, "user_id", userID)
+		writeJSONError(w, http.StatusInternalServerError, "failed to load team roles")
+		return
 	}
 
 	// Check platform admin
-	var platformAdmin bool
-	_ = h.db.GetContext(r.Context(), &platformAdmin,
-		`SELECT platform_admin FROM users WHERE id = $1`, userID)
+	platformAdmin, err := h.loadPlatformAdmin(r.Context(), h.db, userID)
+	if err != nil {
+		slog.Error("failed to load platform admin", "error", err, "user_id", userID)
+		writeJSONError(w, http.StatusInternalServerError, "failed to load platform admin")
+		return
+	}
 
 	token, err := auth.IssueToken(h.jwtSecret, userID, teamRoles, platformAdmin)
 	if err != nil {
@@ -167,33 +148,33 @@ func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newRefreshToken, userID, err := auth.RotateRefreshToken(r.Context(), h.db, cookie.Value)
-	if err != nil {
-		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-
-	// Re-query current roles from DB to prevent stale claim perpetuation
-	teamRoles := map[string]string{}
-	rows, err := h.db.QueryxContext(r.Context(),
-		`SELECT team_id, role FROM team_members WHERE user_id = $1`, userID)
-	if err == nil {
-		defer func() { _ = rows.Close() }()
-		for rows.Next() {
-			var teamID, role string
-			if rows.Scan(&teamID, &role) == nil {
-				teamRoles[teamID] = role
-			}
+	newRefreshToken, token, userID, err := auth.RefreshSession(r.Context(), h.db, cookie.Value, func(ctx context.Context, q sqlx.ExtContext, userID string) (string, error) {
+		teamRoles, err := h.loadFilteredTeamRoles(ctx, q, userID)
+		if err != nil {
+			slog.Error("failed to load team roles", "error", err, "user_id", userID)
+			return "", err
 		}
-	}
 
-	var platformAdmin bool
-	_ = h.db.GetContext(r.Context(), &platformAdmin,
-		`SELECT platform_admin FROM users WHERE id = $1`, userID)
+		platformAdmin, err := h.loadPlatformAdmin(ctx, q, userID)
+		if err != nil {
+			slog.Error("failed to load platform admin", "error", err, "user_id", userID)
+			return "", err
+		}
 
-	token, err := auth.IssueToken(h.jwtSecret, userID, teamRoles, platformAdmin)
+		return auth.IssueToken(h.jwtSecret, userID, teamRoles, platformAdmin)
+	})
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "failed to issue token")
+		switch {
+		case errors.Is(err, auth.ErrRefreshTokenInvalid),
+			errors.Is(err, auth.ErrRefreshTokenReuseDetected),
+			errors.Is(err, auth.ErrRefreshTokenExpired):
+			writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+		default:
+			if userID != "" {
+				slog.Error("failed to refresh session", "error", err, "user_id", userID)
+			}
+			writeJSONError(w, http.StatusInternalServerError, "failed to refresh session")
+		}
 		return
 	}
 
@@ -223,8 +204,14 @@ func (h *AuthHandler) HandleMe(w http.ResponseWriter, r *http.Request) {
 	if err := h.db.QueryRowContext(r.Context(),
 		`SELECT COALESCE(name, ''), COALESCE(email, '') FROM users WHERE id = $1`,
 		claims.UserID,
-	).Scan(&name, &email); err != nil && err != sql.ErrNoRows {
-		slog.Warn("failed to fetch user profile", "err", err, "user_id", claims.UserID)
+	).Scan(&name, &email); err != nil {
+		if err == sql.ErrNoRows {
+			writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		slog.Error("failed to fetch user profile", "error", err, "user_id", claims.UserID)
+		writeJSONError(w, http.StatusInternalServerError, "failed to load user profile")
+		return
 	}
 
 	// Fetch team details
@@ -238,18 +225,29 @@ func (h *AuthHandler) HandleMe(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.QueryxContext(r.Context(),
 		`SELECT t.id, t.name, t.slug, tm.role
 		 FROM teams t JOIN team_members tm ON t.id = tm.team_id
-		 WHERE tm.user_id = $1 ORDER BY t.name`, claims.UserID)
-	if err == nil {
-		defer func() { _ = rows.Close() }()
-		for rows.Next() {
-			var t teamInfo
-			if rows.StructScan(&t) == nil {
-				teams = append(teams, t)
-			}
+		 JOIN users u ON u.id = tm.user_id
+		 WHERE tm.user_id = $1
+		   AND (u.personal_team_id IS NULL OR t.id <> u.personal_team_id)
+		 ORDER BY t.name`, claims.UserID)
+	if err != nil {
+		slog.Error("failed to query user teams", "error", err, "user_id", claims.UserID)
+		writeJSONError(w, http.StatusInternalServerError, "failed to load user teams")
+		return
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var t teamInfo
+		if err := rows.StructScan(&t); err != nil {
+			slog.Error("failed scanning team row", "error", err, "user_id", claims.UserID)
+			writeJSONError(w, http.StatusInternalServerError, "failed to load user teams")
+			return
 		}
-		if err := rows.Err(); err != nil {
-			slog.Warn("error iterating team rows", "err", err, "user_id", claims.UserID)
-		}
+		teams = append(teams, t)
+	}
+	if err := rows.Err(); err != nil {
+		slog.Error("error iterating team rows", "error", err, "user_id", claims.UserID)
+		writeJSONError(w, http.StatusInternalServerError, "failed to load user teams")
+		return
 	}
 	if teams == nil {
 		teams = []teamInfo{}
@@ -269,4 +267,109 @@ func randomState() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+func (h *AuthHandler) ensurePersonalTeam(ctx context.Context, userID string, identity *auth.ExternalIdentity) error {
+	tx, err := h.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+
+	var personalTeamID sql.NullString
+	if err := tx.GetContext(ctx, &personalTeamID,
+		`SELECT personal_team_id::text FROM users WHERE id = $1 FOR UPDATE`, userID,
+	); err != nil {
+		return fmt.Errorf("load personal team: %w", err)
+	}
+	if personalTeamID.Valid {
+		return tx.Commit()
+	}
+
+	teamName := personalTeamName(identity)
+	slug := personalTeamSlug(userID)
+
+	if err := tx.GetContext(ctx, &personalTeamID,
+		`INSERT INTO teams (name, slug)
+		 VALUES ($1, $2)
+		 ON CONFLICT (slug) DO UPDATE SET name = teams.name
+		 RETURNING id::text`,
+		teamName, slug,
+	); err != nil {
+		return fmt.Errorf("create personal team: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE users SET personal_team_id = $1 WHERE id = $2`, personalTeamID.String, userID,
+	); err != nil {
+		return fmt.Errorf("link personal team: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO team_members (team_id, user_id, role)
+		 VALUES ($1, $2, 'admin')
+		 ON CONFLICT (team_id, user_id) DO NOTHING`, personalTeamID.String, userID,
+	); err != nil {
+		return fmt.Errorf("create personal team membership: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit personal team provisioning: %w", err)
+	}
+
+	return nil
+}
+
+func personalTeamSlug(userID string) string {
+	return fmt.Sprintf("personal-%s", userID)
+}
+
+func personalTeamName(identity *auth.ExternalIdentity) string {
+	if identity != nil && identity.Name != "" {
+		return identity.Name + " Personal"
+	}
+	if identity != nil && identity.Email != "" {
+		return identity.Email + " Personal"
+	}
+	return "Personal"
+}
+
+func (h *AuthHandler) loadFilteredTeamRoles(ctx context.Context, q sqlx.QueryerContext, userID string) (map[string]string, error) {
+	teamRoles := map[string]string{}
+	rows, err := q.QueryxContext(ctx,
+		`SELECT tm.team_id, tm.role
+		 FROM team_members tm
+		 JOIN users u ON u.id = tm.user_id
+		 WHERE tm.user_id = $1
+		   AND (u.personal_team_id IS NULL OR tm.team_id <> u.personal_team_id)`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var teamID, role string
+		if err := rows.Scan(&teamID, &role); err != nil {
+			return nil, err
+		}
+		teamRoles[teamID] = role
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return teamRoles, nil
+}
+
+func (h *AuthHandler) loadPlatformAdmin(ctx context.Context, q sqlx.QueryerContext, userID string) (bool, error) {
+	var platformAdmin bool
+	if err := sqlx.GetContext(ctx, q, &platformAdmin,
+		`SELECT platform_admin FROM users WHERE id = $1`, userID,
+	); err != nil {
+		return false, err
+	}
+	return platformAdmin, nil
 }

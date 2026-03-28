@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -207,4 +211,99 @@ func TestCreate_InvalidYAML_Returns400(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code,
 		"malformed YAML in template should return 400, not 500")
+}
+
+func TestCreate_IncludesModelInRunInsert(t *testing.T) {
+	tmpl := &model.WorkflowTemplate{
+		ID:       "wf-valid",
+		Slug:     "valid-workflow",
+		Title:    "Valid Workflow",
+		YAMLBody: validWorkflowYAML,
+	}
+	reg := template.NewRegistry(&stubProvider{tmpl: tmpl})
+	sqlDB, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	h := NewRunsHandler(sqlx.NewDb(sqlDB, "sqlmock"), nil, reg, nil)
+
+	r := chi.NewRouter()
+	r.Post("/api/runs", h.Create)
+
+	body := `{"workflow_id":"valid-workflow","model":"gpt-5","parameters":{}}`
+	req := httptest.NewRequest("POST", "/api/runs", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Team-ID", "team-1")
+	req = req.WithContext(auth.SetClaimsInContext(req.Context(), &auth.Claims{
+		UserID:    "user-1",
+		TeamRoles: map[string]string{"team-1": "member"},
+	}))
+
+	mock.ExpectExec(`INSERT INTO runs \(id, team_id, workflow_id, workflow_title, parameters, model, status, temporal_id, triggered_by\)`).
+		WithArgs(sqlmock.AnyArg(), "team-1", "valid-workflow", "Valid Workflow", sqlmock.AnyArg(), "gpt-5", "pending", sqlmock.AnyArg(), "user-1").
+		WillReturnError(assert.AnError)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestList_FilterCreatedByMe(t *testing.T) {
+	sqlDB, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	h := NewRunsHandler(sqlx.NewDb(sqlDB, "sqlmock"), nil, nil, nil)
+	r := chi.NewRouter()
+	r.Get("/api/runs", h.List)
+
+	rows := sqlmock.NewRows([]string{"id", "team_id", "workflow_id", "workflow_title", "parameters", "status", "model", "temporal_id", "triggered_by", "started_at", "completed_at", "error_message", "total_cost_usd", "created_at"}).
+		AddRow("run-1", "team-1", "wf-1", "Workflow", []byte(`{}`), "pending", nil, "temporal-1", "user-1", nil, nil, nil, nil, time.Now().UTC())
+
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM runs WHERE team_id = $1 AND triggered_by = $2 ORDER BY created_at DESC LIMIT 50`)).
+		WithArgs("team-1", "user-1").
+		WillReturnRows(rows)
+
+	req := httptest.NewRequest("GET", "/api/runs?created_by=me", nil)
+	req.Header.Set("X-Team-ID", "team-1")
+	req = req.WithContext(auth.SetClaimsInContext(req.Context(), &auth.Claims{
+		UserID:    "user-1",
+		TeamRoles: map[string]string{"team-1": "member"},
+	}))
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestList_RespectsLimitParam(t *testing.T) {
+	sqlDB, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	h := NewRunsHandler(sqlx.NewDb(sqlDB, "sqlmock"), nil, nil, nil)
+	r := chi.NewRouter()
+	r.Get("/api/runs", h.List)
+
+	rows := sqlmock.NewRows([]string{"id", "team_id", "workflow_id", "workflow_title", "parameters", "status", "model", "temporal_id", "triggered_by", "started_at", "completed_at", "error_message", "total_cost_usd", "created_at"})
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT * FROM runs WHERE team_id = $1 ORDER BY created_at DESC LIMIT 10`)).
+		WithArgs("team-1").
+		WillReturnRows(rows)
+
+	req := httptest.NewRequest("GET", "/api/runs?limit=10", nil)
+	req.Header.Set("X-Team-ID", "team-1")
+	req = req.WithContext(auth.SetClaimsInContext(req.Context(), &auth.Claims{
+		UserID:    "user-1",
+		TeamRoles: map[string]string{"team-1": "member"},
+	}))
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

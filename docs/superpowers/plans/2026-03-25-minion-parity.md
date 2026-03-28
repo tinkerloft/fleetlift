@@ -10,6 +10,13 @@
 
 **Spec:** `docs/superpowers/specs/2026-03-25-minion-parity-design.md`
 
+## Progress Log
+
+- 2026-03-26: Implemented (uncommitted) PR 1 Task 0b follow-up: replaced string-based refresh error classification with typed auth errors (`errors.Is`) and added refresh-path regression tests for invalid/expired/reused/internal-DB-failure cases.
+- 2026-03-26: Implemented (uncommitted) PR 1 auth/personal-tenancy foundation: migration `012_personal_space_and_run_model.up.sql`, OAuth personal team provisioning, JWT + `/api/me` personal-team filtering, transactional refresh rotation via `RefreshSession`, fail-closed auth error handling, and expanded auth handler tests.
+- 2026-03-26: Implemented (uncommitted) PR 1 backend slice for run model flow plumbing, `created_by=me` + `limit` run listing filters, builtin `hidden` support, and hidden `quick-run` builtin template. Verification passed (`go test ./...`, `make lint`, `go build ./...`).
+- 2026-03-26: Git status remains dirty with no commits yet in this branch; commit steps below remain intentionally unchecked until commit(s) are created.
+
 ---
 
 ## File Map
@@ -18,7 +25,10 @@
 
 | Action | File | Purpose |
 |--------|------|---------|
-| Create | `internal/db/migrations/012_run_model.up.sql` | Add `model` nullable column to `runs` |
+| Create | `internal/db/migrations/012_personal_space_and_run_model.up.sql` | Add `users.personal_team_id` + unique index + nullable `runs.model` |
+| Modify | `internal/server/handlers/auth.go` | Personal team provisioning, filtering, and fail-closed auth behavior |
+| Modify | `internal/auth/jwt.go` | Transactional refresh (`RefreshSession`) with row locking |
+| Modify | `internal/server/handlers/auth_test.go` | Regression tests for personal team + refresh + fail-closed behavior |
 | Modify | `internal/model/run.go` | Add `Model` field to `Run` struct |
 | Modify | `internal/server/handlers/runs.go` | Add `model` to `createRunRequest`, store in DB, add `created_by` filter to ListRuns |
 | Modify | `internal/workflow/dag.go` | Add `ModelOverride` to `DAGInput`, pass to `StepInput` |
@@ -81,18 +91,91 @@
 
 ## PR 1 — Backend: model override, created_by filter, hidden flag, quick-run workflow
 
+### Task 0: Auth and personal tenancy foundation (already implemented)
+
+**Files:**
+- Create: `internal/db/migrations/012_personal_space_and_run_model.up.sql`
+- Modify: `internal/server/handlers/auth.go`
+- Modify: `internal/auth/jwt.go`
+- Modify: `internal/server/handlers/auth_test.go`
+
+- [x] **Step 0.1: Add schema support for personal team ownership and run model storage**
+
+Migration includes:
+- `users.personal_team_id UUID REFERENCES teams(id)`
+- unique partial index on `users.personal_team_id`
+- `runs.model TEXT`
+
+- [x] **Step 0.2: Provision personal team on OAuth callback (idempotent + transactional)**
+
+Handler behavior:
+- Ensure a user has one personal team on login.
+- Reuse existing `personal_team_id` when present.
+- Personal team slug/name are deterministic from user identity.
+
+- [x] **Step 0.3: Keep personal teams out of shared-team UX surfaces**
+
+Backend behavior:
+- Exclude personal teams from JWT `team_roles`.
+- Exclude personal teams from `/api/me` team list.
+
+- [x] **Step 0.4: Make refresh-session rotation atomic**
+
+`RefreshSession` transaction now performs:
+- refresh-token row lock (`SELECT ... FOR UPDATE`)
+- revocation + replacement token issuance
+- access token claim materialization and signing callback
+
+- [x] **Step 0.5: Harden auth handlers to fail closed on DB read failures**
+
+Behavior now distinguishes:
+- auth failures (`401`)
+- internal data-load failures (`500`)
+
+- [x] **Step 0.6: Add auth regression tests for all new paths**
+
+Coverage includes:
+- personal-team provisioning and exclusion
+- refresh failure behavior and non-burning-session guarantee
+- role/admin/profile query failure paths returning `500`
+
+---
+
+### Task 0b: Required follow-up changes after Task 0
+
+**Files:**
+- Modify: `internal/auth/jwt.go`
+- Modify: `internal/server/handlers/auth.go`
+- Modify: `internal/server/handlers/auth_test.go`
+
+- [x] **Step 0b.1: Replace string-based refresh error classification with typed/sentinel errors**
+
+`HandleRefresh` currently distinguishes `401` vs `500` using string matching from `RefreshSession`; replace with typed errors (e.g. `ErrRefreshTokenInvalid`, `ErrRefreshTokenExpired`) to avoid brittle coupling.
+
+- [x] **Step 0b.2: Add tests proving typed error mapping remains stable**
+
+Add targeted tests for invalid/expired/revoked refresh paths and internal DB failures to ensure status-code mapping cannot regress silently.
+
+- [x] **Step 0b.3: Verify auth package + handlers package**
+
+```bash
+go test ./internal/auth/... ./internal/server/handlers/... -count=1
+```
+
+---
+
 ### Task 1: Migration — add `model` column to `runs`
 
 **Files:**
-- Create: `internal/db/migrations/012_run_model.up.sql`
+- Create: `internal/db/migrations/012_personal_space_and_run_model.up.sql`
 
-- [ ] **Step 1.1: Create migration**
+- [x] **Step 1.1: Create migration**
 
 ```sql
-ALTER TABLE runs ADD COLUMN model TEXT;
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS model TEXT;
 ```
 
-- [ ] **Step 1.2: Build to verify migration embeds**
+- [x] **Step 1.2: Build to verify migration embeds**
 
 ```bash
 go build ./...
@@ -103,8 +186,8 @@ Expected: no errors.
 - [ ] **Step 1.3: Commit**
 
 ```bash
-git add internal/db/migrations/012_run_model.up.sql
-git commit -m "db: add model column to runs table (migration 012)"
+git add internal/db/migrations/012_personal_space_and_run_model.up.sql
+git commit -m "db: add personal-team and run-model columns (migration 012)"
 ```
 
 ---
@@ -115,7 +198,7 @@ git commit -m "db: add model column to runs table (migration 012)"
 - Modify: `internal/model/run.go`
 - Modify: `internal/server/handlers/runs.go`
 
-- [ ] **Step 2.1: Add `Model` field to `Run` struct**
+- [x] **Step 2.1: Add `Model` field to `Run` struct**
 
 In `internal/model/run.go`, add after `TriggeredBy`:
 
@@ -123,7 +206,7 @@ In `internal/model/run.go`, add after `TriggeredBy`:
 Model        *string    `db:"model" json:"model,omitempty"`
 ```
 
-- [ ] **Step 2.2: Add `Model` to `createRunRequest`**
+- [x] **Step 2.2: Add `Model` to `createRunRequest`**
 
 In `internal/server/handlers/runs.go`, find the `createRunRequest` struct (around line 35) and add:
 
@@ -135,7 +218,7 @@ type createRunRequest struct {
 }
 ```
 
-- [ ] **Step 2.3: Store `model` in the INSERT**
+- [x] **Step 2.3: Store `model` in the INSERT**
 
 In the `CreateRun` handler, modify the INSERT statement to include `model`. Find the current INSERT (around line 95):
 
@@ -157,7 +240,7 @@ _, err = h.db.ExecContext(r.Context(),
 )
 ```
 
-- [ ] **Step 2.4: Build to verify**
+- [x] **Step 2.4: Build to verify**
 
 ```bash
 go build ./...
@@ -181,7 +264,7 @@ git commit -m "feat: accept model param on run creation"
 - Modify: `internal/agent/claudecode.go`
 - Modify: `internal/activity/execute.go`
 
-- [ ] **Step 3.1: Add `ModelOverride` to `DAGInput`**
+- [x] **Step 3.1: Add `ModelOverride` to `DAGInput`**
 
 In `internal/workflow/dag.go`, find the `DAGInput` struct (around line 26) and add:
 
@@ -196,7 +279,7 @@ type DAGInput struct {
 }
 ```
 
-- [ ] **Step 3.2: Pass `ModelOverride` into `StepInput`**
+- [x] **Step 3.2: Pass `ModelOverride` into `StepInput`**
 
 In `internal/workflow/step.go`, find the `StepInput` struct (around line 14) and add:
 
@@ -215,7 +298,7 @@ type StepInput struct {
 
 In `internal/workflow/dag.go`, find where `StepInput` is constructed (around line 419–427 in the step execution goroutine). Add `ModelOverride: input.ModelOverride` to the construction. Search for `StepInput{` inside the step execution code to find the exact location — there will be at least one for single-step and one for fan-out. Add `ModelOverride` to all construction sites.
 
-- [ ] **Step 3.3: Add `Model` to `RunOpts`**
+- [x] **Step 3.3: Add `Model` to `RunOpts`**
 
 In `internal/agent/runner.go`, add the field:
 
@@ -230,7 +313,7 @@ type RunOpts struct {
 }
 ```
 
-- [ ] **Step 3.4: Add `Model` to `bridgeRequest` and pass it**
+- [x] **Step 3.4: Add `Model` to `bridgeRequest` and pass it**
 
 In `internal/agent/claudecode.go`, find the `bridgeRequest` struct (around line 147) and add:
 
@@ -253,7 +336,7 @@ In the same file, find where `bridgeRequest` is constructed in the `Run()` metho
 Model:      opts.Model,
 ```
 
-- [ ] **Step 3.5: Pass model from StepInput to RunOpts in execute.go**
+- [x] **Step 3.5: Pass model from StepInput to RunOpts in execute.go**
 
 In `internal/activity/execute.go`, find the `runner.Run()` call (around line 201):
 
@@ -278,7 +361,7 @@ events, err := runner.Run(ctx, input.SandboxID, agent.RunOpts{
 })
 ```
 
-- [ ] **Step 3.6: Pass model from handler into DAGInput**
+- [x] **Step 3.6: Pass model from handler into DAGInput**
 
 In `internal/server/handlers/runs.go`, find where `DAGInput` is constructed in `CreateRun` (around line 107). The run's model needs to flow into DAGInput. Find the struct literal:
 
@@ -287,7 +370,7 @@ In `internal/server/handlers/runs.go`, find where `DAGInput` is constructed in `
 ModelOverride: req.Model,
 ```
 
-- [ ] **Step 3.7: Build to verify**
+- [x] **Step 3.7: Build to verify**
 
 ```bash
 go build ./...
@@ -307,7 +390,7 @@ git commit -m "feat: flow model override from run creation through to agent runn
 **Files:**
 - Modify: `docker/bridge.js`
 
-- [ ] **Step 4.1: Add `--model` to CLI args**
+- [x] **Step 4.1: Add `--model` to CLI args**
 
 In `docker/bridge.js`, find the args array construction (around line 215–224). Add model support after the `--max-turns` line:
 
@@ -345,7 +428,7 @@ git commit -m "feat: bridge.js passes --model flag to claude CLI when set"
 **Files:**
 - Modify: `internal/server/handlers/runs.go`
 
-- [ ] **Step 5.1: Write the failing test**
+- [x] **Step 5.1: Write the failing test**
 
 Find or create the runs handler test file. Add a test that calls `GET /api/runs?created_by=me` and verifies only runs created by the requesting user are returned. If no test file exists for runs handlers, create `internal/server/handlers/runs_test.go`.
 
@@ -354,7 +437,7 @@ The test should:
 2. Call `GET /api/runs?created_by=me` with JWT claims for `user-A`
 3. Assert only the first run is returned
 
-- [ ] **Step 5.2: Modify ListRuns handler**
+- [x] **Step 5.2: Modify ListRuns handler**
 
 In `internal/server/handlers/runs.go`, find the `ListRuns` handler (around line 131). Replace the fixed query with a dynamic one:
 
@@ -392,7 +475,7 @@ func (h *RunHandlers) ListRuns(w http.ResponseWriter, r *http.Request) {
 
 Add `"strconv"` to the import block if not already present.
 
-- [ ] **Step 5.3: Run tests**
+- [x] **Step 5.3: Run tests**
 
 ```bash
 go test ./internal/server/handlers/... -count=1
@@ -414,7 +497,7 @@ git commit -m "feat: add created_by=me and limit query params to ListRuns"
 - Modify: `internal/template/builtin.go`
 - Modify: `internal/template/builtin_test.go`
 
-- [ ] **Step 6.1: Add `Hidden` to `WorkflowDef`**
+- [x] **Step 6.1: Add `Hidden` to `WorkflowDef`**
 
 In `internal/model/workflow.go`, find the `WorkflowDef` struct and add:
 
@@ -422,7 +505,7 @@ In `internal/model/workflow.go`, find the `WorkflowDef` struct and add:
 Hidden      bool          `yaml:"hidden,omitempty" json:"hidden,omitempty"`
 ```
 
-- [ ] **Step 6.2: Filter hidden templates from `List()`**
+- [x] **Step 6.2: Filter hidden templates from `List()`**
 
 In `internal/template/builtin.go`, modify the `List()` method:
 
@@ -451,11 +534,11 @@ type builtinEntry struct {
 
 Update `NewBuiltinProvider()` to store `builtinEntry` values, `List()` to filter by hidden, and `Get()` to search the new type (Get still returns hidden templates — they just don't appear in the list).
 
-- [ ] **Step 6.3: Update test — hidden template should not appear in List**
+- [x] **Step 6.3: Update test — hidden template should not appear in List**
 
 In `internal/template/builtin_test.go`, the count assertion will need updating after `quick-run.yaml` is added (Task 7). For now, verify the hidden filtering logic works by checking that the list count stays at 15 (the `quick-run` template will be hidden, so the visible count stays the same as before).
 
-- [ ] **Step 6.4: Build and run tests**
+- [x] **Step 6.4: Build and run tests**
 
 ```bash
 go build ./... && go test ./internal/template/... -count=1
@@ -476,7 +559,7 @@ git commit -m "feat: add hidden flag to builtin workflows, filter from List()"
 - Create: `internal/template/workflows/quick-run.yaml`
 - Modify: `internal/template/builtin_test.go`
 
-- [ ] **Step 7.1: Write failing test**
+- [x] **Step 7.1: Write failing test**
 
 In `internal/template/builtin_test.go`, add:
 
@@ -527,7 +610,7 @@ go test ./internal/template/... -run "TestQuickRun" -v -count=1
 
 Expected: FAIL — template not found.
 
-- [ ] **Step 7.3: Create the workflow YAML**
+- [x] **Step 7.3: Create the workflow YAML**
 
 Create `internal/template/workflows/quick-run.yaml`:
 
@@ -604,7 +687,7 @@ steps:
 
 Since `CreatePullRequest` already returns empty on clean tree, and the most common case for quick-run is ad-hoc fixes that will produce changes, include the `pull_request` block unconditionally. The clean-tree guard in `pr.go` prevents unnecessary PRs. The `create_pr` param can be wired in a follow-up if needed.
 
-- [ ] **Step 7.4: Run tests**
+- [x] **Step 7.4: Run tests**
 
 ```bash
 go test ./internal/template/... -run "TestQuickRun" -v -count=1
@@ -612,7 +695,7 @@ go test ./internal/template/... -run "TestQuickRun" -v -count=1
 
 Expected: PASS.
 
-- [ ] **Step 7.5: Run full template + build**
+- [x] **Step 7.5: Run full template + build**
 
 ```bash
 go test ./internal/template/... -count=1 && go build ./...
@@ -629,19 +712,19 @@ git commit -m "feat: add quick-run builtin workflow (hidden, single-step passthr
 
 ### Task 8: Full test + lint for PR 1
 
-- [ ] **Step 8.1: Run all tests**
+- [x] **Step 8.1: Run all tests**
 
 ```bash
 go test ./... -count=1
 ```
 
-- [ ] **Step 8.2: Lint**
+- [x] **Step 8.2: Lint**
 
 ```bash
 make lint
 ```
 
-- [ ] **Step 8.3: Build**
+- [x] **Step 8.3: Build**
 
 ```bash
 go build ./...

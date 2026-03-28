@@ -40,6 +40,7 @@ type WorkflowDef struct {
 	ID            string                     `yaml:"id"`
 	Title         string                     `yaml:"title"`
 	Description   string                     `yaml:"description"`
+	Hidden        bool                       `yaml:"hidden,omitempty"`
 	Tags          []string                   `yaml:"tags"`
 	Parameters    []ParameterDef             `yaml:"parameters"`
 	Steps         []StepDef                  `yaml:"steps"`

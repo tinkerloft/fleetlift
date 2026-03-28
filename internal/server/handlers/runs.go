@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -34,6 +35,7 @@ func NewRunsHandler(db *sqlx.DB, temporal client.Client, registry *template.Regi
 
 type createRunRequest struct {
 	WorkflowID string         `json:"workflow_id"`
+	Model      string         `json:"model"`
 	Parameters map[string]any `json:"parameters"`
 }
 
@@ -93,10 +95,10 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	// Insert run record
 	_, err = h.db.ExecContext(r.Context(),
-		`INSERT INTO runs (id, team_id, workflow_id, workflow_title, parameters, status, temporal_id, triggered_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		`INSERT INTO runs (id, team_id, workflow_id, workflow_title, parameters, model, status, temporal_id, triggered_by)
+		 VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), $7, $8, $9)`,
 		runID, teamID, req.WorkflowID, t.Title,
-		mustMarshal(req.Parameters), string(model.RunStatusPending),
+		mustMarshal(req.Parameters), req.Model, string(model.RunStatusPending),
 		temporalID, claims.UserID)
 	if err != nil {
 		slog.Error("failed to create run record", "error", err, "team_id", teamID, "workflow_id", req.WorkflowID)
@@ -114,6 +116,7 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		WorkflowTemplateID: t.ID,
 		WorkflowDef:        def,
 		Parameters:         req.Parameters,
+		ModelOverride:      req.Model,
 	})
 	if err != nil {
 		slog.Error("failed to start workflow", "error", err, "team_id", teamID, "run_id", runID)
@@ -139,9 +142,24 @@ func (h *RunsHandler) List(w http.ResponseWriter, r *http.Request) {
 	if teamID == "" {
 		return // error already written
 	}
+	query := `SELECT * FROM runs WHERE team_id = $1`
+	args := []any{teamID}
+	if r.URL.Query().Get("created_by") == "me" {
+		query += ` AND triggered_by = $2`
+		args = append(args, claims.UserID)
+	}
+
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 100 {
+			limit = n
+		}
+	}
+
+	query += ` ORDER BY created_at DESC LIMIT ` + strconv.Itoa(limit)
+
 	var runs []model.Run
-	err := h.db.SelectContext(r.Context(), &runs,
-		`SELECT * FROM runs WHERE team_id = $1 ORDER BY created_at DESC LIMIT 50`, teamID)
+	err := h.db.SelectContext(r.Context(), &runs, query, args...)
 	if err != nil {
 		slog.Error("failed to list runs", "error", err, "team_id", teamID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to list runs")

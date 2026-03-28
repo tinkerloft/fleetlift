@@ -30,6 +30,7 @@ type DAGInput struct {
 	WorkflowTemplateID string            `json:"workflow_template_id,omitempty"`
 	WorkflowDef        model.WorkflowDef `json:"workflow_def"`
 	Parameters         map[string]any    `json:"parameters"`
+	ModelOverride      string            `json:"model_override,omitempty"`
 }
 
 // DAGWorkflow orchestrates a DAG of steps, running independent steps in parallel
@@ -424,6 +425,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 							StepDef:            step,
 							ResolvedOpts:       resolved,
 							SandboxID:          sandboxes[step.SandboxGroup],
+							ModelOverride:      input.ModelOverride,
 						},
 					).Get(gCtx, &out)
 					if err != nil {
@@ -486,6 +488,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 								StepDef:            step,
 								ResolvedOpts:       repoResolved,
 								SandboxID:          sandboxes[step.SandboxGroup],
+								ModelOverride:      input.ModelOverride,
 							},
 						).Get(rCtx, &out)
 						if err != nil {

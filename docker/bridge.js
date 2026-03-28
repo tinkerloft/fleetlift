@@ -32,6 +32,9 @@ function validateRequest(req) {
   if (req.plugin_dirs && !Array.isArray(req.plugin_dirs)) {
     throw new Error("request.plugin_dirs must be an array");
   }
+  if (req.model !== undefined && typeof req.model !== "string") {
+    throw new Error("request.model must be a string");
+  }
 }
 
 function toText(content) {
@@ -222,6 +225,10 @@ async function main() {
     "--max-turns",
     String(request.max_turns),
   ];
+
+  if (typeof request.model === "string" && request.model !== "") {
+    args.push("--model", request.model);
+  }
 
   if (Array.isArray(request.plugin_dirs)) {
     for (const pluginDir of request.plugin_dirs) {

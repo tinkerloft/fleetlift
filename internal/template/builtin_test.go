@@ -110,6 +110,42 @@ func TestAutoDebtSlayerWorkflowTemplate_Parses(t *testing.T) {
 	assert.Contains(t, paramNames, "github_repo")
 }
 
+func TestQuickRunWorkflowTemplate_Parses(t *testing.T) {
+	p, err := NewBuiltinProvider()
+	require.NoError(t, err)
+
+	tmpl, err := p.Get(context.Background(), "", "quick-run")
+	require.NoError(t, err)
+	assert.Equal(t, "Quick Run", tmpl.Title)
+
+	var def model.WorkflowDef
+	require.NoError(t, model.ParseWorkflowYAML([]byte(tmpl.YAMLBody), &def))
+
+	assert.True(t, def.Hidden, "quick-run should be hidden")
+	require.Len(t, def.Steps, 1)
+	assert.Equal(t, "execute", def.Steps[0].ID)
+	assert.NotNil(t, def.Steps[0].Execution)
+
+	paramNames := make([]string, len(def.Parameters))
+	for i, p := range def.Parameters {
+		paramNames[i] = p.Name
+	}
+	assert.Contains(t, paramNames, "prompt")
+	assert.Contains(t, paramNames, "repo_url")
+}
+
+func TestQuickRunWorkflowTemplate_HiddenFromList(t *testing.T) {
+	p, err := NewBuiltinProvider()
+	require.NoError(t, err)
+
+	templates, err := p.List(context.Background(), "")
+	require.NoError(t, err)
+
+	for _, tmpl := range templates {
+		assert.NotEqual(t, "quick-run", tmpl.Slug, "quick-run should not appear in List()")
+	}
+}
+
 func TestBuiltinProviderReadOnly(t *testing.T) {
 	p, err := NewBuiltinProvider()
 	require.NoError(t, err)

@@ -20,6 +20,8 @@ Add individual-developer task delegation to Fleetlift so it serves both fleet-wi
 | Quick run backend | New builtin `quick-run.yaml` passthrough workflow |
 | Prompt improvement | Opt-in button → Minion-style side-by-side modal with quality scores |
 | Prompt presets | Personal + team tiers, stored in DB |
+| Personal quick-run space | Every user has a private personal team provisioned at auth time; quick-run uses this space |
+| Personal team visibility | Personal teams are hidden from team pickers/JWT team role map and omitted from `/api/me` team list |
 | Co-author attribution | Automatic — always inject triggering user's GitHub identity into sandbox |
 | Model selection | Per-run override via run-level `model` param; applies to all workflows, not just quick-run |
 | Implementation strategy | Phased — four independently shippable PRs |
@@ -29,6 +31,15 @@ Add individual-developer task delegation to Fleetlift so it serves both fleet-wi
 ## Phases
 
 ### Phase 1 — Home + Quick Run
+
+**Auth and tenancy foundation (backend-first, required for Home quick-run semantics)**
+
+- Add `users.personal_team_id` and enforce one-personal-team-per-user with a unique partial index.
+- On OAuth callback, provision a personal team transactionally when missing and persist `users.personal_team_id`.
+- Exclude personal teams from team-role maps in issued JWTs and from `/api/me` response team lists so team UX remains focused on shared teams.
+- Refresh flow rotates refresh token + rebuilds access token in a single DB transaction (`SELECT ... FOR UPDATE`) to avoid session burn on transient role/profile read failures.
+- Harden auth handlers to fail closed on role/admin/profile read errors (`500`), with explicit `401` only for true auth failures.
+- Refresh auth error routing uses typed/sentinel errors (`errors.Is`) instead of string matching so `401` vs `500` behavior is explicit and regression-testable.
 
 **New page: `HomePage` at `/`**
 

@@ -14,6 +14,7 @@ type RunOpts struct {
 	Prompt         string
 	WorkDir        string
 	MaxTurns       int
+	Model          string
 	Environment    map[string]string
 	EvalPluginDirs []string // local sandbox paths for --plugin-dir flags
 }
