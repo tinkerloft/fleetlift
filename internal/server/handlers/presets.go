@@ -139,6 +139,10 @@ func (h *PresetHandlers) UpdatePreset(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	if req.Title == nil && req.Prompt == nil && req.Scope == nil {
+		writeJSONError(w, http.StatusBadRequest, "at least one field (title, prompt, scope) must be provided")
+		return
+	}
 	if req.Scope != nil && *req.Scope != "personal" && *req.Scope != "team" {
 		writeJSONError(w, http.StatusBadRequest, "scope must be 'personal' or 'team'")
 		return

@@ -179,7 +179,6 @@ export interface Preset {
 export interface SavedRepo {
   id: string
   user_id: string
-  team_id: string
   url: string
   label?: string | null
   created_at: string
