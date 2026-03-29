@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/api/client'
@@ -27,6 +27,15 @@ function PromptZone({
   const [branch, setBranch] = useState('main')
   const [model, setModel] = useState(getPreferredModel)
   const [showImproveModal, setShowImproveModal] = useState(false)
+
+  const handleAcceptImproved = useCallback((improved: string) => {
+    setPrompt(improved)
+    setShowImproveModal(false)
+  }, [])
+
+  const handleDeclineImproved = useCallback(() => {
+    setShowImproveModal(false)
+  }, [])
 
   const canSubmit = prompt.trim().length > 0 && repoUrl.trim().length > 0
 
@@ -97,11 +106,8 @@ function PromptZone({
       {showImproveModal && (
         <PromptImproveModal
           original={prompt}
-          onAccept={(improved) => {
-            setPrompt(improved)
-            setShowImproveModal(false)
-          }}
-          onDecline={() => setShowImproveModal(false)}
+          onAccept={handleAcceptImproved}
+          onDecline={handleDeclineImproved}
         />
       )}
     </div>

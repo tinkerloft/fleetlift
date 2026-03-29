@@ -53,11 +53,15 @@ export function PromptImproveModal({
   }, [])
 
   useEffect(() => {
+    document.body.classList.add('overflow-hidden')
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') onDecline()
     }
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
+    return () => {
+      document.body.classList.remove('overflow-hidden')
+      window.removeEventListener('keydown', handleKeyDown)
+    }
   }, [onDecline])
 
   const data = mutation.data as ImproveResult | undefined
@@ -125,7 +129,7 @@ export function PromptImproveModal({
         {/* Footer */}
         {mutation.isSuccess && data && (
           <div className="flex items-center justify-between border-t border-zinc-700/60 px-6 py-4 gap-4">
-            <p className="flex-1 text-sm text-muted-foreground truncate">{data.summary}</p>
+            <p className="flex-1 text-sm text-muted-foreground truncate" title={data.summary}>{data.summary}</p>
             <div className="flex items-center gap-2 shrink-0">
               <Button variant="outline" size="default" onClick={onDecline}>
                 Decline
