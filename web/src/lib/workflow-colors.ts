@@ -1,3 +1,6 @@
+import { Shield, Bug, GitBranch, Search, Tag, Terminal } from 'lucide-react'
+import type React from 'react'
+
 export type CategoryColor = 'violet' | 'blue' | 'teal' | 'amber' | 'red' | 'gray'
 
 export interface WorkflowCategoryInfo {
@@ -22,10 +25,6 @@ export function workflowCategory(tags: string[]): WorkflowCategoryInfo {
   return { color: 'gray', icon: 'Terminal' }
 }
 
-import { Shield, Bug, GitBranch, Search, Tag, Terminal } from 'lucide-react'
-import type React from 'react'
-
-/** Icon map for workflow categories — shared across all workflow card UIs */
 export const WORKFLOW_ICON_MAP: Record<string, React.FC<{ className?: string }>> = {
   Shield, Bug, GitBranch, Search, Tag, Terminal,
 }

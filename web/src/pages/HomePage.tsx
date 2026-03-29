@@ -15,9 +15,11 @@ import { Sparkles, Play, RotateCcw, ArrowRight, Inbox, Terminal } from 'lucide-r
 function PromptZone({
   onSubmit,
   isSubmitting,
+  error,
 }: {
   onSubmit: (prompt: string, repoUrl: string, branch: string, model: string) => void
   isSubmitting: boolean
+  error?: string
 }) {
   const [prompt, setPrompt] = useState('')
   const [repoUrl, setRepoUrl] = useState('')
@@ -81,6 +83,7 @@ function PromptZone({
             </Button>
           </div>
         </div>
+        {error && <p className="text-sm text-red-400">{error}</p>}
       </div>
     </div>
   )
@@ -244,7 +247,7 @@ export function HomePage() {
         <p className="text-sm text-muted-foreground mt-1">Run AI workflows on your codebase</p>
       </div>
 
-      <PromptZone onSubmit={handleSubmit} isSubmitting={createRun.isPending} />
+      <PromptZone onSubmit={handleSubmit} isSubmitting={createRun.isPending} error={createRun.isError ? createRun.error.message : undefined} />
 
       <div className="grid gap-8 lg:grid-cols-[1fr_360px]">
         <TemplateGrid workflows={workflows} />

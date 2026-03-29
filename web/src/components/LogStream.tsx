@@ -123,6 +123,9 @@ export function LogStream({ stepRunId }: LogStreamProps) {
         {logs.length === 0 && (
           <span className="text-gray-600">Waiting for logs...</span>
         )}
+        {search && filtered.length === 0 && logs.length > 0 && (
+          <span className="text-gray-600">No matching logs</span>
+        )}
         {filtered.map((log) => (
           <div key={log.id} className={log.stream === 'stderr' ? 'text-red-400' : ''}>
             {highlightMatch(log.content, search)}
