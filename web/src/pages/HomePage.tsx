@@ -7,21 +7,10 @@ import { ModelSelect, getPreferredModel } from '@/components/ModelSelect'
 import { StatusBadge } from '@/components/StatusBadge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { workflowCategory, CATEGORY_STYLES } from '@/lib/workflow-colors'
+import { workflowCategory, CATEGORY_STYLES, WORKFLOW_ICON_MAP } from '@/lib/workflow-colors'
 import { formatTimeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
-import {
-  Shield, Bug, GitBranch, Search, Tag, Terminal,
-  Sparkles, Play, RotateCcw, ArrowRight, Inbox,
-} from 'lucide-react'
-
-const ICON_MAP: Record<string, React.FC<{ className?: string }>> = {
-  Shield, Bug, GitBranch, Search, Tag, Terminal,
-}
-
-// ---------------------------------------------------------------------------
-// Prompt Zone
-// ---------------------------------------------------------------------------
+import { Sparkles, Play, RotateCcw, ArrowRight, Inbox, Terminal } from 'lucide-react'
 
 function PromptZone({
   onSubmit,
@@ -97,14 +86,10 @@ function PromptZone({
   )
 }
 
-// ---------------------------------------------------------------------------
-// Template Grid
-// ---------------------------------------------------------------------------
-
 function TemplateCard({ wf }: { wf: WorkflowTemplate }) {
   const cat = workflowCategory(wf.tags ?? [])
   const styles = CATEGORY_STYLES[cat.color]
-  const Icon = ICON_MAP[cat.icon] ?? Terminal
+  const Icon = WORKFLOW_ICON_MAP[cat.icon] ?? Terminal
 
   return (
     <Link
@@ -151,10 +136,6 @@ function TemplateGrid({ workflows }: { workflows: WorkflowTemplate[] }) {
     </section>
   )
 }
-
-// ---------------------------------------------------------------------------
-// Recent Tasks
-// ---------------------------------------------------------------------------
 
 function RecentTasks({
   runs,
@@ -212,10 +193,6 @@ function RecentTasks({
     </section>
   )
 }
-
-// ---------------------------------------------------------------------------
-// HomePage
-// ---------------------------------------------------------------------------
 
 export function HomePage() {
   const navigate = useNavigate()

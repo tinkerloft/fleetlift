@@ -22,6 +22,14 @@ export function workflowCategory(tags: string[]): WorkflowCategoryInfo {
   return { color: 'gray', icon: 'Terminal' }
 }
 
+import { Shield, Bug, GitBranch, Search, Tag, Terminal } from 'lucide-react'
+import type React from 'react'
+
+/** Icon map for workflow categories — shared across all workflow card UIs */
+export const WORKFLOW_ICON_MAP: Record<string, React.FC<{ className?: string }>> = {
+  Shield, Bug, GitBranch, Search, Tag, Terminal,
+}
+
 /** Tailwind classes for category accent colors */
 export const CATEGORY_STYLES: Record<CategoryColor, { border: string; bg: string; text: string; iconBg: string }> = {
   violet: { border: 'border-t-violet-500', bg: 'bg-violet-500/10', text: 'text-violet-600', iconBg: 'bg-violet-500/10' },

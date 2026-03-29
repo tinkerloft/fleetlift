@@ -126,7 +126,7 @@ export function RunDetailPage() {
   const retryMutation = useMutation({
     mutationFn: () => {
       if (!run) throw new Error('no run')
-      return api.createRun(run.workflow_id, run.parameters as Record<string, unknown>, run.model ?? undefined)
+      return api.createRun(run.workflow_id, run.parameters, run.model ?? undefined)
     },
     onSuccess: (resp) => navigate(`/runs/${resp.id}`),
   })

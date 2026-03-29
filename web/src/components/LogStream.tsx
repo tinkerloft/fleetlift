@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { StepRunLog } from '@/api/types'
 
 interface LogStreamProps {
@@ -25,9 +25,11 @@ export function LogStream({ stepRunId }: LogStreamProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const autoScrollRef = useRef(true)
 
-  const filtered = search
-    ? logs.filter((l) => l.content.toLowerCase().includes(search.toLowerCase()))
-    : logs
+  const filtered = useMemo(() => {
+    if (!search) return logs
+    const q = search.toLowerCase()
+    return logs.filter((l) => l.content.toLowerCase().includes(q))
+  }, [logs, search])
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reset logs when stepRunId changes before subscribing
@@ -92,26 +94,24 @@ export function LogStream({ stepRunId }: LogStreamProps) {
           className="flex-1 rounded border border-gray-700 bg-black/50 px-2 py-0.5 text-[11px] text-gray-300 placeholder:text-gray-600 focus:outline-none focus:border-gray-500"
         />
         {search && <span className="text-[11px] text-gray-600">{filtered.length}/{logs.length}</span>}
-        <div className="flex items-center gap-2">
-          {connected && logs.length > 0 && (
-            <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
-              <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
-              streaming
-            </span>
-          )}
-          {showScrollBtn && (
-            <button
-              onClick={() => {
-                autoScrollRef.current = true
-                setShowScrollBtn(false)
-                if (containerRef.current) containerRef.current.scrollTop = containerRef.current.scrollHeight
-              }}
-              className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
-            >
-              ↓ scroll to bottom
-            </button>
-          )}
-        </div>
+        {connected && logs.length > 0 && (
+          <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
+            <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+            streaming
+          </span>
+        )}
+        {showScrollBtn && (
+          <button
+            onClick={() => {
+              autoScrollRef.current = true
+              setShowScrollBtn(false)
+              if (containerRef.current) containerRef.current.scrollTop = containerRef.current.scrollHeight
+            }}
+            className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            ↓ scroll to bottom
+          </button>
+        )}
       </div>
       {/* Log content */}
       <div
