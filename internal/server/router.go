@@ -39,6 +39,7 @@ type Deps struct {
 	Actions           *handlers.ActionsHandler
 	Profiles          *handlers.ProfilesHandler
 	Models            *handlers.ModelsHandler
+	Prompt            *handlers.PromptHandlers
 	TemporalUIURL     string
 }
 
@@ -217,6 +218,9 @@ func NewRouter(deps Deps) (http.Handler, error) {
 		r.Get("/api/marketplaces", deps.Profiles.ListMarketplaces)
 		r.Post("/api/marketplaces", deps.Profiles.CreateMarketplace)
 		r.Delete("/api/marketplaces/{id}", deps.Profiles.DeleteMarketplace)
+
+		// Prompt improvement
+		r.Post("/api/prompt/improve", deps.Prompt.ImprovePrompt)
 	})
 
 	// Serve embedded React SPA

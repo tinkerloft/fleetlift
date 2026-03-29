@@ -90,6 +90,12 @@ func main() {
 		}
 	}()
 
+	// Prompt improvement handler (optional — requires ANTHROPIC_API_KEY)
+	promptHandler := &handlers.PromptHandlers{}
+	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
+		promptHandler.Improve = handlers.NewAnthropicImprover(apiKey)
+	}
+
 	// Build router
 	deps := server.Deps{
 		JWTSecret:         jwtSecret,
@@ -106,6 +112,7 @@ func main() {
 		DB:                database,
 		Actions:           handlers.NewActionsHandler(model.DefaultActionRegistry()),
 		Profiles:          handlers.NewProfilesHandler(database),
+		Prompt:            promptHandler,
 	}
 
 	handler, err := server.NewRouter(deps)
