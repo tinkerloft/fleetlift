@@ -36,4 +36,7 @@ steps:
       agent: claude-code
       credentials:
         - GITHUB_TOKEN
-      prompt: "{{ .Params.prompt }}"
+      prompt: |
+        Complete the following task on this repository. When you are done, if you made any changes, commit them and open a pull request with a clear title and description summarizing what was done.
+
+        Task: {{ .Params.prompt }}
