@@ -1,7 +1,7 @@
 # Minion-Parity Design Spec
 
 **Date:** 2026-03-25
-**Status:** Approved for implementation planning
+**Status:** In progress — Phase 1 complete (PR #51 merged, PR #53 open), Phases 2–4 pending
 
 ---
 
@@ -25,6 +25,18 @@ Add individual-developer task delegation to Fleetlift so it serves both fleet-wi
 | Co-author attribution | Automatic — always inject triggering user's GitHub identity into sandbox |
 | Model selection | Per-run override via run-level `model` param; applies to all workflows, not just quick-run |
 | Implementation strategy | Phased — four independently shippable PRs |
+
+---
+
+## Implementation Progress
+
+| Phase | PR | Status | Notes |
+|---|---|---|---|
+| 1 Backend | #51 | **Merged** | Auth foundation, model override flow, created_by filter, hidden flag, quick-run workflow |
+| 1 Frontend | #53 | **Open** | HomePage, ModelSelect (backend-driven), nav, retry, log search. Design deviation: model list from `GET /api/models` (embedded YAML config) instead of hardcoded frontend constant |
+| 2 Prompt improvement | — | Pending | |
+| 3 Presets + saved repos | — | Pending | |
+| 4 Co-author attribution | — | Pending | |
 
 ---
 
