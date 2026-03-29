@@ -39,6 +39,7 @@ type Deps struct {
 	Actions           *handlers.ActionsHandler
 	Profiles          *handlers.ProfilesHandler
 	Models            *handlers.ModelsHandler
+	Prompt            *handlers.PromptHandlers
 	TemporalUIURL     string
 }
 
@@ -217,6 +218,9 @@ func NewRouter(deps Deps) (http.Handler, error) {
 		r.Get("/api/marketplaces", deps.Profiles.ListMarketplaces)
 		r.Post("/api/marketplaces", deps.Profiles.CreateMarketplace)
 		r.Delete("/api/marketplaces/{id}", deps.Profiles.DeleteMarketplace)
+
+		// Prompt improvement
+		r.Post("/api/prompt/improve", deps.Prompt.ImprovePrompt)
 	})
 
 	// Serve embedded React SPA
@@ -243,8 +247,9 @@ func devAuthBypass(jwtSecret []byte) func(http.Handler) http.Handler {
 			}
 			// Fall back to a dev claims object
 			claims := &auth.Claims{
-				UserID:    os.Getenv("DEV_USER_ID"),
-				TeamRoles: map[string]string{os.Getenv("DEV_TEAM_ID"): "admin"},
+				UserID:        os.Getenv("DEV_USER_ID"),
+				TeamRoles:     map[string]string{os.Getenv("DEV_TEAM_ID"): "admin"},
+				PlatformAdmin: true,
 			}
 			ctx := auth.SetClaimsInContext(r.Context(), claims)
 			next.ServeHTTP(w, r.WithContext(ctx))

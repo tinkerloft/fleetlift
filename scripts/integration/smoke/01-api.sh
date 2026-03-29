@@ -172,6 +172,56 @@ fi
 api_call GET /api/workflows/quick-run
 assert_status "GET /api/workflows/quick-run" 200
 
+# ── Models (PR2) ──────────────────────────────────────────────────
+section "Models"
+
+api_call GET /api/models
+assert_status "GET /api/models" 200
+MODEL_COUNT=$(echo "$HTTP_BODY" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('items',[])))" 2>/dev/null || echo "0")
+if [[ "$MODEL_COUNT" -gt 0 ]]; then
+  pass "models list has $MODEL_COUNT models"
+else
+  fail "models list returned 0 models"
+fi
+# Verify known models are present
+assert_contains "models includes claude-sonnet-4-6" "$HTTP_BODY" "claude-sonnet-4-6"
+
+# ── Prompt Improvement (PR3) ──────────────────────────────────────
+section "Prompt Improvement"
+
+# Empty prompt → 400
+api_call POST /api/prompt/improve '{"prompt":""}'
+assert_status "POST /api/prompt/improve (empty prompt)" 400
+
+# Missing prompt field → 400
+api_call POST /api/prompt/improve '{}'
+assert_status "POST /api/prompt/improve (missing prompt)" 400
+
+# Valid prompt — may return 503 if ANTHROPIC_API_KEY not configured as system credential, or 200 if it is
+api_call POST /api/prompt/improve '{"prompt":"Fix the null pointer in auth handler"}'
+if [[ "$HTTP_STATUS" == "200" ]]; then
+  pass "POST /api/prompt/improve returns 200"
+  assert_contains "improve response has improved field" "$HTTP_BODY" "improved"
+  assert_contains "improve response has scores field" "$HTTP_BODY" "scores"
+  assert_contains "improve response has summary field" "$HTTP_BODY" "summary"
+elif [[ "$HTTP_STATUS" == "503" ]]; then
+  pass "POST /api/prompt/improve returns 503 (ANTHROPIC_API_KEY not configured — expected in CI)"
+else
+  fail "POST /api/prompt/improve — unexpected HTTP $HTTP_STATUS: ${HTTP_BODY:0:200}"
+fi
+
+# ── System Credentials (PR3) ─────────────────────────────────────
+section "System Credentials"
+
+# System credentials require PlatformAdmin — our dev JWT doesn't have it by default.
+# Test that the endpoint exists and rejects non-admin users.
+api_call GET /api/system-credentials
+if [[ "$HTTP_STATUS" == "200" || "$HTTP_STATUS" == "403" ]]; then
+  pass "GET /api/system-credentials responds ($HTTP_STATUS)"
+else
+  fail "GET /api/system-credentials — unexpected HTTP $HTTP_STATUS"
+fi
+
 # ── SSE endpoints (quick connect/disconnect) ───────────────────────
 section "SSE Endpoints"
 

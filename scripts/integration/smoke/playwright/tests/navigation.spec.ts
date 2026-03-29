@@ -2,6 +2,11 @@ import { test, expect } from '@playwright/test';
 
 test.describe('Page navigation', () => {
 
+  test('home page loads', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: /Fleetlift/i })).toBeVisible();
+  });
+
   test('workflow library loads', async ({ page }) => {
     await page.goto('/workflows');
     await expect(page.getByRole('heading', { name: /Workflow Library/i })).toBeVisible();

@@ -124,13 +124,20 @@ Response:
 - Ratings: `excellent | good | poor`. Four dimensions: clarity, context, structure, guidance.
 - Responds in < 5 s for typical prompts (target).
 
+Backend implementation notes:
+- Handler accepts a `PromptImprover` interface (not a concrete Anthropic client) so unit tests can inject a mock without hitting the real API.
+- All error responses use the existing `writeJSONError()` helper — never raw `fmt.Sprintf` JSON (prevents JSON injection from error strings).
+- Handler is wired through the `Deps` struct like all other handlers (`Prompt *handlers.PromptHandlers`), constructed in `cmd/server/main.go`.
+- Route is registered inside the authenticated `r.Group` block in `router.go` alongside other `/api/` routes.
+
 **Prompt improvement modal (frontend)**
 
 - Triggered by "✦ Improve" button on Home page.
 - Full-screen overlay. Two columns: Original (left, red header) | Improved (right, green header).
 - Each column shows the prompt text and score badges below it (colour-coded by rating).
 - Bottom bar: summary sentence + "Decline" (closes modal, keeps original) + "Use improved →" (replaces textarea content, closes modal).
-- If the API call fails or times out: toast error, modal does not open, textarea unchanged.
+- If the API call fails or times out: modal shows inline error with a Retry button. Declining closes the modal and leaves the textarea unchanged.
+- `PromptZone` manages its own `showImproveModal` state. The Improve button sets this state + triggers the API call via `useMutation`. The modal receives the original prompt, mutation result, and accept/decline callbacks. Accept replaces the textarea content within `PromptZone`'s local state.
 
 ---
 
