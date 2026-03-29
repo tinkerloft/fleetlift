@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/google/uuid"
@@ -23,17 +22,6 @@ func NewClaudeCodeRunner(sb sandbox.Client) *ClaudeCodeRunner {
 }
 
 func (r *ClaudeCodeRunner) Name() string { return "claude-code" }
-
-func (r *ClaudeCodeRunner) SandboxEnv() map[string]string {
-	env := make(map[string]string)
-	if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
-		env["ANTHROPIC_API_KEY"] = key
-	}
-	if token := os.Getenv("CLAUDE_CODE_OAUTH_TOKEN"); token != "" {
-		env["CLAUDE_CODE_OAUTH_TOKEN"] = token
-	}
-	return env
-}
 
 func (r *ClaudeCodeRunner) Run(ctx context.Context, sandboxID string, opts RunOpts) (<-chan Event, error) {
 	runID := uuid.NewString()

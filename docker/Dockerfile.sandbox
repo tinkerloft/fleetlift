@@ -24,7 +24,7 @@ RUN npm install -g @anthropic-ai/claude-code
 
 # Install Fleetlift Claude bridge script
 RUN mkdir -p /agent
-COPY docker/bridge.js /agent/bridge.js
+COPY bridge.js /agent/bridge.js
 RUN chmod +x /agent/bridge.js
 
 # Create non-root user

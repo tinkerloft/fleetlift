@@ -21,8 +21,6 @@ type RunOpts struct {
 // Runner is the interface for pluggable agent runners.
 type Runner interface {
 	Name() string
-	// SandboxEnv returns environment variables the agent needs injected into the sandbox.
-	SandboxEnv() map[string]string
 	// Run executes the agent in the given sandbox (by ID) and streams events.
 	// The channel is closed when the agent completes or errors.
 	Run(ctx context.Context, sandboxID string, opts RunOpts) (<-chan Event, error)

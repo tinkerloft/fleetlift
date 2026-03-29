@@ -469,7 +469,7 @@ func (s *createOptsRecordingSandbox) Create(_ context.Context, opts sandbox.Crea
 	return "sb-spec", nil
 }
 
-func (s *createOptsRecordingSandbox) Exec(_ context.Context, _, _ , _ string) (string, string, error) {
+func (s *createOptsRecordingSandbox) Exec(_ context.Context, _, _, _ string) (string, string, error) {
 	return "", "", nil
 }
 

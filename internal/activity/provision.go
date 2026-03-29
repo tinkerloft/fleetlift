@@ -53,11 +53,10 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 		}
 	}
 
-	// Inject agent-specific env vars (e.g. Claude auth keys)
-	if runner, ok := a.AgentRunners[input.ResolvedOpts.Agent]; ok {
-		for k, v := range runner.SandboxEnv() {
-			env[k] = v
-		}
+	// Resolve Claude auth credentials from the team's credential store.
+	// No fallback to host env — all secrets must be managed via the store.
+	if input.ResolvedOpts.Agent == "claude-code" {
+		a.resolveClaudeAuth(ctx, input.TeamID, env)
 	}
 
 	// Inject git identity from worker env
@@ -254,8 +253,8 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 		// Inject MCP port and token into sandbox env so the agent runner and test steps can use them.
 		// Use separate echo commands to avoid nested single-quote issues with shellquote.
 		profileCmd := fmt.Sprintf(
-			"echo export FLEETLIFT_MCP_PORT=%s >> /tmp/fleetlift-mcp-env.sh && echo export FLEETLIFT_MCP_TOKEN=%s >> /tmp/fleetlift-mcp-env.sh",
-			shellquote.Quote(mcpPort), shellquote.Quote(mcpToken),
+			"echo export FLEETLIFT_MCP_PORT=%s >> /tmp/fleetlift-mcp-env.sh && echo export FLEETLIFT_MCP_TOKEN=%s >> /tmp/fleetlift-mcp-env.sh && echo export FLEETLIFT_API_URL=%s >> /tmp/fleetlift-mcp-env.sh",
+			shellquote.Quote(mcpPort), shellquote.Quote(mcpToken), shellquote.Quote(apiURL),
 		)
 		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, profileCmd, "/"); err != nil {
 			_ = a.Sandbox.Kill(ctx, sandboxID)
@@ -310,6 +309,23 @@ func injectGitToken(repoURL, token string) (string, error) {
 	}
 	u.User = url.UserPassword("x-access-token", token)
 	return u.String(), nil
+}
+
+// resolveClaudeAuth tries to fetch CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY
+// from the team's credential store. Best-effort: if neither credential exists
+// in the store, no auth is injected and the agent will fail at runtime.
+func (a *Activities) resolveClaudeAuth(ctx context.Context, teamID string, env map[string]string) {
+	if a.CredStore == nil {
+		return
+	}
+	// Try OAuth token first, then API key.
+	for _, name := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
+		val, err := a.CredStore.Get(ctx, teamID, name)
+		if err == nil && val != "" {
+			env[name] = val
+			return
+		}
+	}
 }
 
 func agentImage(agentName string) string {

@@ -84,7 +84,7 @@ services:
 
   # OpenSandbox — sandbox execution environment for agent steps
   opensandbox-server:
-    image: opensandbox/server:0.1.9
+    image: opensandbox/server:v0.1.9
     container_name: opensandbox-server
     ports:
       - "8090:8080"
