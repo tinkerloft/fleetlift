@@ -3,6 +3,7 @@ package activity
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 
 	"github.com/tinkerloft/fleetlift/internal/auth"
@@ -76,17 +78,22 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 		gitEmail = DefaultGitEmail
 	}
 	if input.TriggeredBy != "" && a.DB != nil {
-		if name, email, err := lookupUserGitIdentity(ctx, a.DB, input.TriggeredBy); err == nil {
-			if name != "" {
-				gitName = name
-			}
-			if email != "" {
-				gitEmail = email
-			}
+		name, email, err := lookupUserGitIdentity(ctx, a.DB, input.TriggeredBy)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			activity.GetLogger(ctx).Warn("failed to look up git identity for user",
+				"user_id", input.TriggeredBy, "error", err)
+		}
+		if name != "" {
+			gitName = name
+		}
+		if email != "" {
+			gitEmail = email
 		}
 	}
 	env["GIT_AUTHOR_NAME"] = gitName
 	env["GIT_AUTHOR_EMAIL"] = gitEmail
+	env["GIT_COMMITTER_NAME"] = gitName
+	env["GIT_COMMITTER_EMAIL"] = gitEmail
 	// Keep legacy vars so any scripts that read them continue to work.
 	env["GIT_USER_NAME"] = gitName
 	env["GIT_USER_EMAIL"] = gitEmail
@@ -376,13 +383,23 @@ func agentImage(agentName string) string {
 }
 
 // lookupUserGitIdentity fetches the name and email for a user from the database.
-// Returns empty strings (not an error) when the user has no email configured.
+// When the user has no public email, falls back to a GitHub noreply address
+// constructed from their provider_id so commits are still attributed correctly.
 func lookupUserGitIdentity(ctx context.Context, db interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, userID string) (name, email string, err error) {
+	var providerID string
 	err = db.QueryRowContext(ctx,
-		`SELECT name, COALESCE(email, '') FROM users WHERE id = $1`,
+		`SELECT name, COALESCE(email, ''), provider_id FROM users WHERE id = $1`,
 		userID,
-	).Scan(&name, &email)
+	).Scan(&name, &email, &providerID)
+	if err != nil {
+		return
+	}
+	// GitHub users with email privacy enabled have no public email. Construct
+	// the standard GitHub noreply address so commits are still attributed.
+	if email == "" && providerID != "" {
+		email = providerID + "+noreply@users.noreply.github.com"
+	}
 	return
 }
