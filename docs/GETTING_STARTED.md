@@ -113,6 +113,20 @@ fleetlift workflow list
 
 > **Production auth:** When running without `DEV_NO_AUTH`, use `fleetlift auth login` to go through GitHub OAuth and store a token in `~/.fleetlift/auth.json`.
 
+### The Home Page
+
+The home page is the fastest way to start a task. You do not need to browse workflows or fill in parameter forms:
+
+1. **Write a prompt** in the text area — describe what you want the agent to do.
+2. **Select a template** from the grid — choose the workflow that fits your task (Bug Fix, PR Review, Audit, etc.).
+3. **Enter a repo URL** — paste the target repository URL. Optionally specify a branch. Use the bookmark icon to save repos you use frequently; they appear in a dropdown next time.
+4. **Select a model** — choose which Claude model to use.
+5. **Click Run** — the task starts immediately and appears in **Recent Tasks** on the right, where you can track its status or click to open it.
+
+**Prompt improvement:** Click the sparkle icon on the prompt area to get an AI-generated improvement with quality scores. Accept or decline before running.
+
+**Prompt presets:** The sidebar shows your saved presets (personal or team-shared). Click a preset to inject it into the prompt field. Save a new preset with the "Save as preset" button below the prompt area.
+
 ---
 
 ## 7. Browse Available Workflows
@@ -153,6 +167,22 @@ fleetlift workflow get audit
 
 The `audit` template is a great starting point because it is read-only -- the agent inspects repositories without making changes.
 
+### Via the Web UI Home Page (quickest)
+
+1. Open **http://localhost:8080**.
+2. Type a prompt, e.g. `Check for hardcoded secrets, insecure dependencies, and missing security headers`.
+3. Select the **Audit** template from the template grid.
+4. Enter your repository URL.
+5. Click **Run**. The run appears in Recent Tasks on the right.
+
+### Via the Workflows Page
+
+1. Go to **Workflows** in the sidebar and click **Audit**.
+2. Fill in the parameters:
+   - **repos** -- a JSON array of repo objects, e.g. `[{"url":"https://github.com/your-org/your-repo"}]`
+   - **audit_prompt** -- describe what to look for.
+3. Click **Start Run**.
+
 ### Via the CLI
 
 ```bash
@@ -163,14 +193,6 @@ fleetlift run start \
 ```
 
 You will get back a **run ID** like `run_abc123`.
-
-### Via the Web UI
-
-1. Go to **Workflows** and click **Audit**.
-2. Fill in the parameters:
-   - **repos** -- a JSON array of repo objects, e.g. `[{"url":"https://github.com/your-org/your-repo"}]`
-   - **audit_prompt** -- describe what to look for.
-3. Click **Start Run**.
 
 ---
 
@@ -274,6 +296,14 @@ See [docs/WORKFLOW_REFERENCE.md](WORKFLOW_REFERENCE.md) for the full template sp
 ### Run across multiple repositories
 
 Most templates accept a `repos` parameter as a JSON array. FleetLift will fan out agent execution in parallel across all listed repos, respecting the `max_parallel` limit. This is where FleetLift really shines -- what would take hours of manual work happens in minutes.
+
+### Build a prompt preset library
+
+Save prompts you use repeatedly as presets (personal or team-shared) via the home page sidebar. Team presets are visible to everyone on the team, making it easy to standardize prompts for common tasks like code review or dependency audits.
+
+### Bookmark your repos
+
+Use the bookmark icon next to the repo URL field on the home page to save repos you work with often. Saved repos appear in a dropdown, so you do not have to paste the same URL every time.
 
 ### Set up credentials
 

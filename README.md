@@ -29,6 +29,7 @@ FleetLift gives you:
 
 ## Who is this for?
 
+- **Individual developers** — need help on a single task right now: write a prompt, pick a workflow template, and run it in one click from the home page.
 - **Platform teams** managing 10+ repositories that need consistent changes
 - **Security teams** running fleet-wide audits and automated remediation
 - **DevOps** coordinating large migrations (framework swaps, API changes, dependency upgrades)
@@ -104,6 +105,15 @@ Ready-to-use workflows for common platform operations:
 | `triage` | Issue analysis, classification, labeling |
 | `add-tests` | Generate test coverage for under-tested code |
 
+### Quick Run
+Not every task needs a multi-step fleet workflow. The home page lets you start a one-off task immediately: write a prompt, select a workflow template, add a repo URL and branch, and hit **Run**. The agent is dispatched in a sandbox — no YAML, no parameter forms, no navigation required.
+
+- **Recent Tasks** — the last 10 runs you started appear on the right. Click to open or retry any of them.
+- **Prompt improvement** — click the sparkle icon to get an AI-generated improved version of your prompt, with quality scores. Accept or decline before running.
+- **Prompt presets** — save prompts you reach for often, with personal or team-shared scope. Click any preset in the sidebar to inject it into the prompt field.
+- **Saved repos** — bookmark frequently-used repository URLs so you can select them from a dropdown instead of typing the same URL every time.
+- **Model selection** — choose which Claude model to use for the run.
+
 ### Agent Profiles
 Configure agents with plugins and MCPs via reusable profiles. The pre-flight script installs everything in the sandbox before the agent starts:
 
@@ -128,7 +138,7 @@ execution:
 See [docs/AGENT_PROFILES.md](docs/AGENT_PROFILES.md) for the full guide.
 
 ### Web UI
-Real-time DAG visualization, live log streaming, HITL controls, inbox notifications, knowledge management, and structured reports - all in one place.
+Real-time DAG visualization, live log streaming, HITL controls, inbox notifications, knowledge management, structured reports, quick-run home page with prompt presets and saved repos, and recent task history — all in one place.
 
 ### Knowledge Loop
 Agents capture insights during execution. You curate them via the Inbox. Approved knowledge is injected into future runs matching relevant tags - so your agents improve over time.
