@@ -147,6 +147,22 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 			}
 			logLine("stdout", "Checked out ref "+repo.Ref)
 		}
+
+		// Create a working branch if configured (e.g. quick-run).
+		// The branch is created after clone + ref checkout so it forks from the right base.
+		if repo.CreateBranch != "" {
+			branchName := fmt.Sprintf("%s/%s", repo.CreateBranch, stepInput.RunID[:8])
+			createBranchCmd := fmt.Sprintf("git -C %s checkout -b %s",
+				shellquote.Quote(repoDir), shellquote.Quote(branchName))
+			if _, stderr, err := sb.Exec(ctx, input.SandboxID, createBranchCmd, "/"); err != nil {
+				logLine("stderr", fmt.Sprintf("create branch failed: %v", err))
+				return nil, fmt.Errorf("create branch %s: %w", branchName, err)
+			} else if gitFailed(stderr) {
+				logLine("stderr", "create branch failed: "+strings.TrimSpace(stderr))
+				return nil, fmt.Errorf("create branch %s: %s", branchName, strings.TrimSpace(stderr))
+			}
+			logLine("stdout", "Created branch "+branchName)
+		}
 	}
 
 	// After cloning, checkout checkpoint branch if this is a continuation step

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -33,6 +34,12 @@ func NewRunsHandler(db *sqlx.DB, temporal client.Client, registry *template.Regi
 	return &RunsHandler{db: db, temporal: temporal, registry: registry, Notify: nl}
 }
 
+var validModelRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9])?$`)
+
+func isAllowedModel(m string) bool {
+	return validModelRe.MatchString(m)
+}
+
 type createRunRequest struct {
 	WorkflowID string         `json:"workflow_id"`
 	Model      string         `json:"model"`
@@ -50,6 +57,11 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req createRunRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Model != "" && !isAllowedModel(req.Model) {
+		writeJSONError(w, http.StatusBadRequest, "invalid model")
 		return
 	}
 

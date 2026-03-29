@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -230,7 +231,7 @@ func TestCreate_IncludesModelInRunInsert(t *testing.T) {
 	r := chi.NewRouter()
 	r.Post("/api/runs", h.Create)
 
-	body := `{"workflow_id":"valid-workflow","model":"gpt-5","parameters":{}}`
+	body := `{"workflow_id":"valid-workflow","model":"claude-sonnet-4-6","parameters":{}}`
 	req := httptest.NewRequest("POST", "/api/runs", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Team-ID", "team-1")
@@ -240,7 +241,7 @@ func TestCreate_IncludesModelInRunInsert(t *testing.T) {
 	}))
 
 	mock.ExpectExec(`INSERT INTO runs \(id, team_id, workflow_id, workflow_title, parameters, model, status, temporal_id, triggered_by\)`).
-		WithArgs(sqlmock.AnyArg(), "team-1", "valid-workflow", "Valid Workflow", sqlmock.AnyArg(), "gpt-5", "pending", sqlmock.AnyArg(), "user-1").
+		WithArgs(sqlmock.AnyArg(), "team-1", "valid-workflow", "Valid Workflow", sqlmock.AnyArg(), "claude-sonnet-4-6", "pending", sqlmock.AnyArg(), "user-1").
 		WillReturnError(assert.AnError)
 
 	w := httptest.NewRecorder()
@@ -248,6 +249,41 @@ func TestCreate_IncludesModelInRunInsert(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCreate_RejectsInvalidModel(t *testing.T) {
+	tmpl := &model.WorkflowTemplate{
+		ID:       "wf-valid",
+		Slug:     "valid-workflow",
+		Title:    "Valid Workflow",
+		YAMLBody: validWorkflowYAML,
+	}
+	reg := template.NewRegistry(&stubProvider{tmpl: tmpl})
+	h := NewRunsHandler(nil, nil, reg, nil)
+
+	r := chi.NewRouter()
+	r.Post("/api/runs", h.Create)
+
+	for _, badModel := range []string{"../etc/passwd", "model with spaces", "-leading-dash", ""} {
+		// Skip empty — empty model means "no override" and is allowed.
+		if badModel == "" {
+			continue
+		}
+		body := fmt.Sprintf(`{"workflow_id":"valid-workflow","model":%q,"parameters":{}}`, badModel)
+		req := httptest.NewRequest("POST", "/api/runs", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Team-ID", "team-1")
+		req = req.WithContext(auth.SetClaimsInContext(req.Context(), &auth.Claims{
+			UserID:    "user-1",
+			TeamRoles: map[string]string{"team-1": "member"},
+		}))
+
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code, "model %q should be rejected", badModel)
+		assert.Contains(t, w.Body.String(), "invalid model")
+	}
 }
 
 func TestList_FilterCreatedByMe(t *testing.T) {

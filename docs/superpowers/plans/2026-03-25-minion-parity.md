@@ -642,35 +642,6 @@ parameters:
     required: false
     description: "Branch to work on (default: main)"
 
-  - name: create_pr
-    type: bool
-    required: false
-    description: "Open a PR if the agent makes changes"
-
-steps:
-  - id: execute
-    title: Execute task
-    mode: transform
-    repositories:
-      - url: "{{ .Params.repo_url }}"
-        ref: "{{ if .Params.branch }}{{ .Params.branch }}{{ end }}"
-    execution:
-      agent: claude-code
-      credentials:
-        - GITHUB_TOKEN
-      prompt: "{{ .Params.prompt }}"
-    pull_request:
-      branch_prefix: agent/quick-run
-      title: "{{ .Params.prompt }}"
-      body: "Automated changes from Fleetlift Quick Run"
-      draft: true
-```
-
-> **Note:** The `pull_request` block is always present in the YAML but the `CreatePullRequest` activity already returns `("", nil)` when the working tree is clean (no changes). When `create_pr` is false, the workflow should skip PR creation. This requires a conditional on the `pull_request` block — see implementation note below.
-
-**Implementation note on `create_pr` conditional:** The current workflow engine always runs the `pull_request` step if the block is present. To make `create_pr` opt-in, the simplest approach is to use two steps with conditions:
-
-```yaml
 steps:
   - id: execute
     title: Execute task
@@ -685,7 +656,7 @@ steps:
       prompt: "{{ .Params.prompt }}"
 ```
 
-Since `CreatePullRequest` already returns empty on clean tree, and the most common case for quick-run is ad-hoc fixes that will produce changes, include the `pull_request` block unconditionally. The clean-tree guard in `pr.go` prevents unnecessary PRs. The `create_pr` param can be wired in a follow-up if needed.
+> **Note:** PR creation (`create_pr` param, `pull_request` block) is deferred — the workflow engine doesn't support conditional PR blocks per-run. The agent can still create PRs via its own tools if the prompt asks for it. Conditional PR creation will be wired when the frontend (PR 2) needs it.
 
 - [x] **Step 7.4: Run tests**
 

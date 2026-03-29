@@ -24,11 +24,6 @@ parameters:
     required: false
     description: "Branch to work on (default: main)"
 
-  - name: create_pr
-    type: bool
-    required: false
-    description: Open a PR if the agent makes changes
-
 steps:
   - id: execute
     title: Execute task
@@ -36,13 +31,9 @@ steps:
     repositories:
       - url: "{{ .Params.repo_url }}"
         ref: "{{ if .Params.branch }}{{ .Params.branch }}{{ end }}"
+        create_branch: agent/quick-run
     execution:
       agent: claude-code
       credentials:
         - GITHUB_TOKEN
       prompt: "{{ .Params.prompt }}"
-    pull_request:
-      branch_prefix: agent/quick-run
-      title: "{{ .Params.prompt }}"
-      body: Automated changes from Fleetlift Quick Run
-      draft: true
