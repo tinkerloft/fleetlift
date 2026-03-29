@@ -143,7 +143,7 @@ Backend implementation notes:
 
 ### Phase 3 — Prompt Presets + Saved Repos
 
-**New DB migration: `NNN_prompt_presets.up.sql`**
+**DB migrations: `016_presets_repos.up.sql` + `017_preset_updated_at.up.sql`**
 
 ```sql
 CREATE TABLE prompt_presets (
@@ -153,10 +153,13 @@ CREATE TABLE prompt_presets (
     scope       TEXT NOT NULL CHECK (scope IN ('personal', 'team')),
     title       TEXT NOT NULL,
     prompt      TEXT NOT NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX ON prompt_presets (team_id, scope, created_by);
 ```
+
+`UpdatePreset` sets `updated_at = NOW()` on every write.
 
 **API routes**
 
@@ -165,15 +168,22 @@ CREATE INDEX ON prompt_presets (team_id, scope, created_by);
 | GET | `/api/presets` | List presets for current user (personal + team) |
 | POST | `/api/presets` | Create a preset (`scope: personal\|team`) |
 | PUT | `/api/presets/:id` | Update title or prompt |
-| DELETE | `/api/presets/:id` | Delete (own presets only; team presets require admin) |
+| DELETE | `/api/presets/:id` | Delete (own presets only — enforced by `created_by = $2` WHERE clause) |
+
+**Validation (backend)**
+
+- `title`: required, max 200 chars
+- `prompt`: required, max 50,000 chars
+- `scope`: must be `personal` or `team`; any team member may publish to team scope (no admin gate)
 
 **Frontend**
 
 - Presets sidebar on Home page: two sections — "My Presets" and "Team Presets".
 - Clicking a preset populates the textarea.
+- Delete button is shown only for presets where `created_by === currentUserId` (fetched from `GET /api/me`). Team presets created by other users show no delete button.
 - "Save as preset" option appears below the textarea after typing (or after using an improved prompt).
 - On save: modal asks for title + scope (personal / team).
-- Team presets: visible to all team members, editable only by creator or team admin.
+- Mutation errors (save preset, delete preset, save repo) are surfaced as a dismissable error banner above the prompt zone.
 
 **Saved repos**
 
@@ -197,6 +207,12 @@ API routes:
 | GET | `/api/saved-repos` | List saved repos for current user |
 | POST | `/api/saved-repos` | Add a repo (`url`, optional `label`) |
 | DELETE | `/api/saved-repos/:id` | Remove a saved repo |
+
+**Validation (backend)**
+
+- `url`: required, `https://` scheme, non-empty host (via `url.Parse`), max 2048 chars
+- `label`: optional, max 200 chars
+- Duplicate `(user_id, url)` returns 409 Conflict
 
 Frontend:
 - Repo URL input on Home page becomes a combobox: dropdown lists saved repos (showing label or URL), with a "Add new URL..." option at the bottom that falls back to free-text entry.
@@ -230,6 +246,6 @@ Frontend:
 
 ## Resolved Decisions
 
-1. **Team preset deletion:** Creator-only. No role system exists; adding one is out of scope. Team admins can delete via direct DB if needed until a role system exists.
+1. **Team preset deletion:** Creator-only. Backend enforces `created_by = current_user` on DELETE. Frontend hides the delete button for presets the current user did not create (checked via `GET /api/me`). No admin override in scope.
 2. **`quick-run` in Workflows list:** Hidden. Add a `hidden: true` top-level field to builtin YAML (requires a one-line model change in `internal/template/builtin.go` to skip hidden slugs when listing templates). Only accessible via Home's Run button.
 3. **Recent tasks scope:** All runs by the current user, not just quick-run runs. Gives a unified view of their work across both ad-hoc and workflow-triggered runs.

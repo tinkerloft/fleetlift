@@ -163,6 +163,28 @@ export interface Artifact {
   created_at: string
 }
 
+// Presets
+export interface Preset {
+  id: string
+  team_id: string
+  created_by: string | null
+  scope: 'personal' | 'team'
+  title: string
+  prompt: string
+  created_at: string
+  updated_at: string
+}
+
+// Saved repos
+export interface SavedRepo {
+  id: string
+  user_id: string
+  team_id: string
+  url: string
+  label?: string | null
+  created_at: string
+}
+
 // API responses
 export interface ListResponse<T> {
   items: T[]

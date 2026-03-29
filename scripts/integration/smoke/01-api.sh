@@ -210,6 +210,101 @@ else
   fail "POST /api/prompt/improve — unexpected HTTP $HTTP_STATUS: ${HTTP_BODY:0:200}"
 fi
 
+# ── Presets (PR4) ────────────────────────────────────────────────
+section "Presets"
+
+api_call GET /api/presets
+assert_status "GET /api/presets" 200
+assert_contains "presets list has items key" "$HTTP_BODY" '"items"'
+
+# Create personal preset
+api_call POST /api/presets '{"title":"smoke-preset","prompt":"fix the build","scope":"personal"}'
+if [[ "$HTTP_STATUS" == "201" ]]; then
+  pass "POST /api/presets (personal)"
+  PRESET_ID=$(json_field "['id']" 2>/dev/null || echo "")
+  assert_not_empty "preset id returned" "$PRESET_ID"
+  on_cleanup "api_call DELETE /api/presets/$PRESET_ID"
+
+  assert_contains "preset response has updated_at" "$HTTP_BODY" '"updated_at"'
+
+  # Update
+  api_call PUT "/api/presets/$PRESET_ID" '{"title":"smoke-preset-updated"}'
+  assert_status "PUT /api/presets/:id" 200
+  assert_contains "updated title in response" "$HTTP_BODY" "smoke-preset-updated"
+  assert_contains "updated_at in PUT response" "$HTTP_BODY" '"updated_at"'
+
+  # Delete
+  api_call DELETE "/api/presets/$PRESET_ID"
+  assert_status "DELETE /api/presets/:id" 204
+else
+  fail "POST /api/presets (personal) — HTTP $HTTP_STATUS: ${HTTP_BODY:0:200}"
+fi
+
+# Create team-scoped preset
+api_call POST /api/presets '{"title":"team-smoke-preset","prompt":"run the linter","scope":"team"}'
+if [[ "$HTTP_STATUS" == "201" ]]; then
+  pass "POST /api/presets (team scope)"
+  TEAM_PRESET_ID=$(json_field "['id']" 2>/dev/null || echo "")
+  on_cleanup "api_call DELETE /api/presets/$TEAM_PRESET_ID"
+else
+  fail "POST /api/presets (team scope) — HTTP $HTTP_STATUS"
+fi
+
+# Validation
+api_call POST /api/presets '{"title":"","prompt":"do thing","scope":"personal"}'
+assert_status "POST /api/presets missing title → 400" 400
+
+api_call POST /api/presets '{"title":"t","prompt":"p","scope":"global"}'
+assert_status "POST /api/presets bad scope → 400" 400
+
+LONG_TITLE=$(python3 -c "print('a'*201)")
+api_call POST /api/presets "{\"title\":\"$LONG_TITLE\",\"prompt\":\"p\",\"scope\":\"personal\"}"
+assert_status "POST /api/presets title too long → 400" 400
+
+LONG_PROMPT=$(python3 -c "print('a'*50001)")
+api_call POST /api/presets "{\"title\":\"t\",\"prompt\":\"$LONG_PROMPT\",\"scope\":\"personal\"}"
+assert_status "POST /api/presets prompt too long → 400" 400
+
+# ── Saved Repos (PR4) ────────────────────────────────────────────
+section "Saved Repos"
+
+api_call GET /api/saved-repos
+assert_status "GET /api/saved-repos" 200
+assert_contains "saved-repos list has items key" "$HTTP_BODY" '"items"'
+
+# Create
+api_call POST /api/saved-repos '{"url":"https://github.com/tinkerloft/fleetlift"}'
+if [[ "$HTTP_STATUS" == "201" ]]; then
+  pass "POST /api/saved-repos (create)"
+  REPO_ID=$(json_field "['id']" 2>/dev/null || echo "")
+  assert_not_empty "saved repo id returned" "$REPO_ID"
+  on_cleanup "api_call DELETE /api/saved-repos/$REPO_ID"
+
+  # Duplicate → 409
+  api_call POST /api/saved-repos '{"url":"https://github.com/tinkerloft/fleetlift"}'
+  assert_status "POST /api/saved-repos duplicate → 409" 409
+
+  # Delete
+  api_call DELETE "/api/saved-repos/$REPO_ID"
+  assert_status "DELETE /api/saved-repos/:id" 204
+else
+  fail "POST /api/saved-repos (create) — HTTP $HTTP_STATUS: ${HTTP_BODY:0:200}"
+fi
+
+# Validation
+api_call POST /api/saved-repos '{"url":""}'
+assert_status "POST /api/saved-repos empty url → 400" 400
+
+api_call POST /api/saved-repos '{"url":"git://github.com/org/repo"}'
+assert_status "POST /api/saved-repos non-https url → 400" 400
+
+api_call POST /api/saved-repos '{"url":"https://"}'
+assert_status "POST /api/saved-repos https-no-host → 400" 400
+
+LONG_LABEL=$(python3 -c "print('a'*201)")
+api_call POST /api/saved-repos "{\"url\":\"https://github.com/org/repo\",\"label\":\"$LONG_LABEL\"}"
+assert_status "POST /api/saved-repos label too long → 400" 400
+
 # ── System Credentials (PR3) ─────────────────────────────────────
 section "System Credentials"
 

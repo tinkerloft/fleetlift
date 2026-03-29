@@ -14,8 +14,8 @@ test.describe('Home page', () => {
   test('template grid shows workflows', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('heading', { name: /Workflows/i })).toBeVisible();
-    // At least one workflow card should be visible
-    await expect(page.getByText('Sandbox Test')).toBeVisible({ timeout: 5000 });
+    // At least one workflow card should be visible — "Bug Fix" is in the top-6 alphabetically
+    await expect(page.locator('a[href*="/workflows/"]').filter({ hasText: 'Bug Fix' }).first()).toBeVisible({ timeout: 5000 });
   });
 
   test('recent tasks section visible', async ({ page }) => {
@@ -56,9 +56,9 @@ test.describe('Home page', () => {
     await expect(modal).toBeVisible({ timeout: 3000 });
 
     // Should show "Improve Prompt" header or loading state
-    const header = page.getByText('Improve Prompt');
+    const header = page.getByRole('heading', { name: 'Improve Prompt' });
     const loading = page.getByText('Analyzing and improving your prompt...');
-    await expect(header.or(loading)).toBeVisible({ timeout: 3000 });
+    await expect(header.or(loading).first()).toBeVisible({ timeout: 3000 });
   });
 
   test('improve modal closes on escape', async ({ page }) => {
