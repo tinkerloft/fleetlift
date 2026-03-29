@@ -62,11 +62,13 @@
 
 | Action | File | Purpose |
 |--------|------|---------|
-| Create | `internal/server/handlers/prompt.go` | `POST /api/prompt/improve` handler |
-| Create | `internal/server/handlers/prompt_test.go` | Handler tests |
-| Modify | `internal/server/router.go` (or equivalent) | Register route |
+| Create | `internal/server/handlers/prompt.go` | `POST /api/prompt/improve` handler with injectable `PromptImprover` |
+| Create | `internal/server/handlers/prompt_test.go` | Handler tests (mock improver, no real API) |
+| Modify | `internal/server/router.go` | Add `Prompt` to `Deps` struct, register route |
+| Modify | `cmd/server/main.go` | Construct `PromptHandlers` with Anthropic improver |
 | Modify | `web/src/api/client.ts` | Add `improvePrompt` method |
 | Create | `web/src/components/PromptImproveModal.tsx` | Side-by-side modal |
+| Modify | `web/src/pages/HomePage.tsx` | Wire Improve button to modal in `PromptZone` |
 
 ### PR 4 — Presets + saved repos
 
@@ -1023,63 +1025,37 @@ cd web && npm test -- --run
 **Files:**
 - Create: `internal/server/handlers/prompt.go`
 - Create: `internal/server/handlers/prompt_test.go`
-- Modify: server router file to register the route
+- Modify: `internal/server/router.go` — add `Prompt` to `Deps`, register route
+- Modify: `cmd/server/main.go` — construct `PromptHandlers` in deps
 
-- [ ] **Step 17.1: Write the handler**
+**Design decisions (deviations from original plan):**
+- Handler accepts a `PromptImprover` interface (function type) instead of creating `anthropic.NewClient()` inline. This makes unit tests possible without hitting the real API or stubbing env vars.
+- All error responses use `writeJSONError()` helper — the original plan used raw `fmt.Sprintf` JSON which is vulnerable to JSON injection from error strings containing quotes.
+- Handler is wired through `Deps` struct (field `Prompt *handlers.PromptHandlers`) like all other handlers, not as a local variable in the router.
+- SDK types will be verified after `go get` — the plan's `anthropic.MessageNewParams` / `anthropic.TextBlockParam` references are aspirational and may need adjustment.
+
+- [ ] **Step 17.1: Add `anthropic-sdk-go` dependency**
+
+Must happen first so we can verify the actual SDK API surface before writing handler code.
+
+```bash
+go get github.com/anthropics/anthropic-sdk-go
+```
+
+After running, inspect the SDK types to confirm the correct API for `Messages.New`, system prompts, and response content blocks.
+
+- [ ] **Step 17.2: Write the handler with injectable client**
 
 Create `internal/server/handlers/prompt.go`:
 
-```go
-package handlers
+- Define `PromptImprover` as a function type: `func(ctx context.Context, prompt string) (*improveResponse, error)`
+- `PromptHandlers` struct holds this function: `type PromptHandlers struct { Improve PromptImprover }`
+- `ImprovePrompt` handler: decode request, validate non-empty prompt (→ 400 via `writeJSONError`), call `h.Improve(ctx, prompt)`, handle errors (→ 502 via `writeJSONError`), write result via `writeJSON`.
+- Provide `NewAnthropicImprover(apiKey string) PromptImprover` constructor that creates the real Anthropic client and calls `client.Messages.New(...)` with the system prompt and user message. Returns parsed `improveResponse` or error. Falls back gracefully if Claude returns non-JSON (wraps raw text as improved prompt with default scores).
 
-import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"os"
-	"time"
-
-	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
-)
-
-type PromptHandlers struct{}
-
-type improveRequest struct {
-	Prompt string `json:"prompt"`
-}
-
-type scoreDetail struct {
-	Rating string `json:"rating"`
-	Reason string `json:"reason"`
-}
-
-type improveResponse struct {
-	Improved string                 `json:"improved"`
-	Scores   map[string]scoreDetail `json:"scores"`
-	Summary  string                 `json:"summary"`
-}
-
-func (h *PromptHandlers) ImprovePrompt(w http.ResponseWriter, r *http.Request) {
-	var req improveRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Prompt == "" {
-		http.Error(w, `{"error":"prompt is required"}`, http.StatusBadRequest)
-		return
-	}
-
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
-	if apiKey == "" {
-		http.Error(w, `{"error":"ANTHROPIC_API_KEY not configured"}`, http.StatusServiceUnavailable)
-		return
-	}
-
-	client := anthropic.NewClient(option.WithAPIKey(apiKey))
-
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-
-	systemPrompt := `You are an AI prompt quality analyst. Given a developer's prompt for a coding agent, you must:
+System prompt (same as original plan):
+```
+You are an AI prompt quality analyst. Given a developer's prompt for a coding agent, you must:
 1. Analyze the prompt quality across four dimensions: clarity, context, structure, guidance
 2. Rewrite it as a structured, high-quality prompt
 3. Rate each dimension as "excellent", "good", or "poor" with a brief reason
@@ -1094,87 +1070,40 @@ Respond ONLY with valid JSON matching this schema:
     "guidance":  { "rating": "excellent|good|poor", "reason": "brief reason" }
   },
   "summary": "one sentence summarizing the improvement"
-}`
-
-	msg, err := client.Messages.New(ctx, anthropic.MessageNewParams{
-		Model:     "claude-sonnet-4-6",
-		MaxTokens: 2048,
-		System:    []anthropic.TextBlockParam{{Text: systemPrompt}},
-		Messages: []anthropic.MessageParam{
-			anthropic.NewUserMessage(anthropic.NewTextBlock(
-				fmt.Sprintf("Analyze and improve this prompt:\n\n%s", req.Prompt),
-			)),
-		},
-	})
-	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"Claude API error: %s"}`, err.Error()), http.StatusBadGateway)
-		return
-	}
-
-	// Extract text content from response
-	var responseText string
-	for _, block := range msg.Content {
-		if block.Type == "text" {
-			responseText = block.Text
-			break
-		}
-	}
-
-	// Parse the JSON response
-	var result improveResponse
-	if err := json.Unmarshal([]byte(responseText), &result); err != nil {
-		// If Claude didn't return valid JSON, return raw text as the improved prompt
-		result = improveResponse{
-			Improved: responseText,
-			Scores: map[string]scoreDetail{
-				"clarity":   {Rating: "good", Reason: "Could not parse structured analysis"},
-				"context":   {Rating: "good", Reason: "Could not parse structured analysis"},
-				"structure": {Rating: "good", Reason: "Could not parse structured analysis"},
-				"guidance":  {Rating: "good", Reason: "Could not parse structured analysis"},
-			},
-			Summary: "Prompt was improved but structured analysis was unavailable.",
-		}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
 }
 ```
 
-- [ ] **Step 17.2: Register the route**
+- [ ] **Step 17.3: Wire handler into Deps and router**
 
-Find the server router setup (likely in `internal/server/router.go` or where handlers are registered). Add:
+In `internal/server/router.go`:
+- Add `Prompt *handlers.PromptHandlers` field to `Deps` struct.
+- Register route inside the authenticated `r.Group` block: `r.Post("/api/prompt/improve", deps.Prompt.ImprovePrompt)`
 
-```go
-promptH := &handlers.PromptHandlers{}
-r.Post("/api/prompt/improve", promptH.ImprovePrompt)
-```
+In `cmd/server/main.go`:
+- Read `ANTHROPIC_API_KEY` from env. If set, construct `handlers.PromptHandlers{Improve: handlers.NewAnthropicImprover(apiKey)}`. If not set, construct with a stub that returns 503 (or let the handler check `h.Improve == nil` and return 503).
+- Add to `deps`: `Prompt: promptHandler,`
 
-Ensure the route is behind auth middleware (same as other `/api/` routes).
+- [ ] **Step 17.4: Write handler tests**
 
-- [ ] **Step 17.3: Write handler test**
+Create `internal/server/handlers/prompt_test.go`. Inject a mock `PromptImprover` function — no Anthropic SDK or env vars needed.
 
-Create `internal/server/handlers/prompt_test.go` with a test that mocks the Claude API response (using httptest to intercept the API call or by making the client injectable). Test:
-- Empty prompt → 400
-- Valid prompt → 200 with correct JSON structure
-- Missing API key → 503
-
-- [ ] **Step 17.4: Add `anthropic-sdk-go` dependency**
-
-```bash
-go get github.com/anthropics/anthropic-sdk-go
-```
+Test cases:
+- Empty prompt → 400 `{"error":"prompt is required"}`
+- Valid prompt with mock returning success → 200 with correct JSON structure (all four score dimensions present, valid ratings)
+- Mock returning error → 502 with `{"error":"..."}`
+- `nil` Improve function (no API key configured) → 503
 
 - [ ] **Step 17.5: Build and test**
 
 ```bash
-go build ./... && go test ./internal/server/handlers/... -count=1
+go build -buildvcs=false ./... && go test -buildvcs=false ./internal/server/handlers/... -count=1
 ```
 
 - [ ] **Step 17.6: Commit**
 
 ```bash
-git add internal/server/handlers/prompt.go internal/server/handlers/prompt_test.go go.mod go.sum
+git add internal/server/handlers/prompt.go internal/server/handlers/prompt_test.go \
+  internal/server/router.go cmd/server/main.go go.mod go.sum
 git commit -m "feat: add POST /api/prompt/improve endpoint"
 ```
 
@@ -1187,9 +1116,13 @@ git commit -m "feat: add POST /api/prompt/improve endpoint"
 - Create: `web/src/components/PromptImproveModal.tsx`
 - Modify: `web/src/pages/HomePage.tsx`
 
+**Design decisions (deviations from original plan):**
+- `PromptZone` manages its own `showImproveModal` boolean state internally. The Improve button sets `showImproveModal = true`; the modal triggers the API call on mount via `useMutation` + `useEffect`. Accept callback replaces the textarea content within `PromptZone`'s local `prompt` state and closes the modal. Decline just closes the modal.
+- The original plan said "Uses `useMutation` to call `api.improvePrompt()` on mount" — clarified: `useMutation` is imperative. The modal calls `mutate(originalPrompt)` in a `useEffect` on mount, showing a loading state until the mutation resolves.
+
 - [ ] **Step 18.1: Add API method**
 
-In `web/src/api/client.ts`:
+In `web/src/api/client.ts`, add to the `api` object:
 
 ```typescript
 improvePrompt: (prompt: string) =>
@@ -1205,17 +1138,21 @@ improvePrompt: (prompt: string) =>
 Create `web/src/components/PromptImproveModal.tsx`:
 
 Full-screen overlay with:
-- Two columns: Original (left, "✗ ORIGINAL" red header) | Improved (right, "✓ IMPROVED" green header)
+- Two columns: Original (left, "ORIGINAL" red/muted header) | Improved (right, "IMPROVED" green header)
 - Each column shows the prompt text + score badges below
 - Score badge colours: `excellent` → green, `good` → yellow, `poor` → red
 - Bottom bar: summary text + "Decline" button + "Use improved →" button
 - Props: `original: string`, `onAccept: (improved: string) => void`, `onDecline: () => void`
-- Uses `useMutation` to call `api.improvePrompt()` on mount
-- Shows loading spinner while waiting
+- Calls `useMutation` + triggers `mutate(original)` in `useEffect` on mount
+- Shows loading spinner while waiting; shows error state with retry if mutation fails
+- Escape key triggers decline
 
 - [ ] **Step 18.3: Wire into HomePage**
 
-In `HomePage.tsx`, enable the "✦ Improve" button. On click, open the `PromptImproveModal`. On accept, replace the textarea content.
+In `HomePage.tsx` `PromptZone` component:
+- Add `const [showImproveModal, setShowImproveModal] = useState(false)`
+- Remove `disabled` from the Improve button; add `onClick={() => setShowImproveModal(true)}` (only when `prompt.trim().length > 0`)
+- Render `{showImproveModal && <PromptImproveModal original={prompt} onAccept={(improved) => { setPrompt(improved); setShowImproveModal(false) }} onDecline={() => setShowImproveModal(false)} />}`
 
 - [ ] **Step 18.4: Build and verify**
 
