@@ -1,5 +1,7 @@
 import { useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { api } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -118,8 +120,8 @@ export function PromptImproveModal({
               {/* Improved column */}
               <div className="space-y-3">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-emerald-400">Improved</h3>
-                <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.03] p-4">
-                  <p className="whitespace-pre-wrap text-sm text-zinc-100">{data.improved}</p>
+                <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.03] p-4 prose prose-sm prose-invert max-w-none">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.improved}</ReactMarkdown>
                 </div>
               </div>
             </div>
