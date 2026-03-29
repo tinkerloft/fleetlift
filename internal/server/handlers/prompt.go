@@ -71,10 +71,10 @@ type PromptHandlers struct {
 	db            *sqlx.DB
 	encryptionKey string
 
-	mu          sync.Mutex
-	cachedKey   string
-	cachedFn    PromptImprover
-	cachedAt    time.Time
+	mu        sync.Mutex
+	cachedKey string
+	cachedFn  PromptImprover
+	cachedAt  time.Time
 }
 
 // NewPromptHandlers creates a PromptHandlers that resolves the Anthropic API key
@@ -195,9 +195,23 @@ func NewAnthropicImprover(apiKey string) PromptImprover {
 			return nil, fmt.Errorf("no text content in response")
 		}
 
+		// Strip markdown code fences if Claude wrapped the JSON in ```json ... ```
+		cleaned := strings.TrimSpace(text)
+		if strings.HasPrefix(cleaned, "```") {
+			// Remove opening fence (```json or ```)
+			if idx := strings.Index(cleaned, "\n"); idx >= 0 {
+				cleaned = cleaned[idx+1:]
+			}
+			// Remove closing fence
+			if strings.HasSuffix(cleaned, "```") {
+				cleaned = strings.TrimSuffix(cleaned, "```")
+			}
+			cleaned = strings.TrimSpace(cleaned)
+		}
+
 		// Try to parse as JSON.
 		var resp improveResponse
-		if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		if err := json.Unmarshal([]byte(cleaned), &resp); err != nil {
 			// Fallback: wrap raw text as improved prompt with default scores.
 			return &improveResponse{
 				Improved: text,
