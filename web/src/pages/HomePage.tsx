@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/api/client'
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { workflowCategory, CATEGORY_STYLES, WORKFLOW_ICON_MAP } from '@/lib/workflow-colors'
 import { formatTimeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { PromptImproveModal } from '@/components/PromptImproveModal'
 import { Sparkles, Play, RotateCcw, ArrowRight, Inbox, Terminal } from 'lucide-react'
 
 function PromptZone({
@@ -25,8 +26,19 @@ function PromptZone({
   const [repoUrl, setRepoUrl] = useState('')
   const [branch, setBranch] = useState('main')
   const [model, setModel] = useState(getPreferredModel)
+  const [showImproveModal, setShowImproveModal] = useState(false)
 
-  const canSubmit = prompt.trim().length > 0 && repoUrl.trim().length > 0
+  const handleAcceptImproved = useCallback((improved: string) => {
+    setPrompt(improved)
+    setShowImproveModal(false)
+  }, [])
+
+  const handleDeclineImproved = useCallback(() => {
+    setShowImproveModal(false)
+  }, [])
+
+  const hasPrompt = prompt.trim().length > 0
+  const canSubmit = hasPrompt && repoUrl.trim().length > 0
 
   return (
     <div className="relative rounded-xl border border-violet-500/20 bg-gradient-to-b from-violet-500/[0.03] to-transparent p-[1px]">
@@ -67,7 +79,13 @@ function PromptZone({
           </div>
 
           <div className="flex items-end gap-2">
-            <Button variant="outline" size="default" disabled className="gap-1.5 text-muted-foreground">
+            <Button
+              variant="outline"
+              size="default"
+              disabled={!hasPrompt}
+              onClick={() => setShowImproveModal(true)}
+              className="gap-1.5 text-muted-foreground"
+            >
               <Sparkles className="h-3.5 w-3.5" />
               Improve
             </Button>
@@ -85,6 +103,14 @@ function PromptZone({
         </div>
         {error && <p className="text-sm text-red-400">{error}</p>}
       </div>
+
+      {showImproveModal && (
+        <PromptImproveModal
+          original={prompt}
+          onAccept={handleAcceptImproved}
+          onDecline={handleDeclineImproved}
+        />
+      )}
     </div>
   )
 }

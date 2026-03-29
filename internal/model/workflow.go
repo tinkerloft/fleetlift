@@ -144,11 +144,11 @@ type ArtifactMount struct {
 }
 
 type RepoRef struct {
-	URL          string `yaml:"url"`
-	Branch       string `yaml:"branch,omitempty"`
-	Ref          string `yaml:"ref,omitempty"` // git ref to fetch after clone (e.g. "pull/19/head")
-	Name         string `yaml:"name,omitempty"`
-	CreateBranch string `yaml:"create_branch,omitempty"` // branch prefix — creates <prefix>/<runID> after clone
+	URL          string `yaml:"url"                      json:"url"`
+	Branch       string `yaml:"branch,omitempty"         json:"branch,omitempty"`
+	Ref          string `yaml:"ref,omitempty"             json:"ref,omitempty"` // git ref to fetch after clone (e.g. "pull/19/head")
+	Name         string `yaml:"name,omitempty"            json:"name,omitempty"`
+	CreateBranch string `yaml:"create_branch,omitempty"   json:"create_branch,omitempty"` // branch prefix — creates <prefix>/<runID> after clone
 }
 
 func ParseWorkflowYAML(data []byte, def *WorkflowDef) error {

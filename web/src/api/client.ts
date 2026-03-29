@@ -123,6 +123,14 @@ export const api = {
   // Models
   listModels: () =>
     get<ListResponse<ModelEntry>>('/models'),
+
+  // Prompt
+  improvePrompt: (prompt: string) =>
+    post<{
+      improved: string
+      scores: Record<string, { rating: string; reason: string }>
+      summary: string
+    }>('/prompt/improve', { prompt }),
 }
 
 /** Subscribe to live run updates via SSE. Returns an unsubscribe function. */

@@ -90,6 +90,9 @@ func main() {
 		}
 	}()
 
+	// Prompt improvement handler — resolves ANTHROPIC_API_KEY from system credentials at request time
+	promptHandler := handlers.NewPromptHandlers(database, encKey)
+
 	// Build router
 	deps := server.Deps{
 		JWTSecret:         jwtSecret,
@@ -106,6 +109,7 @@ func main() {
 		DB:                database,
 		Actions:           handlers.NewActionsHandler(model.DefaultActionRegistry()),
 		Profiles:          handlers.NewProfilesHandler(database),
+		Prompt:            promptHandler,
 	}
 
 	handler, err := server.NewRouter(deps)

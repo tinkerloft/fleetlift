@@ -3,7 +3,9 @@ id: quick-run
 title: Quick Run
 description: >
   Single-step ad-hoc task execution. Type a prompt, point at a repo, and run.
+  Uses the superpowers agent profile for self-review discipline.
 hidden: true
+agent_profile: superpowers
 tags:
   - quick-run
   - ad-hoc
@@ -36,4 +38,19 @@ steps:
       agent: claude-code
       credentials:
         - GITHUB_TOKEN
-      prompt: "{{ .Params.prompt }}"
+      prompt: |
+        You are an autonomous coding agent. Complete the task below, then review your own work and open a pull request if quality is sufficient.
+
+        ## Task
+
+        {{ .Params.prompt }}
+
+        ## Process
+
+        1. **Implement** — complete the task. Commit your changes.
+        2. **Review** — use the code-review skill (or review your diff manually) to check for bugs, missing edge cases, and code quality issues.
+        3. **Fix** — if the review finds issues, fix them and commit. Then review again.
+        4. **Repeat** steps 2-3 up to 3 times. Stop iterating once the review passes or you have completed 3 review cycles.
+        5. **Decide**:
+           - If the changes are correct and the review passes: open a pull request with a clear title and description.
+           - If after 3 review cycles the quality is still insufficient: do NOT open a PR. Instead, use the mcp__fleetlift__inbox__notify tool to alert the team with a summary of what was attempted, what issues remain, and why the changes are not ready to merge.

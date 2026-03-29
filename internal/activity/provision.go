@@ -142,6 +142,25 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 		}
 	}
 
+	// Configure git identity inside the sandbox so `git commit` works without
+	// the agent having to set it up manually. Skipped if git is not installed.
+	if _, _, err := a.Sandbox.Exec(ctx, sandboxID, "command -v git", "/"); err == nil {
+		gitEmail := env["GIT_USER_EMAIL"]
+		gitName := env["GIT_USER_NAME"]
+		if gitEmail == "" {
+			gitEmail = DefaultGitEmail
+		}
+		if gitName == "" {
+			gitName = DefaultGitName
+		}
+		gitIdentityCmd := fmt.Sprintf("git config --global user.email %s && git config --global user.name %s",
+			shellquote.Quote(gitEmail), shellquote.Quote(gitName))
+		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, gitIdentityCmd, "/"); err != nil {
+			_ = a.Sandbox.Kill(ctx, sandboxID)
+			return "", fmt.Errorf("configure git identity: %w", err)
+		}
+	}
+
 	// MCP sidecar setup (optional — skip if binary path not configured)
 	if mcpBinaryPrefix := os.Getenv("FLEETLIFT_MCP_BINARY_PATH"); mcpBinaryPrefix != "" {
 		// Detect sandbox architecture to select the correct binary.

@@ -262,8 +262,12 @@ func TestProvisionSandbox_MCPSkippedWhenBinaryMissing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "sb-test", sandboxID)
 
-	// Only the workspace creation command should have been executed.
-	assert.Equal(t, []string{"mkdir -p /workspace"}, rec.execCmds)
+	// Workspace creation + git identity setup (no MCP commands).
+	assert.Equal(t, []string{
+		"mkdir -p /workspace",
+		"command -v git",
+		"git config --global user.email 'claude-agent@noreply.localhost' && git config --global user.name 'Claude Code Agent'",
+	}, rec.execCmds)
 }
 
 func TestProvisionSandbox_MCPFailsWhenBinaryUnreadable(t *testing.T) {

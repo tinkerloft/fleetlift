@@ -99,6 +99,8 @@ Identified during `doc-assessment` workflow design. Full spec: [`2026-03-18-work
 | J2 | ~~**Template rendering in `pull_request` fields**~~ ✅ **Done** — `resolveStep` in `dag.go` renders `BranchPrefix`, `Title`, `Body` through `RenderPrompt` | Low | — |
 | J3 | **Per-repo conditional fan-out (`filter` field)** — template expression evaluated per-repo against upstream fan-out outputs; only matching repos proceed | Medium | P2 |
 | J4 | **Sandbox group reuse across fan-out steps** — same sandbox instance shared by sibling fan-out steps operating on the same repo; eliminates re-clone penalty | High | P3 |
+| J5 | **Unified branch creation** — `create_branch` on `repositories:` and `pull_request.branch_prefix` create separate branches that collide. Unify so `pull_request` reuses the branch created at clone time instead of creating its own. Affects ADS and any workflow that uses both mechanisms. | Medium | P1 |
+| J6 | **Agent-controlled PR gating** — `CreatePullRequest` currently creates a PR whenever the working tree has changes. Add support for the agent to signal "changes exist but are not PR-ready" (e.g. via a sentinel file or output field), causing the platform to skip PR creation and optionally send an inbox notification instead. Required for workflows where the agent iterates on quality and may decide to abort. | Medium | P1 |
 
 ### Track K — Bring Your Own Workflow + New Templates
 
