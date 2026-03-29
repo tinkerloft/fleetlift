@@ -78,7 +78,7 @@ echo ""
 echo "Waiting for run_command step to start..."
 STEP_RUN_ID=""
 for i in $(seq 1 30); do
-  STEP_RUN_ID=$(fl_sql "SELECT id FROM step_runs WHERE run_id = '$RUN_ID' AND step_id = 'run_command' AND status = 'running' LIMIT 1" 2>/dev/null | tr -d ' \n')
+  STEP_RUN_ID=$(fl_sql "SELECT id FROM step_runs WHERE run_id = '$RUN_ID' AND step_id = 'run_command' AND status = 'running' LIMIT 1" 2>/dev/null | tr -d ' \n' || true)
   if [[ -n "$STEP_RUN_ID" ]]; then
     break
   fi
@@ -100,7 +100,7 @@ echo "── Test 1: Worker → DB (incremental log insertion) ──"
 PASS1=true
 COUNTS=()
 for i in $(seq 1 6); do
-  COUNT=$(fl_sql "SELECT count(*) FROM step_run_logs WHERE step_run_id = '$STEP_RUN_ID'" | tr -d ' \n')
+  COUNT=$(fl_sql "SELECT count(*) FROM step_run_logs WHERE step_run_id = '$STEP_RUN_ID'" | tr -d ' \n' || true)
   COUNTS+=("$COUNT")
   echo "  [t+$((i*2))s] $COUNT log rows in DB"
   sleep 2

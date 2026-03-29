@@ -25,7 +25,7 @@ export FLEETLIFT_MCP_BINARY_PATH="${FLEETLIFT_MCP_BINARY_PATH:-$PROJECT_ROOT/bin
 # On Linux, host.docker.internal doesn't resolve — use the Docker bridge gateway IP.
 if [[ -z "${FLEETLIFT_API_URL:-}" ]]; then
   if [[ "$(uname)" == "Linux" ]]; then
-    _bridge_ip=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null)
+    _bridge_ip=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)
     export FLEETLIFT_API_URL="http://${_bridge_ip:-172.17.0.1}:8080"
   else
     export FLEETLIFT_API_URL="http://host.docker.internal:8080"

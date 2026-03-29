@@ -238,24 +238,24 @@ _dump_workflow_failure() {
 
 # step_status <run_id> <step_id>
 step_status() {
-  fl_sql "SELECT status FROM step_runs WHERE run_id = '$1' AND step_id = '$2'" | tr -d ' \n'
+  fl_sql "SELECT status FROM step_runs WHERE run_id = '$1' AND step_id = '$2'" 2>/dev/null | tr -d ' \n' || true
 }
 
 # step_output <run_id> <step_id>
 step_output() {
-  fl_sql "SELECT output FROM step_runs WHERE run_id = '$1' AND step_id = '$2'" | tr -d ' \n'
+  fl_sql "SELECT output FROM step_runs WHERE run_id = '$1' AND step_id = '$2'" 2>/dev/null | tr -d ' \n' || true
 }
 
 # step_count <run_id>
 step_count() {
-  fl_sql "SELECT count(*) FROM step_runs WHERE run_id = '$1'" | tr -d ' \n'
+  fl_sql "SELECT count(*) FROM step_runs WHERE run_id = '$1'" 2>/dev/null | tr -d ' \n' || true
 }
 
 # ── Credential helpers ────────────────────────────────────────────
 has_credential() {
   local name="$1"
   local exists
-  exists=$(fl_sql "SELECT count(*) FROM credentials WHERE team_id = '$DEV_TEAM_ID' AND name = '$name'" | tr -d ' \n')
+  exists=$(fl_sql "SELECT count(*) FROM credentials WHERE team_id = '$DEV_TEAM_ID' AND name = '$name'" 2>/dev/null | tr -d ' \n' || echo "0")
   [[ "$exists" -gt 0 ]]
 }
 
