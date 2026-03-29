@@ -712,7 +712,7 @@ go build ./...
 - Modify: `web/src/api/types.ts`
 - Modify: `web/src/api/client.ts`
 
-- [ ] **Step 9.1: Add `model` to `Run` interface**
+- [ ] **Step 9.1: Add `model` to `Run` interface and `CreateRunResponse` type**
 
 In `web/src/api/types.ts`, add to the `Run` interface:
 
@@ -720,14 +720,25 @@ In `web/src/api/types.ts`, add to the `Run` interface:
 model?: string
 ```
 
+Add a new type for the create response (the backend returns `{id, temporal_id}`, not a full `Run`):
+
+```typescript
+export interface CreateRunResponse {
+  id: string
+  temporal_id: string
+}
+```
+
 - [ ] **Step 9.2: Update `createRun` to accept `model`, add `listMyRuns`**
 
-In `web/src/api/client.ts`, update `createRun`:
+In `web/src/api/client.ts`, update `createRun` to use the correct return type:
 
 ```typescript
 createRun: (workflowId: string, parameters: Record<string, unknown>, model?: string) =>
-  post<Run>('/runs', { workflow_id: workflowId, parameters, ...(model ? { model } : {}) }),
+  post<CreateRunResponse>('/runs', { workflow_id: workflowId, parameters, ...(model ? { model } : {}) }),
 ```
+
+Update the import to include `CreateRunResponse`.
 
 Add a new method:
 
@@ -735,6 +746,8 @@ Add a new method:
 listMyRuns: (limit = 10) =>
   get<ListResponse<Run>>(`/runs?created_by=me&limit=${limit}`),
 ```
+
+> **Note:** Callers that navigate after `createRun` use only `response.id` for the redirect (`/runs/${response.id}`). Retry reads `run.parameters`, `run.workflow_id`, and `run.model` from the full `Run` objects returned by `listMyRuns` or `getRun`, not from the create response.
 
 - [ ] **Step 9.3: Commit**
 

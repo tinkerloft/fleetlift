@@ -5,11 +5,29 @@ interface LogStreamProps {
   stepRunId: string
 }
 
+function highlightMatch(text: string, query: string): React.ReactNode {
+  if (!query) return text
+  const idx = text.toLowerCase().indexOf(query.toLowerCase())
+  if (idx === -1) return text
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="bg-yellow-500/30 text-yellow-200">{text.slice(idx, idx + query.length)}</mark>
+      {text.slice(idx + query.length)}
+    </>
+  )
+}
+
 export function LogStream({ stepRunId }: LogStreamProps) {
   const [logs, setLogs] = useState<StepRunLog[]>([])
   const [connected, setConnected] = useState(false)
+  const [search, setSearch] = useState('')
   const containerRef = useRef<HTMLDivElement>(null)
   const autoScrollRef = useRef(true)
+
+  const filtered = search
+    ? logs.filter((l) => l.content.toLowerCase().includes(search.toLowerCase()))
+    : logs
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reset logs when stepRunId changes before subscribing
@@ -64,8 +82,16 @@ export function LogStream({ stepRunId }: LogStreamProps) {
   return (
     <div className="rounded-md overflow-hidden border border-gray-800">
       {/* Header */}
-      <div className="flex items-center justify-between bg-gray-900 px-3 py-1.5 border-b border-gray-800">
+      <div className="flex items-center gap-2 bg-gray-900 px-3 py-1.5 border-b border-gray-800">
         <span className="text-[11px] text-gray-400">Logs</span>
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search logs..."
+          className="flex-1 rounded border border-gray-700 bg-black/50 px-2 py-0.5 text-[11px] text-gray-300 placeholder:text-gray-600 focus:outline-none focus:border-gray-500"
+        />
+        {search && <span className="text-[11px] text-gray-600">{filtered.length}/{logs.length}</span>}
         <div className="flex items-center gap-2">
           {connected && logs.length > 0 && (
             <span className="flex items-center gap-1.5 text-[11px] text-gray-500">
@@ -97,9 +123,9 @@ export function LogStream({ stepRunId }: LogStreamProps) {
         {logs.length === 0 && (
           <span className="text-gray-600">Waiting for logs...</span>
         )}
-        {logs.map((log) => (
+        {filtered.map((log) => (
           <div key={log.id} className={log.stream === 'stderr' ? 'text-red-400' : ''}>
-            {log.content}
+            {highlightMatch(log.content, search)}
           </div>
         ))}
       </div>

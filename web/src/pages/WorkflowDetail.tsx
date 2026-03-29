@@ -8,6 +8,7 @@ import { DAGGraph } from '@/components/DAGGraph'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/Skeleton'
+import { ModelSelect, getPreferredModel } from '@/components/ModelSelect'
 import { workflowCategory, CATEGORY_STYLES } from '@/lib/workflow-colors'
 import { cn } from '@/lib/utils'
 import { Shield, Bug, GitBranch, Search, Tag, Terminal } from 'lucide-react'
@@ -52,9 +53,10 @@ export function WorkflowDetailPage() {
 
   const [params, setParams] = useState<Record<string, string>>({})
   const [showYaml, setShowYaml] = useState(false)
+  const [model, setModel] = useState(getPreferredModel)
 
   const runMutation = useMutation({
-    mutationFn: () => api.createRun(wf!.id, def ? coerceParams(def, params) : params),
+    mutationFn: () => api.createRun(wf!.id, def ? coerceParams(def, params) : params, model || undefined),
     onSuccess: (run) => {
       queryClient.invalidateQueries({ queryKey: ['runs'] })
       navigate(`/runs/${run.id}`)
@@ -135,9 +137,17 @@ export function WorkflowDetailPage() {
             ))}
           </>
         )}
-        <Button onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
-          {runMutation.isPending ? 'Starting…' : 'Run Workflow'}
-        </Button>
+        <div className="flex items-center gap-3">
+          <div>
+            <label className="mb-1 block text-xs text-muted-foreground">Model</label>
+            <ModelSelect value={model} onChange={setModel} />
+          </div>
+          <div className="pt-5">
+            <Button onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>
+              {runMutation.isPending ? 'Starting…' : 'Run Workflow'}
+            </Button>
+          </div>
+        </div>
         {runMutation.isError && <p className="text-sm text-red-400">{runMutation.error.message}</p>}
       </div>
 

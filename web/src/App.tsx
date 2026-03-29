@@ -6,6 +6,7 @@ import { WorkflowListPage } from './pages/WorkflowList'
 import { WorkflowDetailPage } from './pages/WorkflowDetail'
 import { RunListPage } from './pages/RunList'
 import { RunDetailPage } from './pages/RunDetail'
+import { HomePage } from './pages/HomePage'
 import { InboxPage } from './pages/Inbox'
 import { ReportListPage } from './pages/ReportList'
 import { ReportDetailPage } from './pages/ReportDetail'
@@ -45,7 +46,7 @@ export default function App() {
         <RequireAuth>
           <Layout>
             <Routes>
-              <Route path="/" element={<Navigate to="/runs" replace />} />
+              <Route path="/" element={<HomePage />} />
               <Route path="/workflows" element={<WorkflowListPage />} />
               <Route path="/workflows/:id" element={<WorkflowDetailPage />} />
               <Route path="/runs" element={<RunListPage />} />

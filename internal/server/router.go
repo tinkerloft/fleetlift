@@ -1,8 +1,8 @@
 package server
 
 import (
-	"encoding/json"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -63,6 +63,9 @@ func NewRouter(deps Deps) (http.Handler, error) {
 		}
 		if err := yaml.Unmarshal(modelsYAML, &cfg); err != nil {
 			return nil, fmt.Errorf("parse models.yaml: %w", err)
+		}
+		if cfg.Models == nil {
+			cfg.Models = make([]handlers.ModelEntry, 0)
 		}
 		modelsH = handlers.NewModelsHandler(cfg.Models)
 	}
