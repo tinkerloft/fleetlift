@@ -107,22 +107,18 @@ export function PromptImproveModal({
           )}
 
           {mutation.isSuccess && data && (
-            <div className="grid gap-6 md:grid-cols-2">
-              {/* Original column */}
-              <div className="space-y-3">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Original</h3>
-                <div className="rounded-lg border border-zinc-700/60 bg-zinc-800/50 p-4">
-                  <p className="whitespace-pre-wrap text-sm text-zinc-300">{original}</p>
+            <div className="space-y-4">
+              {/* Score bar */}
+              {data.scores && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium text-muted-foreground">Your prompt:</span>
+                  <ScoreBadges scores={data.scores} />
                 </div>
-                {data.scores && <ScoreBadges scores={data.scores} />}
-              </div>
+              )}
 
-              {/* Improved column */}
-              <div className="space-y-3">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-emerald-400">Improved</h3>
-                <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.03] p-4 prose prose-sm prose-invert max-w-none">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.improved}</ReactMarkdown>
-                </div>
+              {/* Improved prompt */}
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.03] p-5 prose prose-sm prose-invert max-w-none">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.improved}</ReactMarkdown>
               </div>
             </div>
           )}
