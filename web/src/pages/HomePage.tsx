@@ -176,20 +176,22 @@ function RecentTasks({
             <span className="text-xs text-muted-foreground whitespace-nowrap">
               {formatTimeAgo(run.created_at)}
             </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 shrink-0"
-              disabled={isRetrying}
-              onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                onRetry(run)
-              }}
-              title="Retry"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-            </Button>
+            {(run.status === 'failed' || run.status === 'complete') && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                disabled={isRetrying}
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  onRetry(run)
+                }}
+                title="Retry"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+              </Button>
+            )}
           </Link>
         ))}
       </div>
@@ -222,7 +224,7 @@ export function HomePage() {
 
   const retryRun = useMutation({
     mutationFn: (run: Run) =>
-      api.createRun(run.workflow_id, run.parameters, run.model ?? undefined),
+      api.createRun(run.workflow_id, run.parameters ?? {}, run.model ?? undefined),
     onSuccess: (resp) => {
       queryClient.invalidateQueries({ queryKey: ['my-runs'] })
       navigate(`/runs/${resp.id}`)
@@ -248,6 +250,10 @@ export function HomePage() {
       </div>
 
       <PromptZone onSubmit={handleSubmit} isSubmitting={createRun.isPending} error={createRun.isError ? createRun.error.message : undefined} />
+
+      {retryRun.isError && (
+        <p className="text-sm text-red-400">Retry failed: {retryRun.error.message}</p>
+      )}
 
       <div className="grid gap-8 lg:grid-cols-[1fr_360px]">
         <TemplateGrid workflows={workflows} />

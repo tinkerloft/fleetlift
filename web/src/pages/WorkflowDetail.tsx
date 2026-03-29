@@ -9,15 +9,11 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/Skeleton'
 import { ModelSelect, getPreferredModel } from '@/components/ModelSelect'
-import { workflowCategory, CATEGORY_STYLES } from '@/lib/workflow-colors'
+import { workflowCategory, CATEGORY_STYLES, WORKFLOW_ICON_MAP } from '@/lib/workflow-colors'
 import { cn } from '@/lib/utils'
-import { Shield, Bug, GitBranch, Search, Tag, Terminal } from 'lucide-react'
+import { Terminal } from 'lucide-react'
 import type { WorkflowDef, ParameterDef } from '@/api/types'
 import { parse as parseYaml } from '@/lib/yaml'
-
-const ICON_MAP: Record<string, React.FC<{ className?: string }>> = {
-  Shield, Bug, GitBranch, Search, Tag, Terminal,
-}
 
 function coerceParams(def: WorkflowDef, raw: Record<string, string>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
@@ -78,7 +74,7 @@ export function WorkflowDetailPage() {
 
   const cat = workflowCategory(wf.tags ?? [])
   const styles = CATEGORY_STYLES[cat.color]
-  const Icon = ICON_MAP[cat.icon] ?? Terminal
+  const Icon = WORKFLOW_ICON_MAP[cat.icon] ?? Terminal
 
   return (
     <div className="space-y-6">

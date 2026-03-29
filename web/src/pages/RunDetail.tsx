@@ -126,7 +126,7 @@ export function RunDetailPage() {
   const retryMutation = useMutation({
     mutationFn: () => {
       if (!run) throw new Error('no run')
-      return api.createRun(run.workflow_id, run.parameters, run.model ?? undefined)
+      return api.createRun(run.workflow_id, run.parameters ?? {}, run.model ?? undefined)
     },
     onSuccess: (resp) => navigate(`/runs/${resp.id}`),
   })
@@ -228,6 +228,12 @@ export function RunDetailPage() {
               <div key={sr.id} className={cn('flex-1 rounded-full', SEG_COLOR[sr.status] ?? 'bg-transparent')} />
             ))}
           </div>
+        </div>
+      )}
+
+      {retryMutation.isError && (
+        <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400">
+          Retry failed: {retryMutation.error.message}
         </div>
       )}
 

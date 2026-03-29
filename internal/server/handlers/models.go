@@ -13,6 +13,9 @@ type ModelsHandler struct {
 }
 
 func NewModelsHandler(entries []ModelEntry) *ModelsHandler {
+	if entries == nil {
+		entries = make([]ModelEntry, 0)
+	}
 	return &ModelsHandler{entries: entries}
 }
 
