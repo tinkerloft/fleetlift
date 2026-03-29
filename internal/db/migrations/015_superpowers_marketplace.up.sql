@@ -1,6 +1,6 @@
 -- Seed the official Claude plugins marketplace (system-wide).
 INSERT INTO marketplaces (name, repo_url, credential, team_id)
-VALUES ('claude-plugins-official', 'github@claude-plugins-official', '', NULL)
+VALUES ('claude-plugins-official', 'anthropics/claude-plugins-official', '', NULL)
 ON CONFLICT (name) WHERE team_id IS NULL DO NOTHING;
 
 -- Seed the superpowers agent profile (system-wide).
