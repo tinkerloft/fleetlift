@@ -78,7 +78,7 @@ func (h *PromptHandlers) ImprovePrompt(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.Improve(r.Context(), req.Prompt)
 	if err != nil {
-		writeJSONError(w, http.StatusBadGateway, fmt.Sprintf("prompt improvement failed: %v", err))
+		writeJSONError(w, http.StatusBadGateway, "prompt improvement failed")
 		return
 	}
 

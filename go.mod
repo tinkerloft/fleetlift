@@ -4,6 +4,7 @@ go 1.25.6
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2
+	github.com/anthropics/anthropic-sdk-go v1.27.1
 	github.com/charmbracelet/huh v1.0.0
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-chi/cors v1.2.2
@@ -26,7 +27,6 @@ require (
 )
 
 require (
-	github.com/anthropics/anthropic-sdk-go v1.27.1 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
