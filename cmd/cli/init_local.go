@@ -311,6 +311,34 @@ func seedCredential(dbURL, encKey, name, value string) error {
 	return nil
 }
 
+// seedSystemCredential encrypts a secret and upserts it as a system-wide
+// credential (team_id IS NULL). Used for platform-level secrets like
+// ANTHROPIC_API_KEY for the prompt improver.
+func seedSystemCredential(dbURL, encKey, name, value string) error {
+	valueEnc, err := flcrypto.EncryptAESGCM(encKey, value)
+	if err != nil {
+		return fmt.Errorf("encrypt %s: %w", name, err)
+	}
+
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		return fmt.Errorf("open db: %w", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	_, err = db.Exec(`
+		INSERT INTO credentials (team_id, name, value_enc)
+		VALUES (NULL, $1, $2)
+		ON CONFLICT (name) WHERE team_id IS NULL
+		DO UPDATE SET value_enc = EXCLUDED.value_enc, updated_at = now()`,
+		name, valueEnc,
+	)
+	if err != nil {
+		return fmt.Errorf("upsert system %s credential: %w", name, err)
+	}
+	return nil
+}
+
 // runPreflight runs all checks before any user prompts.
 func runPreflight() error {
 	if _, err := os.Stat("go.mod"); os.IsNotExist(err) {
@@ -859,7 +887,11 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 		if err := seedCredential(defaultAppDSN, credKey, "ANTHROPIC_API_KEY", key); err != nil {
 			return fmt.Errorf("seed anthropic key: %w", err)
 		}
-		fmt.Println("✓ ANTHROPIC_API_KEY stored as encrypted credential")
+		// Also store as system credential so the prompt improver can access it
+		if err := seedSystemCredential(defaultAppDSN, credKey, "ANTHROPIC_API_KEY", key); err != nil {
+			return fmt.Errorf("seed system anthropic key: %w", err)
+		}
+		fmt.Println("✓ ANTHROPIC_API_KEY stored as encrypted credential (team + system)")
 	} else if token := strings.TrimSpace(oauthToken); token != "" {
 		if err := seedCredential(defaultAppDSN, credKey, "CLAUDE_CODE_OAUTH_TOKEN", token); err != nil {
 			return fmt.Errorf("seed oauth token: %w", err)
