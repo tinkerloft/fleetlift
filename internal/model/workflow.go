@@ -40,6 +40,7 @@ type WorkflowDef struct {
 	ID            string                     `yaml:"id"`
 	Title         string                     `yaml:"title"`
 	Description   string                     `yaml:"description"`
+	Hidden        bool                       `yaml:"hidden,omitempty"`
 	Tags          []string                   `yaml:"tags"`
 	Parameters    []ParameterDef             `yaml:"parameters"`
 	Steps         []StepDef                  `yaml:"steps"`
@@ -143,10 +144,11 @@ type ArtifactMount struct {
 }
 
 type RepoRef struct {
-	URL    string `yaml:"url"`
-	Branch string `yaml:"branch,omitempty"`
-	Ref    string `yaml:"ref,omitempty"` // git ref to fetch after clone (e.g. "pull/19/head")
-	Name   string `yaml:"name,omitempty"`
+	URL          string `yaml:"url"`
+	Branch       string `yaml:"branch,omitempty"`
+	Ref          string `yaml:"ref,omitempty"`           // git ref to fetch after clone (e.g. "pull/19/head")
+	Name         string `yaml:"name,omitempty"`
+	CreateBranch string `yaml:"create_branch,omitempty"` // branch prefix — creates <prefix>/<runID> after clone
 }
 
 func ParseWorkflowYAML(data []byte, def *WorkflowDef) error {

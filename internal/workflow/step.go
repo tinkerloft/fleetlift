@@ -20,6 +20,7 @@ type StepInput struct {
 	StepDef            model.StepDef    `json:"step_def"`
 	ResolvedOpts       ResolvedStepOpts `json:"resolved_opts"` // templates already rendered by DAGWorkflow
 	SandboxID          string           `json:"sandbox_id"`    // non-empty if sandbox_group reuse
+	ModelOverride      string           `json:"model_override,omitempty"`
 }
 
 // ResolvedStepOpts holds step options after template rendering.

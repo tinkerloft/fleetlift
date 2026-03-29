@@ -41,6 +41,7 @@ func (r *ClaudeCodeRunner) Run(ctx context.Context, sandboxID string, opts RunOp
 		PromptFile: promptPath,
 		WorkDir:    workDir,
 		MaxTurns:   effectiveMaxTurns(opts.MaxTurns),
+		Model:      opts.Model,
 		MCP: bridgeMCPRequest{
 			Enabled:    true,
 			ConfigPath: "/workspace/.mcp.json",
@@ -137,6 +138,7 @@ type bridgeRequest struct {
 	PromptFile string            `json:"prompt_file"`
 	WorkDir    string            `json:"work_dir"`
 	MaxTurns   int               `json:"max_turns"`
+	Model      string            `json:"model,omitempty"`
 	MCP        bridgeMCPRequest  `json:"mcp,omitempty"`
 	PluginDirs []string          `json:"plugin_dirs,omitempty"`
 	Env        map[string]string `json:"env,omitempty"`

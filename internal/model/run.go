@@ -20,6 +20,7 @@ type Run struct {
 	WorkflowTitle string     `db:"workflow_title" json:"workflow_title"`
 	Parameters    JSONMap    `db:"parameters" json:"parameters"`
 	Status        RunStatus  `db:"status" json:"status"`
+	Model         *string    `db:"model" json:"model,omitempty"`
 	TemporalID    string     `db:"temporal_id" json:"temporal_id,omitempty"`
 	TriggeredBy   string     `db:"triggered_by" json:"triggered_by,omitempty"`
 	StartedAt     *time.Time `db:"started_at" json:"started_at,omitempty"`

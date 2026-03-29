@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -63,50 +65,117 @@ func ValidateToken(secret []byte, tokenStr string) (*Claims, error) {
 
 const refreshTokenTTL = 30 * 24 * time.Hour
 
+var (
+	ErrRefreshTokenInvalid       = errors.New("invalid refresh token")
+	ErrRefreshTokenReuseDetected = errors.New("refresh token reuse detected")
+	ErrRefreshTokenExpired       = errors.New("refresh token expired")
+)
+
 // IssueRefreshToken generates a secure random refresh token, stores its hash in the DB, and returns the raw token.
 func IssueRefreshToken(ctx context.Context, db *sqlx.DB, userID string) (string, error) {
+	return issueRefreshToken(ctx, db, userID)
+}
+
+// RotateRefreshToken validates a refresh token, marks it used, and issues a new one.
+// If the token has already been used (reuse attack), all tokens for that user are invalidated.
+func RotateRefreshToken(ctx context.Context, db *sqlx.DB, raw string) (newToken, userID string, err error) {
+	newToken, _, userID, err = RefreshSession(ctx, db, raw, func(context.Context, sqlx.ExtContext, string) (string, error) {
+		return "", nil
+	})
+	return newToken, userID, err
+}
+
+// RefreshSession validates a refresh token, lets the caller build a new access token,
+// then consumes the old refresh token and inserts a replacement in one transaction.
+func RefreshSession(
+	ctx context.Context,
+	db *sqlx.DB,
+	raw string,
+	buildAccessToken func(context.Context, sqlx.ExtContext, string) (string, error),
+) (newRefreshToken, accessToken, userID string, err error) {
+	tx, err := db.BeginTxx(ctx, nil)
+	if err != nil {
+		return "", "", "", err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	rt, err := loadRefreshTokenForUpdate(ctx, tx, raw)
+	if err != nil {
+		return "", "", "", err
+	}
+	if rt.UsedAt != nil {
+		// Reuse detected — invalidate all tokens for this user and commit immediately.
+		// Must commit before returning the error, otherwise the deferred rollback
+		// (triggered by non-nil err) would undo the invalidation.
+		if _, delErr := tx.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, rt.UserID); delErr != nil {
+			return "", "", "", fmt.Errorf("invalidate tokens on reuse: %w", delErr)
+		}
+		if commitErr := tx.Commit(); commitErr != nil {
+			return "", "", "", fmt.Errorf("commit token invalidation: %w", commitErr)
+		}
+		return "", "", rt.UserID, ErrRefreshTokenReuseDetected
+	}
+	if time.Now().After(rt.ExpiresAt) {
+		return "", "", "", ErrRefreshTokenExpired
+	}
+
+	accessToken, err = buildAccessToken(ctx, tx, rt.UserID)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	if _, err := tx.ExecContext(ctx, `UPDATE refresh_tokens SET used_at = NOW() WHERE id = $1`, rt.ID); err != nil {
+		return "", "", "", fmt.Errorf("mark refresh token used: %w", err)
+	}
+
+	newRefreshToken, err = issueRefreshToken(ctx, tx, rt.UserID)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", "", "", err
+	}
+
+	return newRefreshToken, accessToken, rt.UserID, nil
+}
+
+type refreshTokenRecord struct {
+	ID        string     `db:"id"`
+	UserID    string     `db:"user_id"`
+	ExpiresAt time.Time  `db:"expires_at"`
+	UsedAt    *time.Time `db:"used_at"`
+}
+
+func loadRefreshTokenForUpdate(ctx context.Context, q sqlx.QueryerContext, raw string) (*refreshTokenRecord, error) {
+	hash := sha256hex(raw)
+	var rt refreshTokenRecord
+	if err := sqlx.GetContext(ctx, q, &rt,
+		`SELECT id, user_id, expires_at, used_at FROM refresh_tokens WHERE token_hash = $1 FOR UPDATE`, hash,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrRefreshTokenInvalid
+		}
+		return nil, fmt.Errorf("load refresh token: %w", err)
+	}
+	return &rt, nil
+}
+
+func issueRefreshToken(ctx context.Context, exec sqlx.ExtContext, userID string) (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
 	}
 	token := base64.URLEncoding.EncodeToString(raw)
 	hash := sha256hex(token)
-	_, err := db.ExecContext(ctx,
+	_, err := exec.ExecContext(ctx,
 		`INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
 		userID, hash, time.Now().Add(refreshTokenTTL))
 	return token, err
-}
-
-// RotateRefreshToken validates a refresh token, marks it used, and issues a new one.
-// If the token has already been used (reuse attack), all tokens for that user are invalidated.
-func RotateRefreshToken(ctx context.Context, db *sqlx.DB, raw string) (newToken, userID string, err error) {
-	hash := sha256hex(raw)
-	var rt struct {
-		ID        string     `db:"id"`
-		UserID    string     `db:"user_id"`
-		ExpiresAt time.Time  `db:"expires_at"`
-		UsedAt    *time.Time `db:"used_at"`
-	}
-	if err = db.GetContext(ctx, &rt,
-		`SELECT id, user_id, expires_at, used_at FROM refresh_tokens WHERE token_hash = $1`, hash,
-	); err != nil {
-		return "", "", fmt.Errorf("invalid refresh token")
-	}
-	if rt.UsedAt != nil {
-		// Token reuse detected — invalidate all tokens for this user
-		if _, delErr := db.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, rt.UserID); delErr != nil {
-			return "", "", fmt.Errorf("invalidate tokens on reuse: %w", delErr)
-		}
-		return "", "", fmt.Errorf("refresh token reuse detected")
-	}
-	if time.Now().After(rt.ExpiresAt) {
-		return "", "", fmt.Errorf("refresh token expired")
-	}
-	if _, updErr := db.ExecContext(ctx, `UPDATE refresh_tokens SET used_at = NOW() WHERE id = $1`, rt.ID); updErr != nil {
-		return "", "", fmt.Errorf("mark refresh token used: %w", updErr)
-	}
-	newToken, err = IssueRefreshToken(ctx, db, rt.UserID)
-	return newToken, rt.UserID, err
 }
 
 // sha256hex returns the hex-encoded SHA-256 hash of s.

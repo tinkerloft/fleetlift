@@ -1,0 +1,39 @@
+version: 1
+id: quick-run
+title: Quick Run
+description: >
+  Single-step ad-hoc task execution. Type a prompt, point at a repo, and run.
+hidden: true
+tags:
+  - quick-run
+  - ad-hoc
+
+parameters:
+  - name: prompt
+    type: string
+    required: true
+    description: What you want the agent to do
+
+  - name: repo_url
+    type: string
+    required: true
+    description: "Repository URL, e.g. https://github.com/org/repo"
+
+  - name: branch
+    type: string
+    required: false
+    description: "Branch to work on (default: main)"
+
+steps:
+  - id: execute
+    title: Execute task
+    mode: transform
+    repositories:
+      - url: "{{ .Params.repo_url }}"
+        branch: "{{ if .Params.branch }}{{ .Params.branch }}{{ end }}"
+        create_branch: agent/quick-run
+    execution:
+      agent: claude-code
+      credentials:
+        - GITHUB_TOKEN
+      prompt: "{{ .Params.prompt }}"
