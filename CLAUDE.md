@@ -161,7 +161,7 @@ When working with worktrees, always verify you are on the correct branch and in 
 
 - `POST /api/workflows/{id}/fork` returns 500 — fork endpoint is broken
 - CLI `credential list` has a JSON unmarshalling bug (expects `{items:[]}`, server returns `[]`)
-- Frontend SSE log streaming: `LogStream` component shows "Waiting for logs..." during execution — backend SSE is confirmed working (verified via curl + `run-sse-test.sh`), issue is likely `EventSource` auth (missing `fl_token` cookie). Use `run-sse-test.sh --playwright` to capture diagnostic screenshots.
+- Frontend SSE log streaming: `LogStream` component shows "Waiting for logs..." during execution — backend SSE is confirmed working (verified via curl + `run-sse-test.sh`). SSE auth is handled via the `fl_token` HttpOnly cookie set during OAuth callback and dev-login; the auth middleware (`internal/auth/middleware.go`) accepts cookie auth for GET/HEAD/OPTIONS requests, which covers EventSource connections. If logs still don't appear, check that the `fl_token` cookie is being set (OAuth flow or dev-login must complete before SSE connections will authenticate).
 - `HeartbeatTimeout: 2m` on `ExecuteStep` can be too short for large PRs where Claude thinks for extended periods without producing output events
 
 ## Key Conventions

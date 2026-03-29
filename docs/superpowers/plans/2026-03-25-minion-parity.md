@@ -16,6 +16,8 @@
 - 2026-03-26: Implemented (uncommitted) PR 1 auth/personal-tenancy foundation: migration `012_personal_space_and_run_model.up.sql`, OAuth personal team provisioning, JWT + `/api/me` personal-team filtering, transactional refresh rotation via `RefreshSession`, fail-closed auth error handling, and expanded auth handler tests.
 - 2026-03-26: Implemented (uncommitted) PR 1 backend slice for run model flow plumbing, `created_by=me` + `limit` run listing filters, builtin `hidden` support, and hidden `quick-run` builtin template. Verification passed (`go test ./...`, `make lint`, `go build ./...`).
 - 2026-03-26: Git status remains dirty with no commits yet in this branch; commit steps below remain intentionally unchecked until commit(s) are created.
+- 2026-03-26: PR 1 merged as #51.
+- 2026-03-29: PR 2 implemented and opened as #53. Includes: `GET /api/models` endpoint (embedded YAML config), `ModelSelect` component (backend-driven), `HomePage` with prompt-first quick-run UI + template grid + recent tasks, nav/route updates, model dropdown on `WorkflowDetail`, retry button on `RunDetail`, log search/filter on `LogStream`. Also: `CreateRunResponse` type fix (backend returns `{id, temporal_id}`, not full Run), `WORKFLOW_ICON_MAP` extracted to shared module, CLAUDE.md SSE auth docs corrected. Design deviation: model list served from backend config file instead of hardcoded frontend constant (supports future multi-provider).
 
 ---
 
@@ -183,7 +185,7 @@ go build ./...
 
 Expected: no errors.
 
-- [ ] **Step 1.3: Commit**
+- [x] **Step 1.3: Commit**
 
 ```bash
 git add internal/db/migrations/012_personal_space_and_run_model.up.sql
@@ -246,7 +248,7 @@ _, err = h.db.ExecContext(r.Context(),
 go build ./...
 ```
 
-- [ ] **Step 2.5: Commit**
+- [x] **Step 2.5: Commit**
 
 ```bash
 git add internal/model/run.go internal/server/handlers/runs.go
@@ -376,7 +378,7 @@ ModelOverride: req.Model,
 go build ./...
 ```
 
-- [ ] **Step 3.8: Commit**
+- [x] **Step 3.8: Commit**
 
 ```bash
 git add internal/workflow/dag.go internal/workflow/step.go internal/agent/runner.go internal/agent/claudecode.go internal/activity/execute.go internal/server/handlers/runs.go
@@ -414,7 +416,7 @@ In `docker/bridge.js`, find the args array construction (around line 215–224).
   if (Array.isArray(request.plugin_dirs)) {
 ```
 
-- [ ] **Step 4.2: Commit**
+- [x] **Step 4.2: Commit**
 
 ```bash
 git add docker/bridge.js
@@ -481,7 +483,7 @@ Add `"strconv"` to the import block if not already present.
 go test ./internal/server/handlers/... -count=1
 ```
 
-- [ ] **Step 5.4: Commit**
+- [x] **Step 5.4: Commit**
 
 ```bash
 git add internal/server/handlers/runs.go internal/server/handlers/runs_test.go
@@ -544,7 +546,7 @@ In `internal/template/builtin_test.go`, the count assertion will need updating a
 go build ./... && go test ./internal/template/... -count=1
 ```
 
-- [ ] **Step 6.5: Commit**
+- [x] **Step 6.5: Commit**
 
 ```bash
 git add internal/model/workflow.go internal/template/builtin.go internal/template/builtin_test.go
@@ -602,7 +604,7 @@ func TestQuickRunWorkflowTemplate_HiddenFromList(t *testing.T) {
 }
 ```
 
-- [ ] **Step 7.2: Run test to verify it fails**
+- [x] **Step 7.2: Run test to verify it fails**
 
 ```bash
 go test ./internal/template/... -run "TestQuickRun" -v -count=1
@@ -673,7 +675,7 @@ Expected: PASS.
 go test ./internal/template/... -count=1 && go build ./...
 ```
 
-- [ ] **Step 7.6: Commit**
+- [x] **Step 7.6: Commit**
 
 ```bash
 git add internal/template/workflows/quick-run.yaml internal/template/builtin_test.go
@@ -712,7 +714,7 @@ go build ./...
 - Modify: `web/src/api/types.ts`
 - Modify: `web/src/api/client.ts`
 
-- [ ] **Step 9.1: Add `model` to `Run` interface**
+- [x] **Step 9.1: Add `model` to `Run` interface and `CreateRunResponse` type**
 
 In `web/src/api/types.ts`, add to the `Run` interface:
 
@@ -720,14 +722,25 @@ In `web/src/api/types.ts`, add to the `Run` interface:
 model?: string
 ```
 
-- [ ] **Step 9.2: Update `createRun` to accept `model`, add `listMyRuns`**
+Add a new type for the create response (the backend returns `{id, temporal_id}`, not a full `Run`):
 
-In `web/src/api/client.ts`, update `createRun`:
+```typescript
+export interface CreateRunResponse {
+  id: string
+  temporal_id: string
+}
+```
+
+- [x] **Step 9.2: Update `createRun` to accept `model`, add `listMyRuns`**
+
+In `web/src/api/client.ts`, update `createRun` to use the correct return type:
 
 ```typescript
 createRun: (workflowId: string, parameters: Record<string, unknown>, model?: string) =>
-  post<Run>('/runs', { workflow_id: workflowId, parameters, ...(model ? { model } : {}) }),
+  post<CreateRunResponse>('/runs', { workflow_id: workflowId, parameters, ...(model ? { model } : {}) }),
 ```
+
+Update the import to include `CreateRunResponse`.
 
 Add a new method:
 
@@ -736,7 +749,9 @@ listMyRuns: (limit = 10) =>
   get<ListResponse<Run>>(`/runs?created_by=me&limit=${limit}`),
 ```
 
-- [ ] **Step 9.3: Commit**
+> **Note:** Callers that navigate after `createRun` use only `response.id` for the redirect (`/runs/${response.id}`). Retry reads `run.parameters`, `run.workflow_id`, and `run.model` from the full `Run` objects returned by `listMyRuns` or `getRun`, not from the create response.
+
+- [x] **Step 9.3: Commit**
 
 ```bash
 git add web/src/api/types.ts web/src/api/client.ts
@@ -750,7 +765,7 @@ git commit -m "feat: update API client for model param and created_by filter"
 **Files:**
 - Create: `web/src/components/ModelSelect.tsx`
 
-- [ ] **Step 10.1: Create the component**
+- [x] **Step 10.1: Create the component**
 
 ```tsx
 const MODELS = [
@@ -784,7 +799,7 @@ export function getPreferredModel(): string {
 }
 ```
 
-- [ ] **Step 10.2: Commit**
+- [x] **Step 10.2: Commit**
 
 ```bash
 git add web/src/components/ModelSelect.tsx
@@ -798,7 +813,7 @@ git commit -m "feat: add ModelSelect dropdown component"
 **Files:**
 - Create: `web/src/pages/HomePage.tsx`
 
-- [ ] **Step 11.1: Create HomePage**
+- [x] **Step 11.1: Create HomePage**
 
 Build the page with these zones:
 1. **Top zone:** prompt textarea (4-6 rows), repo URL input, branch input (default "main"), model dropdown (ModelSelect), "✦ Improve" button (disabled until Phase 2), "Run →" button.
@@ -811,7 +826,7 @@ Key implementation details:
 - Use `useQuery` for workflows and runs, `useMutation` for createRun.
 - Template grid cards show icon, title, description, and tags — reuse the category/color logic from `workflowCategory()` in `lib/workflow-colors.ts`.
 
-- [ ] **Step 11.2: Commit**
+- [x] **Step 11.2: Commit**
 
 ```bash
 git add web/src/pages/HomePage.tsx
@@ -826,7 +841,7 @@ git commit -m "feat: add prompt-first Home page"
 - Modify: `web/src/components/Layout.tsx`
 - Modify: `web/src/App.tsx`
 
-- [ ] **Step 12.1: Add Home to nav**
+- [x] **Step 12.1: Add Home to nav**
 
 In `web/src/components/Layout.tsx`, add Home as the first nav item. Import `Home` from `lucide-react`:
 
@@ -839,7 +854,7 @@ const NAV_ITEMS = [
 ]
 ```
 
-- [ ] **Step 12.2: Replace root redirect with HomePage**
+- [x] **Step 12.2: Replace root redirect with HomePage**
 
 In `web/src/App.tsx`, replace the `/` → `/runs` redirect with a route to `HomePage`:
 
@@ -852,7 +867,7 @@ import { HomePage } from '@/pages/HomePage'
 
 Remove the existing redirect: `<Route path="/" element={<Navigate to="/runs" replace />} />`.
 
-- [ ] **Step 12.3: Commit**
+- [x] **Step 12.3: Commit**
 
 ```bash
 git add web/src/components/Layout.tsx web/src/App.tsx
@@ -866,7 +881,7 @@ git commit -m "feat: add Home to nav, replace root redirect with HomePage"
 **Files:**
 - Modify: `web/src/pages/WorkflowDetail.tsx`
 
-- [ ] **Step 13.1: Add ModelSelect to run form**
+- [x] **Step 13.1: Add ModelSelect to run form**
 
 Import `ModelSelect` and `getPreferredModel`. Add state:
 
@@ -880,7 +895,7 @@ Add the dropdown below the params form, before the Run button. Update the `runMu
 mutationFn: () => api.createRun(wf!.id, def ? coerceParams(def, params) : params, model),
 ```
 
-- [ ] **Step 13.2: Commit**
+- [x] **Step 13.2: Commit**
 
 ```bash
 git add web/src/pages/WorkflowDetail.tsx
@@ -894,7 +909,7 @@ git commit -m "feat: add model selection to WorkflowDetail run form"
 **Files:**
 - Modify: `web/src/pages/RunDetail.tsx`
 
-- [ ] **Step 14.1: Add Retry button**
+- [x] **Step 14.1: Add Retry button**
 
 In `RunDetail.tsx`, find the header action buttons area (near Cancel button). Add a Retry button that appears when the run status is `failed` or `completed`:
 
@@ -918,7 +933,7 @@ const retryMutation = useMutation({
 )}
 ```
 
-- [ ] **Step 14.2: Commit**
+- [x] **Step 14.2: Commit**
 
 ```bash
 git add web/src/pages/RunDetail.tsx
@@ -932,7 +947,7 @@ git commit -m "feat: add Retry button to RunDetail for failed/completed runs"
 **Files:**
 - Modify: `web/src/components/LogStream.tsx`
 
-- [ ] **Step 15.1: Add search input and filtering**
+- [x] **Step 15.1: Add search input and filtering**
 
 Add a search state and filter input above the log output:
 
@@ -976,7 +991,7 @@ function highlightMatch(text: string, query: string): React.ReactNode {
 
 Render with `highlightMatch(log.content, search)` instead of `log.content`.
 
-- [ ] **Step 15.2: Commit**
+- [x] **Step 15.2: Commit**
 
 ```bash
 git add web/src/components/LogStream.tsx
@@ -987,13 +1002,13 @@ git commit -m "feat: add search/filter to LogStream with match highlighting"
 
 ### Task 16: Frontend build verification for PR 2
 
-- [ ] **Step 16.1: TypeScript check + build**
+- [x] **Step 16.1: TypeScript check + build**
 
 ```bash
 cd web && npx tsc --noEmit && npm run build
 ```
 
-- [ ] **Step 16.2: Run frontend tests**
+- [x] **Step 16.2: Run frontend tests**
 
 ```bash
 cd web && npm test -- --run

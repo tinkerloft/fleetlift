@@ -3,13 +3,14 @@ import { Link, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/api/client'
 import {
-  Inbox, LayoutTemplate, FileText, Activity, BookOpen, Heart, Settings,
+  Home, Inbox, LayoutTemplate, FileText, Activity, BookOpen, Heart, Settings,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { UserMenu } from './UserMenu'
 import { ThemeToggle } from './ThemeToggle'
 
 const NAV_ITEMS = [
+  { href: '/',          label: 'Home',      icon: Home },
   { href: '/runs',      label: 'Runs',      icon: Activity },
   { href: '/workflows', label: 'Workflows', icon: LayoutTemplate },
   { href: '/inbox',     label: 'Inbox',     icon: Inbox },

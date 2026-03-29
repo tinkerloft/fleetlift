@@ -1,7 +1,7 @@
 import type {
   WorkflowTemplate, Run, StepRunLog,
   InboxItem, Artifact, ListResponse, RunStatusUpdate,
-  UserProfile, Credential,
+  UserProfile, Credential, CreateRunResponse, ModelEntry,
 } from './types'
 
 const BASE = '/api'
@@ -76,9 +76,11 @@ export const api = {
   getWorkflow: (id: string) => get<WorkflowTemplate>(`/workflows/${id}`),
 
   // Runs
-  createRun: (workflowId: string, parameters: Record<string, unknown>) =>
-    post<Run>('/runs', { workflow_id: workflowId, parameters }),
+  createRun: (workflowId: string, parameters: Record<string, unknown>, model?: string) =>
+    post<CreateRunResponse>('/runs', { workflow_id: workflowId, parameters, ...(model ? { model } : {}) }),
   listRuns: () => get<ListResponse<Run>>('/runs'),
+  listMyRuns: (limit = 10) =>
+    get<ListResponse<Run>>(`/runs?created_by=me&limit=${limit}`),
   getRun: (id: string) => get<{ run: Run; steps: Run['steps']; workflow_yaml?: string }>(`/runs/${id}`)
     .then(({ run, steps, workflow_yaml }) => ({ ...run, steps, workflow_yaml })),
   getRunLogs: (id: string) => get<ListResponse<StepRunLog>>(`/runs/${id}/logs`),
@@ -117,6 +119,10 @@ export const api = {
 
   // Artifacts
   getArtifactContentUrl: (id: string) => `${BASE}/artifacts/${id}/content`,
+
+  // Models
+  listModels: () =>
+    get<ListResponse<ModelEntry>>('/models'),
 }
 
 /** Subscribe to live run updates via SSE. Returns an unsubscribe function. */
