@@ -41,8 +41,7 @@ func TestCreateSavedRepo_Validation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest("POST", "/api/saved-repos", strings.NewReader(tc.body))
 			req.Header.Set("Content-Type", "application/json")
-			req = claimsCtx(req, "team-1")
-			req.Header.Set("X-Team-ID", "team-1")
+			req = claimsCtx(req, "")
 
 			w := httptest.NewRecorder()
 			h.CreateSavedRepo(w, req)

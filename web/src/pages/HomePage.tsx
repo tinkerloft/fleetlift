@@ -114,7 +114,7 @@ function PromptZone({
   savedRepos: SavedRepo[]
   onSaveRepo: (url: string) => void
   presets: Preset[]
-  injectedPrompt?: string | null
+  injectedPrompt?: { prompt: string; seq: number } | null
   onPromptConsumed?: () => void
   onSaveAsPreset?: (prompt: string) => void
 }) {
@@ -124,10 +124,11 @@ function PromptZone({
   const [model, setModel] = useState(getPreferredModel)
   const [showImproveModal, setShowImproveModal] = useState(false)
 
-  // Accept externally injected prompt (from sidebar preset click)
+  // Accept externally injected prompt (from sidebar preset click).
+  // The seq counter ensures the effect re-fires even when the same preset is clicked twice.
   useEffect(() => {
     if (injectedPrompt != null) {
-      setPrompt(injectedPrompt)
+      setPrompt(injectedPrompt.prompt)
       onPromptConsumed?.()
     }
   }, [injectedPrompt, onPromptConsumed])
@@ -531,7 +532,8 @@ export function HomePage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [savePresetPrompt, setSavePresetPrompt] = useState<string | null>(null)
-  const [pendingPresetPrompt, setPendingPresetPrompt] = useState<string | null>(null)
+  const [pendingPresetPrompt, setPendingPresetPrompt] = useState<{ prompt: string; seq: number } | null>(null)
+  const presetSeq = useRef(0)
 
   const { data: workflowData } = useQuery({
     queryKey: ['workflows'],
@@ -646,7 +648,7 @@ export function HomePage() {
             <PresetsSidebar
               presets={presets}
               currentUserId={currentUserId}
-              onSelect={(p) => setPendingPresetPrompt(p.prompt)}
+              onSelect={(p) => { presetSeq.current += 1; setPendingPresetPrompt({ prompt: p.prompt, seq: presetSeq.current }) }}
               onDelete={(id) => deletePreset.mutate(id)}
             />
           </div>

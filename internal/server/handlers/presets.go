@@ -143,8 +143,16 @@ func (h *PresetHandlers) UpdatePreset(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "scope must be 'personal' or 'team'")
 		return
 	}
+	if req.Title != nil && *req.Title == "" {
+		writeJSONError(w, http.StatusBadRequest, "title must not be empty")
+		return
+	}
 	if req.Title != nil && len(*req.Title) > 200 {
 		writeJSONError(w, http.StatusBadRequest, "title must be 200 characters or fewer")
+		return
+	}
+	if req.Prompt != nil && *req.Prompt == "" {
+		writeJSONError(w, http.StatusBadRequest, "prompt must not be empty")
 		return
 	}
 	if req.Prompt != nil && len(*req.Prompt) > 50000 {
@@ -198,7 +206,12 @@ func (h *PresetHandlers) DeletePreset(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, "failed to delete preset")
 		return
 	}
-	rows, _ := result.RowsAffected()
+	rows, err := result.RowsAffected()
+	if err != nil {
+		slog.Error("failed to get rows affected", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "failed to delete preset")
+		return
+	}
 	if rows == 0 {
 		writeJSONError(w, http.StatusNotFound, "preset not found or not owned by you")
 		return

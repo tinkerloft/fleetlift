@@ -20,32 +20,27 @@ type SavedRepoHandlers struct {
 type savedRepo struct {
 	ID        string  `db:"id" json:"id"`
 	UserID    string  `db:"user_id" json:"user_id"`
-	TeamID    string  `db:"team_id" json:"team_id"`
 	URL       string  `db:"url" json:"url"`
 	Label     *string `db:"label" json:"label"`
 	CreatedAt string  `db:"created_at" json:"created_at"`
 }
 
-// ListSavedRepos returns the user's saved repos for the current team.
+// ListSavedRepos returns the calling user's saved repo bookmarks.
 func (h *SavedRepoHandlers) ListSavedRepos(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
 		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	teamID := teamIDFromRequest(w, r, claims)
-	if teamID == "" {
-		return
-	}
 
 	items := make([]savedRepo, 0)
 	err := h.DB.SelectContext(r.Context(), &items,
-		`SELECT id, user_id, team_id, url, label, created_at
+		`SELECT id, user_id, url, label, created_at
 		 FROM user_repos
-		 WHERE user_id = $1 AND team_id = $2
+		 WHERE user_id = $1
 		 ORDER BY created_at DESC
 		 LIMIT 100`,
-		claims.UserID, teamID)
+		claims.UserID)
 	if err != nil {
 		slog.Error("failed to list saved repos", "error", err, "user_id", claims.UserID)
 		writeJSONError(w, http.StatusInternalServerError, "failed to list saved repos")
@@ -60,15 +55,11 @@ type createSavedRepoRequest struct {
 	Label *string `json:"label"`
 }
 
-// CreateSavedRepo bookmarks a repository URL for the current user.
+// CreateSavedRepo bookmarks a repository URL for the calling user.
 func (h *SavedRepoHandlers) CreateSavedRepo(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
 		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
-		return
-	}
-	teamID := teamIDFromRequest(w, r, claims)
-	if teamID == "" {
 		return
 	}
 
@@ -81,13 +72,13 @@ func (h *SavedRepoHandlers) CreateSavedRepo(w http.ResponseWriter, r *http.Reque
 		writeJSONError(w, http.StatusBadRequest, "url is required")
 		return
 	}
+	if len(req.URL) > 2048 {
+		writeJSONError(w, http.StatusBadRequest, "url must be 2048 characters or fewer")
+		return
+	}
 	parsed, parseErr := url.Parse(req.URL)
 	if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" {
 		writeJSONError(w, http.StatusBadRequest, "url must use https:// scheme")
-		return
-	}
-	if len(req.URL) > 2048 {
-		writeJSONError(w, http.StatusBadRequest, "url must be 2048 characters or fewer")
 		return
 	}
 	if req.Label != nil && len(*req.Label) > 200 {
@@ -97,13 +88,12 @@ func (h *SavedRepoHandlers) CreateSavedRepo(w http.ResponseWriter, r *http.Reque
 
 	var created savedRepo
 	err := h.DB.QueryRowxContext(r.Context(),
-		`INSERT INTO user_repos (user_id, team_id, url, label)
-		 VALUES ($1, $2, $3, $4)
-		 RETURNING id, user_id, team_id, url, label, created_at`,
-		claims.UserID, teamID, req.URL, req.Label,
+		`INSERT INTO user_repos (user_id, url, label)
+		 VALUES ($1, $2, $3)
+		 RETURNING id, user_id, url, label, created_at`,
+		claims.UserID, req.URL, req.Label,
 	).StructScan(&created)
 	if err != nil {
-		// Check for unique constraint violation
 		if isDuplicateError(err) {
 			writeJSONError(w, http.StatusConflict, "repository already saved")
 			return
@@ -116,29 +106,30 @@ func (h *SavedRepoHandlers) CreateSavedRepo(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusCreated, created)
 }
 
-// DeleteSavedRepo removes a saved repo owned by the calling user within the current team.
+// DeleteSavedRepo removes a saved repo owned by the calling user.
 func (h *SavedRepoHandlers) DeleteSavedRepo(w http.ResponseWriter, r *http.Request) {
 	claims := auth.ClaimsFromContext(r.Context())
 	if claims == nil {
 		writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	teamID := teamIDFromRequest(w, r, claims)
-	if teamID == "" {
-		return
-	}
 
 	id := chi.URLParam(r, "id")
 
 	result, err := h.DB.ExecContext(r.Context(),
-		`DELETE FROM user_repos WHERE id = $1 AND user_id = $2 AND team_id = $3`,
-		id, claims.UserID, teamID)
+		`DELETE FROM user_repos WHERE id = $1 AND user_id = $2`,
+		id, claims.UserID)
 	if err != nil {
 		slog.Error("failed to delete saved repo", "error", err)
 		writeJSONError(w, http.StatusInternalServerError, "failed to delete saved repo")
 		return
 	}
-	rows, _ := result.RowsAffected()
+	rows, err := result.RowsAffected()
+	if err != nil {
+		slog.Error("failed to get rows affected", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "failed to delete saved repo")
+		return
+	}
 	if rows == 0 {
 		writeJSONError(w, http.StatusNotFound, "saved repo not found or not owned by you")
 		return

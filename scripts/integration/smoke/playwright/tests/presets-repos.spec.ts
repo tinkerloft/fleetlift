@@ -1,15 +1,5 @@
 import { test, expect } from '@playwright/test';
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Read the dev team ID from /api/me (works in DEV_NO_AUTH mode). */
-async function getTeamId(page: import('@playwright/test').Page): Promise<string> {
-  const res = await page.request.get('/api/me');
-  if (!res.ok()) return '';
-  const data = await res.json();
-  return data.teams?.[0]?.id ?? '';
-}
-
 // ── Presets ───────────────────────────────────────────────────────────────────
 
 test.describe('Presets', () => {
@@ -110,7 +100,6 @@ test.describe('Saved Repos combobox', () => {
 
   test('full lifecycle: save repo → dropdown shows it → select fills input', async ({ page }) => {
     const testUrl = `https://github.com/smoke-test/repo-${Date.now()}`;
-    const teamId = await getTeamId(page);
 
     await page.goto('/');
     const repoInput = page.getByPlaceholder('https://github.com/org/repo');
@@ -131,33 +120,22 @@ test.describe('Saved Repos combobox', () => {
     await expect(repoInput).toHaveValue(testUrl);
 
     // Cleanup via API
-    if (teamId) {
-      const listRes = await page.request.get('/api/saved-repos', {
-        headers: { 'X-Team-ID': teamId },
-      });
-      if (listRes.ok()) {
-        const data = await listRes.json();
-        const repo = (data.items ?? []).find((r: { url: string; id: string }) => r.url === testUrl);
-        if (repo) {
-          await page.request.delete(`/api/saved-repos/${repo.id}`, {
-            headers: { 'X-Team-ID': teamId },
-          });
-        }
+    const listRes = await page.request.get('/api/saved-repos');
+    if (listRes.ok()) {
+      const data = await listRes.json();
+      const repo = (data.items ?? []).find((r: { url: string; id: string }) => r.url === testUrl);
+      if (repo) {
+        await page.request.delete(`/api/saved-repos/${repo.id}`);
       }
     }
   });
 
   test('chevron button opens saved repo dropdown', async ({ page }) => {
     const testUrl = `https://github.com/smoke-test/chevron-${Date.now()}`;
-    const teamId = await getTeamId(page);
-    if (!teamId) {
-      test.skip(true, 'No team available in dev environment');
-      return;
-    }
 
-    // Pre-create a saved repo via API so the chevron renders
+    // Pre-create a saved repo via API so the dropdown has something to show
     await page.request.post('/api/saved-repos', {
-      headers: { 'X-Team-ID': teamId, 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       data: { url: testUrl },
     });
 
@@ -171,14 +149,12 @@ test.describe('Saved Repos combobox', () => {
     await expect(page.locator('button').filter({ hasText: testUrl })).toBeVisible({ timeout: 3000 });
 
     // Cleanup
-    if (teamId) {
-      const listRes = await page.request.get('/api/saved-repos', { headers: { 'X-Team-ID': teamId } });
-      if (listRes.ok()) {
-        const data = await listRes.json();
-        const repo = (data.items ?? []).find((r: { url: string; id: string }) => r.url === testUrl);
-        if (repo) {
-          await page.request.delete(`/api/saved-repos/${repo.id}`, { headers: { 'X-Team-ID': teamId } });
-        }
+    const listRes = await page.request.get('/api/saved-repos');
+    if (listRes.ok()) {
+      const data = await listRes.json();
+      const repo = (data.items ?? []).find((r: { url: string; id: string }) => r.url === testUrl);
+      if (repo) {
+        await page.request.delete(`/api/saved-repos/${repo.id}`);
       }
     }
   });
