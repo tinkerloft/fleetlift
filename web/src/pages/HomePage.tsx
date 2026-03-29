@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { workflowCategory, CATEGORY_STYLES, WORKFLOW_ICON_MAP } from '@/lib/workflow-colors'
 import { formatTimeAgo } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { PromptImproveModal } from '@/components/PromptImproveModal'
 import { Sparkles, Play, RotateCcw, ArrowRight, Inbox, Terminal } from 'lucide-react'
 
 function PromptZone({
@@ -25,6 +26,7 @@ function PromptZone({
   const [repoUrl, setRepoUrl] = useState('')
   const [branch, setBranch] = useState('main')
   const [model, setModel] = useState(getPreferredModel)
+  const [showImproveModal, setShowImproveModal] = useState(false)
 
   const canSubmit = prompt.trim().length > 0 && repoUrl.trim().length > 0
 
@@ -67,7 +69,13 @@ function PromptZone({
           </div>
 
           <div className="flex items-end gap-2">
-            <Button variant="outline" size="default" disabled className="gap-1.5 text-muted-foreground">
+            <Button
+              variant="outline"
+              size="default"
+              disabled={prompt.trim().length === 0}
+              onClick={() => setShowImproveModal(true)}
+              className="gap-1.5 text-muted-foreground"
+            >
               <Sparkles className="h-3.5 w-3.5" />
               Improve
             </Button>
@@ -85,6 +93,17 @@ function PromptZone({
         </div>
         {error && <p className="text-sm text-red-400">{error}</p>}
       </div>
+
+      {showImproveModal && (
+        <PromptImproveModal
+          original={prompt}
+          onAccept={(improved) => {
+            setPrompt(improved)
+            setShowImproveModal(false)
+          }}
+          onDecline={() => setShowImproveModal(false)}
+        />
+      )}
     </div>
   )
 }
