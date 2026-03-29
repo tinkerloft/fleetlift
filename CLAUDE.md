@@ -46,6 +46,7 @@ Workflow test tiers:
 
 **Required checks before marking work complete:**
 
+0. **Simplify**: Run `/simplify` to review changed code for reuse, quality, and efficiency
 1. **Build**: `go build -buildvcs=false ./...` (use `-buildvcs=false` in worktrees)
 2. **Unit tests**: `go test -buildvcs=false ./...`
 3. **Linter**: `make lint` (requires `golangci-lint` — skip if not installed but don't suppress real issues)
