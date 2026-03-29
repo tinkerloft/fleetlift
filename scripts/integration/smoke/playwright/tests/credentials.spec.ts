@@ -4,32 +4,33 @@ test.describe('Credentials management', () => {
 
   test('create and delete a credential', async ({ page }) => {
     await page.goto('/settings');
-    await expect(page.getByText(/Credentials/i)).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Team Credentials/i })).toBeVisible();
 
-    const addButton = page.getByRole('button', { name: /Add|Create|New/i });
-    await expect(addButton).toBeVisible();
-    await addButton.click();
+    // Click "+ Add" button
+    await page.getByText('+ Add').click();
 
-    const nameInput = page.locator('input[name="name"], input[placeholder*="name" i]');
+    // Fill in the name field (placeholder: CREDENTIAL_NAME)
+    const nameInput = page.locator('input[placeholder="CREDENTIAL_NAME"]');
     await nameInput.fill('PLAYWRIGHT_SMOKE_CRED');
 
-    const valueInput = page.locator('input[name="value"], input[placeholder*="value" i], input[type="password"]');
+    // Fill in the value field (type=password, placeholder: Value)
+    const valueInput = page.locator('input[placeholder="Value"]');
     await valueInput.fill('playwright-test-value');
 
-    const saveButton = page.getByRole('button', { name: /Save|Create|Add/i }).last();
-    await saveButton.click();
+    // Click Save
+    await page.getByText('Save').click();
 
+    // Verify it appears in the list
     await expect(page.getByText('PLAYWRIGHT_SMOKE_CRED')).toBeVisible({ timeout: 5000 });
 
-    const row = page.locator('tr, [data-credential]').filter({ hasText: 'PLAYWRIGHT_SMOKE_CRED' });
-    const deleteButton = row.getByRole('button', { name: /Delete|Remove/i });
-    await deleteButton.click();
+    // Click Delete — the credential row is a flex div containing both the name and button
+    const credRow = page.locator('div.flex.items-center.justify-between').filter({ hasText: 'PLAYWRIGHT_SMOKE_CRED' });
+    await credRow.getByText('Delete').click();
 
-    const confirmButton = page.getByRole('button', { name: /Confirm|Yes|Delete/i });
-    if (await confirmButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await confirmButton.click();
-    }
+    // Confirm the inline deletion
+    await page.getByText('Confirm').click();
 
+    // Verify it's gone
     await expect(page.getByText('PLAYWRIGHT_SMOKE_CRED')).not.toBeVisible({ timeout: 5000 });
   });
 

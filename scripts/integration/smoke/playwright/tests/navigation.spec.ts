@@ -32,12 +32,12 @@ test.describe('Page navigation', () => {
 
   test('settings page loads', async ({ page }) => {
     await page.goto('/settings');
-    await expect(page.getByText(/Credentials/i)).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Team Credentials/i })).toBeVisible();
   });
 
   test('system health page loads', async ({ page }) => {
     await page.goto('/system');
-    await expect(page.getByText(/System/i)).toBeVisible();
+    await expect(page.getByRole('heading', { name: /System Health/i })).toBeVisible();
   });
 
 });

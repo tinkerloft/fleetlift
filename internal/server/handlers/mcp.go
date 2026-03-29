@@ -39,6 +39,13 @@ func mcpClaims(w http.ResponseWriter, r *http.Request) *auth.MCPClaims {
 	return claims
 }
 
+func strPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
 // truncateTitle returns the first line of s, truncated to maxLen runes with "..." if needed.
 func truncateTitle(s string, maxLen int) string {
 	// Take first line only
@@ -312,8 +319,8 @@ func (h *MCPHandler) HandleAddLearning(w http.ResponseWriter, r *http.Request) {
 
 	item := model.KnowledgeItem{
 		TeamID:             claims.TeamID,
-		WorkflowTemplateID: templateID, // empty string if builtin template
-		StepRunID:          stepRunID,
+		WorkflowTemplateID: strPtr(templateID), // nil if builtin template
+		StepRunID:          strPtr(stepRunID),
 		Type:               knowledgeType,
 		Summary:            body.Summary,
 		Details:            body.Details,

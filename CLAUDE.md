@@ -2,6 +2,10 @@
 
 Project-specific instructions for Claude Code when working on this repository.
 
+## Pre-Commit Checks
+
+When fixing bugs or implementing features, always run the full test suite and ensure compilation passes before committing. For Go projects, run `go build -buildvcs=false ./...` and `go test -buildvcs=false ./...` before every commit. After changes that affect the running stack, also run `scripts/integration/smoke-test.sh api cli` as a quick sanity check.
+
 ## Local Server Operations
 
 Use the scripts in `scripts/integration/` to manage the local dev environment:
@@ -92,6 +96,15 @@ Claude auth (`ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`) and `GITHUB_TOKEN
 - `docker/Dockerfile.sandbox` build context is `docker/` — `COPY` paths are relative to that directory, not the repo root.
 - The `profile-test` workflow requires an `e2e-profile-test` agent profile to exist before dispatch — it is not self-contained. The smoke test suite and `run-profile-test.sh` both create this profile as setup.
 
+## Docker & Sandbox Guidelines
+
+When working with Docker containers and sandboxes:
+
+1. Never assume tools like `git`, `curl`, or `psql` are installed in a container — check first with `command -v`
+2. Containers may run as non-root (e.g. the `agent` user in `claude-code-sandbox`) — don't write to `/root/`
+3. Verify container names from `docker compose` config rather than guessing — use `docker ps` or the helpers in `dev-env.sh`
+4. Wait for service readiness before proceeding — use health checks or polling loops, not fixed `sleep` delays
+
 ## Docker Networking (Linux)
 
 - `host.docker.internal` does **not** resolve inside containers on Linux (only Docker Desktop on macOS/Windows)
@@ -135,6 +148,14 @@ scripts/integration/smoke-test.sh workflows
 
 For changes to `dev-env.sh` or other shell scripts, test from a fresh shell — your interactive session may mask `set -e` failures due to env vars already being set.
 
+## Code Review
+
+When doing code reviews, verify claims against actual code before presenting findings. If uncertain about error handling or behavior, read the relevant code paths rather than guessing. Do not report issues that don't exist.
+
+## Git Workflow
+
+When working with worktrees, always verify you are on the correct branch and in the correct worktree directory before committing. Run `git branch --show-current` and `pwd` to confirm.
+
 ## Known Issues
 
 - `POST /api/workflows/{id}/fork` returns 500 — fork endpoint is broken
@@ -147,7 +168,11 @@ For changes to `dev-env.sh` or other shell scripts, test from a fresh shell — 
 - Use Temporal SDK patterns for activities and workflows
 - Register new activities/workflows in `cmd/worker/main.go`
 - Add activity name constants to `internal/activity/constants.go`
-- Update the currennt implementation plan document when completing phases
+- Update the current implementation plan document when completing phases
+
+## Naming Conventions
+
+For MCP tool references in workflow YAML prompts, always use the full prefixed name format `mcp__fleetlift__<category>__<tool>` (e.g. `mcp__fleetlift__memory__search`, `mcp__fleetlift__artifact__create`), never short names. Check existing usage in `internal/template/workflows/*.yaml` for consistency before adding new references.
 
 ## Temporal Workflow Rules (STRICT)
 
@@ -192,10 +217,17 @@ All schema changes **must** be encoded as versioned migration files — never ap
 - To add a new migration: create `NNN_description.up.sql` with the next version number, rebuild — no other changes required
 - `internal/db/schema.sql` is a **reference only** (migration 001 baseline); it is not executed at runtime
 
+## Go Conventions
+
+- Always initialize slices with `make([]Type, 0)` instead of `var x []Type` — nil slices marshal as JSON `null` which crashes the frontend
+- Nullable database columns (`UUID REFERENCES ... ON DELETE SET NULL`) must use pointer types (`*string`) in model structs, not bare `string` — sqlx cannot scan `NULL` into a `string`
+- Use `go build -buildvcs=false ./...` in worktrees (VCS stamping fails outside the main repo)
+
 ## Go + PostgreSQL Type Rules
 
 - `[]string` fields **cannot** scan PostgreSQL `TEXT[]` columns — use `pq.StringArray` (from `github.com/lib/pq`)
 - `map[string]any` fields **cannot** scan `JSONB` columns — use the project's `JSONMap` type from `internal/model/types.go`
+- Nullable `UUID` columns must map to `*string` in Go model structs (not `string`) — see `KnowledgeItem.WorkflowTemplateID` for an example
 - When in doubt, check `internal/model/types.go` for the canonical scan-safe types before adding new model fields
 
 ## Serialization Rules

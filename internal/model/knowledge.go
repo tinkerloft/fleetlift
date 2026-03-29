@@ -37,8 +37,8 @@ const (
 type KnowledgeItem struct {
 	ID                 string          `db:"id" json:"id"`
 	TeamID             string          `db:"team_id" json:"team_id"`
-	WorkflowTemplateID string          `db:"workflow_template_id" json:"workflow_template_id,omitempty"`
-	StepRunID          string          `db:"step_run_id" json:"step_run_id,omitempty"`
+	WorkflowTemplateID *string         `db:"workflow_template_id" json:"workflow_template_id,omitempty"`
+	StepRunID          *string         `db:"step_run_id" json:"step_run_id,omitempty"`
 	Type               KnowledgeType   `db:"type" json:"type"`
 	Summary            string          `db:"summary" json:"summary"`
 	Details            string          `db:"details" json:"details,omitempty"`

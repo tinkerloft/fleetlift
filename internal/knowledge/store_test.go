@@ -12,6 +12,8 @@ import (
 	"github.com/tinkerloft/fleetlift/internal/model"
 )
 
+func ptr(s string) *string { return &s }
+
 func TestStore_SaveAndList(t *testing.T) {
 	store := knowledge.NewMemoryStore()
 
@@ -56,8 +58,8 @@ func TestStore_ListApprovedByWorkflow(t *testing.T) {
 	store := knowledge.NewMemoryStore()
 
 	items := []model.KnowledgeItem{
-		{TeamID: "team-1", WorkflowTemplateID: "wf-1", Type: model.KnowledgeTypePattern, Summary: "a", Source: model.KnowledgeSourceAutoCaptured, Status: model.KnowledgeStatusApproved},
-		{TeamID: "team-1", WorkflowTemplateID: "wf-2", Type: model.KnowledgeTypePattern, Summary: "b", Source: model.KnowledgeSourceAutoCaptured, Status: model.KnowledgeStatusApproved},
+		{TeamID: "team-1", WorkflowTemplateID: ptr("wf-1"), Type: model.KnowledgeTypePattern, Summary: "a", Source: model.KnowledgeSourceAutoCaptured, Status: model.KnowledgeStatusApproved},
+		{TeamID: "team-1", WorkflowTemplateID: ptr("wf-2"), Type: model.KnowledgeTypePattern, Summary: "b", Source: model.KnowledgeSourceAutoCaptured, Status: model.KnowledgeStatusApproved},
 	}
 	for _, item := range items {
 		_, _ = store.Save(context.Background(), item)
