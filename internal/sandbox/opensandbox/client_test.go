@@ -188,6 +188,106 @@ func TestKill_RejectsSubsequentOps(t *testing.T) {
 	assert.Error(t, err, "expected error when executing on killed sandbox")
 }
 
+func TestCreate_NetworkPolicyPassthrough(t *testing.T) {
+	var capturedBody map[string]any
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&capturedBody)
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":       "sb-test-np",
+			"metadata": map[string]string{"opensandbox.io/embedding-proxy-port": "12345"},
+		})
+	}))
+	defer ts.Close()
+
+	client := opensandbox.New(ts.URL, "test-key")
+	id, err := client.Create(context.Background(), sandbox.CreateOpts{
+		Image:       "test:latest",
+		TimeoutMins: 5,
+		NetworkPolicy: &sandbox.NetworkPolicy{
+			DefaultAction: "deny",
+			Egress: []sandbox.NetworkRule{
+				{Action: "allow", Target: "api.github.com"},
+				{Action: "allow", Target: "*.pypi.org"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "sb-test-np", id)
+
+	// Verify networkPolicy was included in the request body.
+	np, ok := capturedBody["networkPolicy"].(map[string]any)
+	require.True(t, ok, "networkPolicy should be present in request body")
+	assert.Equal(t, "deny", np["defaultAction"])
+
+	egress, ok := np["egress"].([]any)
+	require.True(t, ok)
+	require.Len(t, egress, 2)
+
+	rule0 := egress[0].(map[string]any)
+	assert.Equal(t, "allow", rule0["action"])
+	assert.Equal(t, "api.github.com", rule0["target"])
+}
+
+func TestCreate_CustomResources(t *testing.T) {
+	var capturedBody map[string]any
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&capturedBody)
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":       "sb-test-res",
+			"metadata": map[string]string{"opensandbox.io/embedding-proxy-port": "12345"},
+		})
+	}))
+	defer ts.Close()
+
+	client := opensandbox.New(ts.URL, "test-key")
+	_, err := client.Create(context.Background(), sandbox.CreateOpts{
+		Image:       "test:latest",
+		TimeoutMins: 5,
+		Resources:   &sandbox.ResourceLimits{CPU: "2000m", Memory: "4Gi"},
+	})
+	require.NoError(t, err)
+
+	rl, ok := capturedBody["resourceLimits"].(map[string]any)
+	require.True(t, ok, "resourceLimits should be present in request body")
+	assert.Equal(t, "2000m", rl["cpu"])
+	assert.Equal(t, "4Gi", rl["memory"])
+}
+
+func TestCreate_DefaultResources(t *testing.T) {
+	var capturedBody map[string]any
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&capturedBody)
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":       "sb-test-def",
+			"metadata": map[string]string{"opensandbox.io/embedding-proxy-port": "12345"},
+		})
+	}))
+	defer ts.Close()
+
+	client := opensandbox.New(ts.URL, "test-key")
+	_, err := client.Create(context.Background(), sandbox.CreateOpts{
+		Image:       "test:latest",
+		TimeoutMins: 5,
+		// No Resources — should use defaults
+	})
+	require.NoError(t, err)
+
+	rl, ok := capturedBody["resourceLimits"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "1000m", rl["cpu"])
+	assert.Equal(t, "2Gi", rl["memory"])
+
+	// networkPolicy should NOT be present when not specified
+	_, hasNP := capturedBody["networkPolicy"]
+	assert.False(t, hasNP, "networkPolicy should not be present when not specified")
+}
+
 func TestCreate_EmptySandboxIDError(t *testing.T) {
 	// Server returns 200 but with empty ID
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

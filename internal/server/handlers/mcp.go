@@ -39,6 +39,29 @@ func mcpClaims(w http.ResponseWriter, r *http.Request) *auth.MCPClaims {
 	return claims
 }
 
+func strPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// truncateTitle returns the first line of s, truncated to maxLen runes with "..." if needed.
+func truncateTitle(s string, maxLen int) string {
+	// Take first line only
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	runes := []rune(s)
+	if maxLen < 4 {
+		maxLen = 4
+	}
+	if len(runes) <= maxLen {
+		return s
+	}
+	return string(runes[:maxLen-3]) + "..."
+}
+
 func writeMCPErr(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -296,8 +319,8 @@ func (h *MCPHandler) HandleAddLearning(w http.ResponseWriter, r *http.Request) {
 
 	item := model.KnowledgeItem{
 		TeamID:             claims.TeamID,
-		WorkflowTemplateID: templateID, // empty string if builtin template
-		StepRunID:          stepRunID,
+		WorkflowTemplateID: strPtr(templateID), // nil if builtin template
+		StepRunID:          strPtr(stepRunID),
 		Type:               knowledgeType,
 		Summary:            body.Summary,
 		Details:            body.Details,
@@ -526,9 +549,9 @@ func (h *MCPHandler) HandleInboxRequestInput(w http.ResponseWriter, r *http.Requ
 			(id, team_id, run_id, step_run_id, kind, title, summary, question, options, urgency, created_at)
 		VALUES ($1,$2,$3,$4,'request_input',$5,$6,$7,$8,$9,now())`,
 		itemID, claims.TeamID, claims.RunID, stepRunID,
-		req.Question, // title
+		truncateTitle(req.Question, 80), // title: short preview for list views
 		stateSummary,
-		req.Question,
+		req.Question, // question: full text shown in detail view
 		pq.StringArray(req.Options),
 		req.Urgency,
 	)

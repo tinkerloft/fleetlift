@@ -33,6 +33,7 @@ type ResolvedStepOpts struct {
 	Agent             string                  `json:"agent"`
 	MaxTurns          int                     `json:"max_turns,omitempty"`
 	SandboxGroupImage string                  `json:"sandbox_group_image,omitempty"`
+	SandboxSpec       *model.SandboxSpec      `json:"sandbox_spec,omitempty"`
 	EffectiveProfile  *model.AgentProfileBody `json:"effective_profile,omitempty"`
 	EvalPluginURLs    []string                `json:"eval_plugin_urls,omitempty"`
 }

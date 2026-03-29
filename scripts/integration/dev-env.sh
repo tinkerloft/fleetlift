@@ -21,6 +21,17 @@ export CREDENTIAL_ENCRYPTION_KEY="${CREDENTIAL_ENCRYPTION_KEY:-00000000000000000
 # MCP sidecar — enable structured tool API for agent sandboxes (arch suffix appended at runtime)
 export FLEETLIFT_MCP_BINARY_PATH="${FLEETLIFT_MCP_BINARY_PATH:-$PROJECT_ROOT/bin/fleetlift-mcp}"
 
+# API URL reachable from inside sandbox containers.
+# On Linux, host.docker.internal doesn't resolve — use the Docker bridge gateway IP.
+if [[ -z "${FLEETLIFT_API_URL:-}" ]]; then
+  if [[ "$(uname)" == "Linux" ]]; then
+    _bridge_ip=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)
+    export FLEETLIFT_API_URL="http://${_bridge_ip:-172.17.0.1}:8080"
+  else
+    export FLEETLIFT_API_URL="http://host.docker.internal:8080"
+  fi
+fi
+
 # ── Postgres container helper ────────────────────────────────────────────────
 # Finds the running postgres container regardless of compose project name.
 # Used by scripts that need to run psql via docker exec.

@@ -3,6 +3,7 @@ package activity
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"os/exec"
@@ -52,12 +53,17 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 		}
 	}
 
-	// Inject agent-specific env vars (e.g. Claude auth keys)
-	if runner, ok := a.AgentRunners[input.ResolvedOpts.Agent]; ok {
-		for k, v := range runner.SandboxEnv() {
-			env[k] = v
-		}
+	// Resolve image early — needed to decide whether Claude auth is required.
+	image := input.ResolvedOpts.SandboxGroupImage
+	if image == "" {
+		image = agentImage(input.ResolvedOpts.Agent)
 	}
+
+	// Always attempt to resolve Claude auth from the team's credential store.
+	// A sandbox group provisioned by a shell step may later be reused by a
+	// claude-code step, so we inject auth unconditionally. If no credential
+	// exists, resolveClaudeAuth is a no-op.
+	a.resolveClaudeAuth(ctx, input.TeamID, env)
 
 	// Inject git identity from worker env
 	if email := os.Getenv("GIT_USER_EMAIL"); email != "" {
@@ -71,15 +77,44 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 		env["GIT_USER_NAME"] = DefaultGitName
 	}
 
-	image := input.ResolvedOpts.SandboxGroupImage
-	if image == "" {
-		image = agentImage(input.ResolvedOpts.Agent)
-	}
-	sandboxID, err := a.Sandbox.Create(ctx, sandbox.CreateOpts{
+	createOpts := sandbox.CreateOpts{
 		Image:       image,
 		Env:         env,
 		TimeoutMins: 120,
-	})
+	}
+
+	// Apply per-step sandbox spec (resources, egress policy) if defined.
+	if spec := input.ResolvedOpts.SandboxSpec; spec != nil {
+		if spec.Resources.CPU != "" || spec.Resources.Memory != "" {
+			createOpts.Resources = &sandbox.ResourceLimits{
+				CPU:    spec.Resources.CPU,
+				Memory: spec.Resources.Memory,
+			}
+		}
+		if spec.Egress.DenyAllByDefault {
+			np := &sandbox.NetworkPolicy{DefaultAction: "deny"}
+			for _, target := range spec.Egress.Allow {
+				np.Egress = append(np.Egress, sandbox.NetworkRule{
+					Action: "allow",
+					Target: target,
+				})
+			}
+			createOpts.NetworkPolicy = np
+		}
+		if spec.Timeout != "" {
+			d, err := time.ParseDuration(spec.Timeout)
+			if err != nil {
+				return "", fmt.Errorf("invalid sandbox timeout %q: %w", spec.Timeout, err)
+			}
+			mins := int(math.Ceil(d.Minutes()))
+			if mins < 1 {
+				mins = 1
+			}
+			createOpts.TimeoutMins = mins
+		}
+	}
+
+	sandboxID, err := a.Sandbox.Create(ctx, createOpts)
 	if err != nil {
 		return "", fmt.Errorf("create sandbox: %w", err)
 	}
@@ -219,8 +254,8 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 		// Inject MCP port and token into sandbox env so the agent runner and test steps can use them.
 		// Use separate echo commands to avoid nested single-quote issues with shellquote.
 		profileCmd := fmt.Sprintf(
-			"echo export FLEETLIFT_MCP_PORT=%s >> /tmp/fleetlift-mcp-env.sh && echo export FLEETLIFT_MCP_TOKEN=%s >> /tmp/fleetlift-mcp-env.sh",
-			shellquote.Quote(mcpPort), shellquote.Quote(mcpToken),
+			"echo export FLEETLIFT_MCP_PORT=%s >> /tmp/fleetlift-mcp-env.sh && echo export FLEETLIFT_MCP_TOKEN=%s >> /tmp/fleetlift-mcp-env.sh && echo export FLEETLIFT_API_URL=%s >> /tmp/fleetlift-mcp-env.sh",
+			shellquote.Quote(mcpPort), shellquote.Quote(mcpToken), shellquote.Quote(apiURL),
 		)
 		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, profileCmd, "/"); err != nil {
 			_ = a.Sandbox.Kill(ctx, sandboxID)
@@ -275,6 +310,23 @@ func injectGitToken(repoURL, token string) (string, error) {
 	}
 	u.User = url.UserPassword("x-access-token", token)
 	return u.String(), nil
+}
+
+// resolveClaudeAuth tries to fetch CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY
+// from the team's credential store. Best-effort: if neither credential exists
+// in the store, no auth is injected and the agent will fail at runtime.
+func (a *Activities) resolveClaudeAuth(ctx context.Context, teamID string, env map[string]string) {
+	if a.CredStore == nil {
+		return
+	}
+	// Try OAuth token first, then API key.
+	for _, name := range []string{"CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"} {
+		val, err := a.CredStore.Get(ctx, teamID, name)
+		if err == nil && val != "" {
+			env[name] = val
+			return
+		}
+	}
 }
 
 func agentImage(agentName string) string {
