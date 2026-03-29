@@ -62,6 +62,18 @@ export interface Run {
   steps?: StepRun[]
   workflow_yaml?: string
   total_cost_usd?: number
+  model?: string
+}
+
+export interface CreateRunResponse {
+  id: string
+  temporal_id: string
+}
+
+export interface ModelEntry {
+  value: string
+  label: string
+  provider: string
 }
 
 export interface StepRun {

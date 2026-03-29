@@ -1,3 +1,6 @@
+import { Shield, Bug, GitBranch, Search, Tag, Terminal } from 'lucide-react'
+import type React from 'react'
+
 export type CategoryColor = 'violet' | 'blue' | 'teal' | 'amber' | 'red' | 'gray'
 
 export interface WorkflowCategoryInfo {
@@ -20,6 +23,10 @@ export function workflowCategory(tags: string[]): WorkflowCategoryInfo {
     }
   }
   return { color: 'gray', icon: 'Terminal' }
+}
+
+export const WORKFLOW_ICON_MAP: Record<string, React.FC<{ className?: string }>> = {
+  Shield, Bug, GitBranch, Search, Tag, Terminal,
 }
 
 /** Tailwind classes for category accent colors */

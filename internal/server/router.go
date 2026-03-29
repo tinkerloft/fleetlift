@@ -1,6 +1,7 @@
 package server
 
 import (
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -12,11 +13,15 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/jmoiron/sqlx"
+	"gopkg.in/yaml.v3"
 
 	"github.com/tinkerloft/fleetlift/internal/auth"
 	"github.com/tinkerloft/fleetlift/internal/server/handlers"
 	"github.com/tinkerloft/fleetlift/web"
 )
+
+//go:embed models.yaml
+var modelsYAML []byte
 
 // Deps holds all handler groups and shared configuration for the server.
 type Deps struct {
@@ -33,6 +38,7 @@ type Deps struct {
 	DB                *sqlx.DB
 	Actions           *handlers.ActionsHandler
 	Profiles          *handlers.ProfilesHandler
+	Models            *handlers.ModelsHandler
 	TemporalUIURL     string
 }
 
@@ -49,6 +55,21 @@ func securityHeaders(next http.Handler) http.Handler {
 
 // NewRouter creates the HTTP router with all API routes.
 func NewRouter(deps Deps) (http.Handler, error) {
+	// Parse embedded models config if not pre-loaded via Deps.
+	modelsH := deps.Models
+	if modelsH == nil {
+		var cfg struct {
+			Models []handlers.ModelEntry `yaml:"models"`
+		}
+		if err := yaml.Unmarshal(modelsYAML, &cfg); err != nil {
+			return nil, fmt.Errorf("parse models.yaml: %w", err)
+		}
+		if cfg.Models == nil {
+			cfg.Models = make([]handlers.ModelEntry, 0)
+		}
+		modelsH = handlers.NewModelsHandler(cfg.Models)
+	}
+
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
@@ -91,6 +112,9 @@ func NewRouter(deps Deps) (http.Handler, error) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
+
+	// Models list (no auth required — static config)
+	r.Get("/api/models", modelsH.List)
 
 	// Public config (no auth required)
 	temporalUIURL := deps.TemporalUIURL

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, Link } from 'react-router-dom'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
 import { api, subscribeToRun, getConfig } from '@/api/client'
 import { DAGGraph } from '@/components/DAGGraph'
 import { StepPanel } from '@/components/StepPanel'
@@ -29,6 +29,7 @@ const SEG_COLOR: Record<string, string> = {
 
 export function RunDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -122,6 +123,14 @@ export function RunDetailPage() {
     catch (err) { setActionError(err instanceof Error ? err.message : 'Action failed'); setCancelling(false) }
   }, [id, queryClient])
 
+  const retryMutation = useMutation({
+    mutationFn: () => {
+      if (!run) throw new Error('no run')
+      return api.createRun(run.workflow_id, run.parameters ?? {}, run.model ?? undefined)
+    },
+    onSuccess: (resp) => navigate(`/runs/${resp.id}`),
+  })
+
   if (!run) {
     return (
       <div className="space-y-6">
@@ -195,6 +204,11 @@ export function RunDetailPage() {
             </span>
           )}
           <StatusBadge status={run.status} />
+          {(run.status === 'failed' || run.status === 'complete') && (
+            <Button variant="outline" size="sm" onClick={() => retryMutation.mutate()} disabled={retryMutation.isPending}>
+              {retryMutation.isPending ? 'Retrying…' : 'Retry'}
+            </Button>
+          )}
           {(run.status === 'running' || run.status === 'awaiting_input') && (
             <Button variant="destructive" size="sm" onClick={handleCancel} disabled={cancelling}>
               {cancelling ? 'Cancelling…' : 'Cancel'}
@@ -214,6 +228,12 @@ export function RunDetailPage() {
               <div key={sr.id} className={cn('flex-1 rounded-full', SEG_COLOR[sr.status] ?? 'bg-transparent')} />
             ))}
           </div>
+        </div>
+      )}
+
+      {retryMutation.isError && (
+        <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3 text-sm text-red-400">
+          Retry failed: {retryMutation.error.message}
         </div>
       )}
 
