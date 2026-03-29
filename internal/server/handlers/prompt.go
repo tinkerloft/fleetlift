@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -78,6 +79,7 @@ func (h *PromptHandlers) ImprovePrompt(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.Improve(r.Context(), req.Prompt)
 	if err != nil {
+		slog.Error("prompt improvement failed", "error", err)
 		writeJSONError(w, http.StatusBadGateway, "prompt improvement failed")
 		return
 	}
