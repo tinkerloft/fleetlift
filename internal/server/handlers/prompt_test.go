@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestImprovePrompt_EmptyPrompt(t *testing.T) {
+func TestImprovePrompt_InvalidInput(t *testing.T) {
 	h := &PromptHandlers{
 		Improve: func(ctx context.Context, prompt string) (*improveResponse, error) {
 			t.Fatal("should not be called")
@@ -18,43 +18,25 @@ func TestImprovePrompt_EmptyPrompt(t *testing.T) {
 		},
 	}
 
-	body := `{"prompt": ""}`
-	req := httptest.NewRequest(http.MethodPost, "/api/prompt/improve", bytes.NewBufferString(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-
-	h.ImprovePrompt(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"empty prompt", `{"prompt": ""}`},
+		{"whitespace only", `{"prompt": "   "}`},
+		{"malformed JSON", `not json`},
 	}
 
-	var resp map[string]string
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
-	if resp["error"] != "prompt is required" {
-		t.Fatalf("unexpected error: %s", resp["error"])
-	}
-}
-
-func TestImprovePrompt_WhitespaceOnlyPrompt(t *testing.T) {
-	h := &PromptHandlers{
-		Improve: func(ctx context.Context, prompt string) (*improveResponse, error) {
-			t.Fatal("should not be called")
-			return nil, nil
-		},
-	}
-
-	body := `{"prompt": "   "}`
-	req := httptest.NewRequest(http.MethodPost, "/api/prompt/improve", bytes.NewBufferString(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-
-	h.ImprovePrompt(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/prompt/improve", bytes.NewBufferString(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			h.ImprovePrompt(w, req)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d", w.Code)
+			}
+		})
 	}
 }
 

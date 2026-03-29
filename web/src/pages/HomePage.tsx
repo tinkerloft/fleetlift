@@ -37,7 +37,8 @@ function PromptZone({
     setShowImproveModal(false)
   }, [])
 
-  const canSubmit = prompt.trim().length > 0 && repoUrl.trim().length > 0
+  const hasPrompt = prompt.trim().length > 0
+  const canSubmit = hasPrompt && repoUrl.trim().length > 0
 
   return (
     <div className="relative rounded-xl border border-violet-500/20 bg-gradient-to-b from-violet-500/[0.03] to-transparent p-[1px]">
@@ -81,7 +82,7 @@ function PromptZone({
             <Button
               variant="outline"
               size="default"
-              disabled={prompt.trim().length === 0}
+              disabled={!hasPrompt}
               onClick={() => setShowImproveModal(true)}
               className="gap-1.5 text-muted-foreground"
             >

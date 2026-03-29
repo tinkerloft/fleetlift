@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 
@@ -17,6 +18,8 @@ import (
 
 	flcrypto "github.com/tinkerloft/fleetlift/internal/crypto"
 )
+
+const credentialCacheTTL = 60 * time.Second
 
 const improveSystemPrompt = `You are an AI prompt quality analyst. Given a developer's prompt for a coding agent, you must:
 1. Analyze the prompt quality across four dimensions: clarity, context, structure, guidance
@@ -68,9 +71,10 @@ type PromptHandlers struct {
 	db            *sqlx.DB
 	encryptionKey string
 
-	mu          sync.RWMutex
+	mu          sync.Mutex
 	cachedKey   string
 	cachedFn    PromptImprover
+	cachedAt    time.Time
 }
 
 // NewPromptHandlers creates a PromptHandlers that resolves the Anthropic API key
@@ -80,13 +84,22 @@ func NewPromptHandlers(db *sqlx.DB, encryptionKey string) *PromptHandlers {
 	return &PromptHandlers{db: db, encryptionKey: encryptionKey}
 }
 
-// resolveImprover looks up the ANTHROPIC_API_KEY from system credentials and
-// returns a cached PromptImprover. Caches the client until the key changes.
+// resolveImprover returns a cached PromptImprover, refreshing from the DB
+// at most once per credentialCacheTTL. Supports key rotation without restart.
 func (h *PromptHandlers) resolveImprover(ctx context.Context) (PromptImprover, error) {
 	if h.db == nil || h.encryptionKey == "" {
 		return nil, fmt.Errorf("credential store not configured")
 	}
 
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Return cached improver if within TTL.
+	if h.cachedFn != nil && time.Since(h.cachedAt) < credentialCacheTTL {
+		return h.cachedFn, nil
+	}
+
+	// TTL expired or first call — query DB.
 	var valueEnc []byte
 	err := h.db.GetContext(ctx, &valueEnc,
 		`SELECT value_enc FROM credentials WHERE team_id IS NULL AND name = 'ANTHROPIC_API_KEY'`)
@@ -102,21 +115,17 @@ func (h *PromptHandlers) resolveImprover(ctx context.Context) (PromptImprover, e
 		return nil, fmt.Errorf("decrypt ANTHROPIC_API_KEY: %w", err)
 	}
 
-	// Return cached improver if the key hasn't changed.
-	h.mu.RLock()
+	// Reuse existing client if key hasn't changed.
 	if h.cachedKey == apiKey && h.cachedFn != nil {
-		fn := h.cachedFn
-		h.mu.RUnlock()
-		return fn, nil
+		h.cachedAt = time.Now()
+		return h.cachedFn, nil
 	}
-	h.mu.RUnlock()
 
-	// Key changed or first call — create new client.
+	// Key changed — create new client.
 	fn := NewAnthropicImprover(apiKey)
-	h.mu.Lock()
 	h.cachedKey = apiKey
 	h.cachedFn = fn
-	h.mu.Unlock()
+	h.cachedAt = time.Now()
 	return fn, nil
 }
 
