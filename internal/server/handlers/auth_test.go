@@ -655,7 +655,7 @@ func TestHandleRefresh_ReuseDetectedReturns401(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta(`DELETE FROM refresh_tokens WHERE user_id = $1`)).
 		WithArgs("user-reused").
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectRollback()
+	mock.ExpectCommit()
 
 	req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
 	req.AddCookie(&http.Cookie{Name: "refresh_token", Value: rawToken})

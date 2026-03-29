@@ -30,7 +30,7 @@ steps:
     mode: transform
     repositories:
       - url: "{{ .Params.repo_url }}"
-        ref: "{{ if .Params.branch }}{{ .Params.branch }}{{ end }}"
+        branch: "{{ if .Params.branch }}{{ .Params.branch }}{{ end }}"
         create_branch: agent/quick-run
     execution:
       agent: claude-code

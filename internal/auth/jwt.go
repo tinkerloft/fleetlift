@@ -108,10 +108,16 @@ func RefreshSession(
 		return "", "", "", err
 	}
 	if rt.UsedAt != nil {
+		// Reuse detected — invalidate all tokens for this user and commit immediately.
+		// Must commit before returning the error, otherwise the deferred rollback
+		// (triggered by non-nil err) would undo the invalidation.
 		if _, delErr := tx.ExecContext(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1`, rt.UserID); delErr != nil {
 			return "", "", "", fmt.Errorf("invalidate tokens on reuse: %w", delErr)
 		}
-		return "", "", "", ErrRefreshTokenReuseDetected
+		if commitErr := tx.Commit(); commitErr != nil {
+			return "", "", "", fmt.Errorf("commit token invalidation: %w", commitErr)
+		}
+		return "", "", rt.UserID, ErrRefreshTokenReuseDetected
 	}
 	if time.Now().After(rt.ExpiresAt) {
 		return "", "", "", ErrRefreshTokenExpired

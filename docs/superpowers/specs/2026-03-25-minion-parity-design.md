@@ -43,7 +43,7 @@ Add individual-developer task delegation to Fleetlift so it serves both fleet-wi
 
 **New page: `HomePage` at `/`**
 
-- Top zone: prompt textarea, repo URL input, branch input (default `main`), optional "Open PR if changes made" checkbox, "✦ Improve" button, "Run →" button.
+- Top zone: prompt textarea, repo URL input, branch input (default `main`), "✦ Improve" button, "Run →" button.
 - Bottom zone: template grid — existing builtin workflows as clickable cards. Clicking navigates to `/workflows/:id` unchanged. "View all →" link for custom workflows.
 - Right/below: recent tasks list — last 10 runs scoped to `created_by = current user`, showing status badge, title, repo, elapsed time, Retry button per item.
 - Nav change: add "Home" item at top; keep "Workflows" for platform teams.
@@ -53,11 +53,11 @@ Add individual-developer task delegation to Fleetlift so it serves both fleet-wi
 
 - Slug: `quick-run`
 - Required params: `prompt` (string), `repo_url` (string)
-- Optional params: `branch` (string, default `main`), `create_pr` (bool, default false)
-- Single execution step: runs Claude Code agent with the user's prompt against the cloned repo.
-- If `create_pr` is true: step includes a `pull_request` block with `branch_prefix: agent/quick-run`, title and body templated from agent output.
+- Optional params: `branch` (string, default `main`)
+- Single execution step: runs Claude Code agent with the user's prompt against the cloned repo on a new branch (`agent/quick-run`).
+- No `create_pr` param. PR creation is always the expected outcome — the agent opens a PR if the changes are of sufficient quality, and skips it otherwise. This is the Stripe Minions default: ship unless quality isn't there, not ship only if the user opts in.
 - No output schema, no fan-out, no HITL.
-- Frontend calls `api.createRun('quick-run', { prompt, repo_url, branch, create_pr })` — the `quick-run` slug is looked up by the Home page directly.
+- Frontend calls `api.createRun('quick-run', { prompt, repo_url, branch })` — the `quick-run` slug is looked up by the Home page directly.
 
 **API additions**
 - `GET /api/runs?created_by=me&limit=10` — existing runs endpoint gains `created_by=me` filter (resolves to JWT subject). Used by the recent tasks list.

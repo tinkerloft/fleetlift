@@ -649,6 +649,7 @@ steps:
     repositories:
       - url: "{{ .Params.repo_url }}"
         ref: "{{ if .Params.branch }}{{ .Params.branch }}{{ end }}"
+        create_branch: agent/quick-run
     execution:
       agent: claude-code
       credentials:
@@ -656,7 +657,7 @@ steps:
       prompt: "{{ .Params.prompt }}"
 ```
 
-> **Note:** PR creation (`create_pr` param, `pull_request` block) is deferred — the workflow engine doesn't support conditional PR blocks per-run. The agent can still create PRs via its own tools if the prompt asks for it. Conditional PR creation will be wired when the frontend (PR 2) needs it.
+> **Design decision:** There is no `create_pr` parameter. Quick-run always creates a branch (`agent/quick-run`) and the agent is expected to open a PR if its changes are of sufficient quality. This matches the Stripe Minions model — PR creation is the default outcome; the agent self-assesses and skips it only when the work isn't ready. The Home page UI has no "Open PR" checkbox.
 
 - [x] **Step 7.4: Run tests**
 
