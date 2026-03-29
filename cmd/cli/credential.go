@@ -62,9 +62,10 @@ func credentialListCmd() *cobra.Command {
 
 func credentialSetCmd() *cobra.Command {
 	var value string
+	var system bool
 	cmd := &cobra.Command{
 		Use:   "set <name>",
-		Short: "Set a team credential",
+		Short: "Set a credential",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if value == "" {
@@ -77,8 +78,12 @@ func credentialSetCmd() *cobra.Command {
 					return fmt.Errorf("credential value is required")
 				}
 			}
+			endpoint := "/api/credentials"
+			if system {
+				endpoint = "/api/system-credentials"
+			}
 			c := newClient()
-			if err := c.post("/api/credentials", map[string]string{
+			if err := c.post(endpoint, map[string]string{
 				"name":  args[0],
 				"value": value,
 			}, nil); err != nil {
@@ -89,6 +94,7 @@ func credentialSetCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&value, "value", "v", "", "Credential value (reads from stdin if omitted)")
+	cmd.Flags().BoolVar(&system, "system", false, "Set as a system-wide credential (requires platform admin)")
 	return cmd
 }
 
