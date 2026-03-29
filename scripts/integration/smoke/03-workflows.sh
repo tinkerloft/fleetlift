@@ -62,9 +62,22 @@ if [[ "$WORKFLOW_STATUS" == "COMPLETED" ]]; then
 fi
 
 # ── profile-test ──────────────────────────────────────────────────
+# The profile-test workflow requires an agent profile named "e2e-profile-test".
+# Create it before submitting, clean up after.
+api_call POST /api/agent-profiles '{"name":"e2e-profile-test","description":"smoke test profile","body":{"plugins":[],"skills":[],"mcps":[{"name":"e2e-test-mcp","type":"remote","transport":"sse","url":"https://e2e-test-mcp.example.com/sse"}]}}'
+E2E_PROFILE_ID=$(json_field "['id']" 2>/dev/null || echo "")
+if [[ -n "$E2E_PROFILE_ID" ]]; then
+  on_cleanup "api_call DELETE /api/agent-profiles/$E2E_PROFILE_ID"
+fi
+
 run_workflow "profile-test" "profile-test" '{}' 180
 if [[ "$WORKFLOW_STATUS" == "COMPLETED" ]]; then
   verify_steps "profile-test" "$RUN_ID"
+fi
+
+# Clean up profile immediately (don't wait for trap)
+if [[ -n "$E2E_PROFILE_ID" ]]; then
+  api_call DELETE "/api/agent-profiles/$E2E_PROFILE_ID"
 fi
 
 # ── mcp-test ──────────────────────────────────────────────────────
@@ -103,9 +116,15 @@ else
     assert_contains "clone-test output has clone-ok" "${CLONE_OUTPUT:-}" "clone-ok"
   fi
 
-  run_workflow "pr-review" "pr-review" "{\"repo_url\":\"$TEST_REPO\",\"pr_number\":52}" 300
-  if [[ "$WORKFLOW_STATUS" == "COMPLETED" ]]; then
-    verify_steps "pr-review" "$RUN_ID"
+  # pr-review skipped in default smoke run — too slow for large PRs.
+  # Run manually: SMOKE_PR_REVIEW=1 scripts/integration/smoke/03-workflows.sh
+  if [[ "${SMOKE_PR_REVIEW:-}" == "1" ]]; then
+    run_workflow "pr-review" "pr-review" "{\"repo_url\":\"$TEST_REPO\",\"pr_number\":52}" 600
+    if [[ "$WORKFLOW_STATUS" == "COMPLETED" ]]; then
+      verify_steps "pr-review" "$RUN_ID"
+    fi
+  else
+    skip "pr-review — set SMOKE_PR_REVIEW=1 to enable (slow)"
   fi
 
   TRIAGE_PARAMS=$(python3 -c "
@@ -122,16 +141,22 @@ print(json.dumps({
     assert_equals "triage analyze step" "complete" "$ANALYZE_STATUS"
   fi
 
-  BUGFIX_PARAMS=$(python3 -c "
+  # bug-fix skipped in default smoke run — multi-step Claude workflow is slow.
+  # Run manually: SMOKE_BUG_FIX=1 scripts/integration/smoke/03-workflows.sh
+  if [[ "${SMOKE_BUG_FIX:-}" == "1" ]]; then
+    BUGFIX_PARAMS=$(python3 -c "
 import json
 print(json.dumps({
   'repo_url': '$TEST_REPO',
   'issue_body': 'Smoke test: add a comment to the top of README.md noting the last smoke test date.'
 }))
-  ")
-  run_workflow "bug-fix" "bug-fix" "$BUGFIX_PARAMS" 300
-  if [[ "$WORKFLOW_STATUS" == "COMPLETED" ]]; then
-    verify_steps "bug-fix" "$RUN_ID"
+    ")
+    run_workflow "bug-fix" "bug-fix" "$BUGFIX_PARAMS" 600
+    if [[ "$WORKFLOW_STATUS" == "COMPLETED" ]]; then
+      verify_steps "bug-fix" "$RUN_ID"
+    fi
+  else
+    skip "bug-fix — set SMOKE_BUG_FIX=1 to enable (slow)"
   fi
 
 fi

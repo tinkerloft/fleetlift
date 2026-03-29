@@ -223,7 +223,7 @@ export function InboxPage() {
                   {item.title}
                 </Link>
                 {item.kind === 'request_input' && item.question && (
-                  <p className="text-sm font-medium text-amber-400">{item.question}</p>
+                  <p className="text-sm font-medium text-amber-400 whitespace-pre-wrap">{item.question}</p>
                 )}
                 {item.summary && (
                   <p className="text-[13px] text-muted-foreground line-clamp-2">{item.summary}</p>

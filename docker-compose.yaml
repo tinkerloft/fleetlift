@@ -10,9 +10,11 @@ configs:
 
       [runtime]
       type = "docker"
+      # Pinned: v1.0.9 fixes ExecStream framing; later versions untested
       execd_image = "opensandbox/execd:v1.0.9"
 
       [egress]
+      # Pinned: v1.0.4 matches execd v1.0.9 compatibility
       image = "opensandbox/egress:v1.0.4"
 
       [docker]
@@ -84,6 +86,7 @@ services:
 
   # OpenSandbox — sandbox execution environment for agent steps
   opensandbox-server:
+    # Pinned: v0.1.9 has networkPolicy REST field; later versions may rename it
     image: opensandbox/server:v0.1.9
     container_name: opensandbox-server
     ports:

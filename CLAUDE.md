@@ -11,27 +11,41 @@ Use the scripts in `scripts/integration/` to manage the local dev environment:
 - `scripts/integration/stop.sh` — stop worker and server
 - `scripts/integration/logs.sh` — tail worker and server logs
 - `scripts/integration/status.sh` — check if processes are running
-- `scripts/integration/run-sandbox-test.sh` — trigger a sandbox-test workflow run
-- `scripts/integration/run-mcp-test.sh [--with-agent]` — run MCP sidecar integration test
 
 Prerequisites: `docker compose up -d` (Temporal + Postgres + OpenSandbox) must be running.
 
 Logs are written to `/tmp/fleetlift-worker.log` and `/tmp/fleetlift-server.log`.
 
+## Smoke Tests
+
+After any significant change, run the smoke test suite to verify the stack is functional:
+
+```bash
+scripts/integration/smoke-test.sh              # all layers (api, cli, workflows, web)
+scripts/integration/smoke-test.sh api cli      # quick: API + CLI only (~30s)
+scripts/integration/smoke-test.sh workflows    # workflow E2E (Tier 1 + Tier 2 if GITHUB_TOKEN exists)
+scripts/integration/run-sse-test.sh            # SSE streaming diagnostic (Worker→DB, DB→SSE)
+```
+
+Individual quick checks (standalone, predate the smoke suite):
+- `scripts/integration/run-sandbox-test.sh` — sandbox lifecycle + step output passing
+- `scripts/integration/run-mcp-test.sh` — MCP sidecar endpoints + agent tool calls
+- `scripts/integration/run-profile-test.sh` — agent profile CRUD + workflow E2E
+
+Workflow test tiers:
+- **Tier 1** (always): sandbox-test, profile-test, mcp-test — no external credentials
+- **Tier 2** (auto-detected): clone-test, triage — requires `GITHUB_TOKEN` in credential store
+- **Tier 2 opt-in**: `SMOKE_PR_REVIEW=1` (pr-review, slow), `SMOKE_BUG_FIX=1` (bug-fix, slow)
+- **Tier 3** (opt-in): `SMOKE_TIER3=1` — fleet-research, fleet-transform, audit, etc.
+
 ## Before Completing Any Task
 
 **Required checks before marking work complete:**
 
-1. **Run linter**: `make lint`
-   - All code must pass golangci-lint with no errors
-   - Fix any lint issues before completing the task
-
-2. **Run tests**: `go test ./...`
-   - All tests must pass
-   - Add tests for new functionality
-
-3. **Build verification**: `go build ./...`
-   - Code must compile without errors
+1. **Build**: `go build -buildvcs=false ./...` (use `-buildvcs=false` in worktrees)
+2. **Unit tests**: `go test -buildvcs=false ./...`
+3. **Linter**: `make lint` (requires `golangci-lint` — skip if not installed but don't suppress real issues)
+4. **Smoke tests**: `scripts/integration/smoke-test.sh api cli` (quick sanity check against running stack)
 
 ## Workflow & Activity Pre-merge Checklist
 
@@ -51,16 +65,82 @@ For any new or modified workflow, activity, or sandbox integration code, verify 
 - `internal/agent/` - AgentRunner interface + ClaudeCodeRunner
 - `internal/auth/` - JWT, GitHub OAuth, HTTP middleware
 - `internal/db/` - PostgreSQL connection helper + schema
-- `internal/knowledge/` - Local knowledge store (v1 holdover — needs decision: wire in or remove)
+- `internal/knowledge/` - Knowledge store (DB-backed, wired into MCP sidecar endpoints)
 - `internal/logging/` - slog adapter
 - `internal/metrics/` - Prometheus interceptor
 - `internal/model/` - All entity types (Run, StepRun, WorkflowTemplate, etc.)
 - `internal/sandbox/` - sandbox.Client interface + opensandbox/ REST implementation
 - `internal/server/` - chi router + handlers (auth, workflows, runs, inbox, reports, credentials)
-- `internal/template/` - BuiltinProvider, DBProvider, Registry, RenderPrompt; 9 builtin YAML workflows
+- `internal/template/` - BuiltinProvider, DBProvider, Registry, RenderPrompt; 15 builtin YAML workflows
 - `internal/workflow/` - DAGWorkflow + StepWorkflow (Temporal)
 - `web/` - React 19 + TypeScript + Vite SPA (embedded in server binary via web/embed.go)
 - `docs/plans/` - Design doc and implementation plan
+
+## Credential Management
+
+Claude auth (`ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`) and `GITHUB_TOKEN` are stored as **encrypted team credentials in the database**, not as host environment variables.
+
+- `ProvisionSandbox` always calls `resolveClaudeAuth` to inject auth into every sandbox — no agent-type or image-name gating
+- `init-local` wizard prompts for credentials and stores them via `seedCredential()` in the DB
+- To add/update a credential manually: `POST /api/credentials` with `{"name":"GITHUB_TOKEN","value":"ghp_..."}`
+- Host env vars like `CLAUDE_CODE_OAUTH_TOKEN` in `~/.fleetlift/local.env` are **not** used by the worker — only the DB credential store is checked
+
+## Sandbox Provisioning
+
+- `ProvisionSandbox` runs **once per sandbox group** at the DAG level, using the agent/credentials of the *first step* that triggers it. If step 1 is `agent: shell` and step 2 is `agent: claude-code` in the same `sandbox_group`, auth must already be present from provisioning time.
+- The `claude-code-sandbox:latest` image must be built locally: `make sandbox-build`. It is not pulled from a registry.
+- `docker/Dockerfile.sandbox` build context is `docker/` — `COPY` paths are relative to that directory, not the repo root.
+- The `profile-test` workflow requires an `e2e-profile-test` agent profile to exist before dispatch — it is not self-contained. The smoke test suite and `run-profile-test.sh` both create this profile as setup.
+
+## Docker Networking (Linux)
+
+- `host.docker.internal` does **not** resolve inside containers on Linux (only Docker Desktop on macOS/Windows)
+- `dev-env.sh` auto-detects the Docker bridge gateway IP and sets `FLEETLIFT_API_URL` so the MCP sidecar can reach the host server
+- The MCP test workflow reads `FLEETLIFT_API_URL` from `/tmp/fleetlift-mcp-env.sh` inside the sandbox
+
+## OpenSandbox Version Pinning
+
+The `docker-compose.yaml` pins specific OpenSandbox versions. Do not change these without testing streaming behavior:
+
+- `opensandbox/server:v0.1.9` — has `networkPolicy` REST field used by egress policy
+- `opensandbox/execd:v1.0.9` — fixes ExecStream framing; different versions change output buffering
+- `opensandbox/egress:v1.0.4` — matches execd compatibility
+
+If you change execd versions, verify with: `scripts/integration/run-sse-test.sh` (tests incremental log delivery).
+
+## Shell Script Safety (`set -euo pipefail`)
+
+All integration scripts use `set -euo pipefail`. This has critical implications:
+
+- Any function that can return non-zero (e.g. `fl_sql` when no rows match) **must** have `|| true` when called inside `$()` substitutions, or `set -e` silently kills the script with no output
+- `dev-env.sh` is sourced by every script — any failing command in it kills the caller. Always use `|| true` for optional commands like `docker network inspect`
+- When writing new integration scripts, test them from a clean shell (not your interactive session which may have different env vars set)
+
+## Development Workflow
+
+When making changes to fleetlift:
+
+1. **Start the stack**: `docker compose up -d && scripts/integration/start.sh --build`
+2. **Make changes** to Go code, workflow YAMLs, or frontend
+3. **Rebuild + restart**: `scripts/integration/restart.sh` (rebuilds all binaries + web, restarts worker + server)
+4. **Quick validation**: `scripts/integration/smoke-test.sh api cli` (~30s, tests API endpoints + CLI commands)
+5. **Workflow validation**: `scripts/integration/smoke-test.sh workflows` (runs Tier 1 diagnostic workflows + Tier 2 if GITHUB_TOKEN exists)
+6. **After sandbox/streaming changes**: `scripts/integration/run-sse-test.sh` (verifies log insertion + SSE delivery)
+7. **After frontend changes**: `scripts/integration/smoke-test.sh web` (Playwright navigation + interaction tests)
+
+For changes to `ProvisionSandbox`, credential handling, or MCP sidecar code, always run the full workflow tier:
+```bash
+scripts/integration/smoke-test.sh workflows
+```
+
+For changes to `dev-env.sh` or other shell scripts, test from a fresh shell — your interactive session may mask `set -e` failures due to env vars already being set.
+
+## Known Issues
+
+- `POST /api/workflows/{id}/fork` returns 500 — fork endpoint is broken
+- CLI `credential list` has a JSON unmarshalling bug (expects `{items:[]}`, server returns `[]`)
+- Frontend SSE log streaming: `LogStream` component shows "Waiting for logs..." during execution — backend SSE is confirmed working (verified via curl + `run-sse-test.sh`), issue is likely `EventSource` auth (missing `fl_token` cookie). Use `run-sse-test.sh --playwright` to capture diagnostic screenshots.
+- `HeartbeatTimeout: 2m` on `ExecuteStep` can be too short for large PRs where Claude thinks for extended periods without producing output events
 
 ## Key Conventions
 
@@ -144,7 +224,7 @@ All schema changes **must** be encoded as versioned migration files — never ap
 | `TEMPORAL_ADDRESS` | Temporal server | `localhost:7233` |
 | `OPENSANDBOX_DOMAIN` | OpenSandbox API base URL | — |
 | `OPENSANDBOX_API_KEY` | OpenSandbox auth key | — |
-| `AGENT_IMAGE` | Default sandbox image (Claude Code) | `claude-code:latest` |
+| `AGENT_IMAGE` | Default sandbox image (Claude Code) | `claude-code-sandbox:latest` |
 | `JWT_SECRET` | Server JWT signing key | — |
 | `CREDENTIAL_ENCRYPTION_KEY` | 32-byte hex key for AES-256-GCM | — |
 | `GITHUB_CLIENT_ID` | OAuth app client ID | — |
@@ -152,4 +232,4 @@ All schema changes **must** be encoded as versioned migration files — never ap
 | `GIT_USER_EMAIL` | Git commit identity for agent | `claude-agent@noreply.localhost` |
 | `GIT_USER_NAME` | Git commit identity for agent | `Claude Code Agent` |
 | `FLEETLIFT_MCP_BINARY_PATH` | MCP sidecar binary path prefix (arch suffix appended at runtime, e.g. `-amd64`) | — |
-| `FLEETLIFT_API_URL` | CLI base URL | `http://localhost:8080` |
+| `FLEETLIFT_API_URL` | API URL reachable from inside sandbox containers | auto-detected by `dev-env.sh` |

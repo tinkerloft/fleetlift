@@ -260,6 +260,7 @@ func seedDevIdentity(dbURL string) error {
 func checkExistingCredential(dbURL, name string) bool {
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not connect to DB to check credential %q: %v\n", name, err)
 		return false
 	}
 	defer func() { _ = db.Close() }()
@@ -270,6 +271,8 @@ func checkExistingCredential(dbURL, name string) bool {
 		devTeamID, name,
 	).Scan(&exists)
 	if err != nil {
+		// Table may not exist on first run; this is expected.
+		fmt.Fprintf(os.Stderr, "warning: could not check credential %q (table may not exist yet): %v\n", name, err)
 		return false
 	}
 	return exists

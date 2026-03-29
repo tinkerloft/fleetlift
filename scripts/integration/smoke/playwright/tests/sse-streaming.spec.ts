@@ -2,6 +2,9 @@ import { test, expect } from '@playwright/test';
 
 async function submitSandboxTest(baseURL: string): Promise<{ runId: string }> {
   const loginRes = await fetch(`${baseURL}/api/auth/dev-login`);
+  if (!loginRes.ok) {
+    throw new Error(`dev-login failed: ${loginRes.status} ${loginRes.statusText}`);
+  }
   const { token } = await loginRes.json() as { token: string };
 
   const res = await fetch(`${baseURL}/api/runs`, {

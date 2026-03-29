@@ -53,11 +53,17 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 		}
 	}
 
-	// Resolve Claude auth credentials from the team's credential store.
-	// No fallback to host env — all secrets must be managed via the store.
-	if input.ResolvedOpts.Agent == "claude-code" {
-		a.resolveClaudeAuth(ctx, input.TeamID, env)
+	// Resolve image early — needed to decide whether Claude auth is required.
+	image := input.ResolvedOpts.SandboxGroupImage
+	if image == "" {
+		image = agentImage(input.ResolvedOpts.Agent)
 	}
+
+	// Always attempt to resolve Claude auth from the team's credential store.
+	// A sandbox group provisioned by a shell step may later be reused by a
+	// claude-code step, so we inject auth unconditionally. If no credential
+	// exists, resolveClaudeAuth is a no-op.
+	a.resolveClaudeAuth(ctx, input.TeamID, env)
 
 	// Inject git identity from worker env
 	if email := os.Getenv("GIT_USER_EMAIL"); email != "" {
@@ -69,11 +75,6 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 		env["GIT_USER_NAME"] = name
 	} else {
 		env["GIT_USER_NAME"] = DefaultGitName
-	}
-
-	image := input.ResolvedOpts.SandboxGroupImage
-	if image == "" {
-		image = agentImage(input.ResolvedOpts.Agent)
 	}
 
 	createOpts := sandbox.CreateOpts{
