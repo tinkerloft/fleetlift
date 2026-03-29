@@ -1,4 +1,8 @@
-# Binaries
+# =============================================================================
+# Go
+# =============================================================================
+
+# Compiled binaries
 bin/
 *.exe
 *.exe~
@@ -6,76 +10,146 @@ bin/
 *.so
 *.dylib
 
-# Test binary, built with `go test -c`
+# Test binaries (built with `go test -c`)
 *.test
 
-# Output of the go coverage tool
+# Coverage and profiling output
 *.out
+*.prof
+*.pprof
 coverage.html
 coverage.txt
+coverage/
 
-# Go workspace file
+# Go workspace files (local multi-module dev; not committed)
 go.work
 go.work.sum
 
-# Dependency directories
+# Dependency mirror (not using vendoring)
 vendor/
 
-# Environment variables
+# =============================================================================
+# Built binaries (project-specific)
+# =============================================================================
+
+# Root-level server/worker/cli binaries produced by `make build`
+/server
+/worker
+/cli
+/mcp-sidecar
+
+# Docker build-time binary copy
+docker/fleetlift-agent
+
+# =============================================================================
+# Frontend (web/)
+# =============================================================================
+
+# Node dependencies
+node_modules/
+
+# Vite/build output — keep the placeholder and the embedded index.html
+web/dist/*
+!web/dist/.gitkeep
+!web/dist/index.html
+
+# TypeScript build cache
+*.tsbuildinfo
+
+# Vitest / Jest coverage
+web/coverage/
+
+# =============================================================================
+# Environment and secrets
+# =============================================================================
+
+# All .env variants; allow the documented example file
 .env
 .env.*
 !.env.example
 
+# Local runtime config written by init-local wizard
+local.env
+*.local.env
+
+# =============================================================================
+# Build and dist artifacts
+# =============================================================================
+
+/dist/
+/build/
+*.tar.gz
+*.zip
+
+# =============================================================================
 # IDEs and editors
+# =============================================================================
+
+# VS Code
 .vscode/
+
+# JetBrains (IntelliJ, GoLand, WebStorm, …)
 .idea/
+
+# Cursor
+.cursor/
+
+# Zed
+.zed/
+
+# Vim / Neovim swap files
 *.swp
 *.swo
 *~
-.DS_Store
+
+# Sublime Text
 *.sublime-project
 *.sublime-workspace
 
-# OS files
-Thumbs.db
+# =============================================================================
+# Operating system files
+# =============================================================================
+
+# macOS
+.DS_Store
 .AppleDouble
 .LSOverride
+._*
 
-# Temporal data
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+.directory
+
+# =============================================================================
+# Temporal
+# =============================================================================
+
 temporal-data/
 .temporal/
 
-# Logs
+# =============================================================================
+# Logs and temporary files
+# =============================================================================
+
 *.log
 logs/
-
-# Temporary files
 tmp/
 temp/
 *.tmp
 
-# Build artifacts
-/dist/
-/build/
-web/dist/*
-!web/dist/.gitkeep
-!web/dist/index.html
-*.tar.gz
-*.zip
+# =============================================================================
+# Git worktrees (local-only; managed by scripts/integration/)
+# =============================================================================
 
+.worktrees/
+
+# =============================================================================
+# Claude Code / Superpowers
+# =============================================================================
+
+# Local settings override (contains machine-specific config)
 .claude/settings.local.json
-
-# Docker build artifacts
-docker/fleetlift-agent
-
-# Built binaries (root-level)
-/server
-/worker
-/mcp-sidecar
-
-# Git worktrees
-.worktrees/
-/cli
-.worktrees/
-.env*
-node_modules/
