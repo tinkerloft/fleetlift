@@ -68,9 +68,6 @@ web/coverage/
 .env.*
 !.env.example
 
-# Local runtime config written by init-local wizard
-local.env
-*.local.env
 
 # =============================================================================
 # Build and dist artifacts
