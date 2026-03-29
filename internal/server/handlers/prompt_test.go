@@ -148,9 +148,8 @@ func TestImprovePrompt_ImproverError(t *testing.T) {
 }
 
 func TestImprovePrompt_NilImprover(t *testing.T) {
-	h := &PromptHandlers{
-		Improve: nil,
-	}
+	// No Improve function set and no DB configured → 503
+	h := &PromptHandlers{}
 
 	body := `{"prompt": "fix the bug"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/prompt/improve", bytes.NewBufferString(body))

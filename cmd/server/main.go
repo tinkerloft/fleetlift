@@ -90,11 +90,8 @@ func main() {
 		}
 	}()
 
-	// Prompt improvement handler (optional — requires ANTHROPIC_API_KEY)
-	promptHandler := &handlers.PromptHandlers{}
-	if apiKey := os.Getenv("ANTHROPIC_API_KEY"); apiKey != "" {
-		promptHandler.Improve = handlers.NewAnthropicImprover(apiKey)
-	}
+	// Prompt improvement handler — resolves ANTHROPIC_API_KEY from system credentials at request time
+	promptHandler := handlers.NewPromptHandlers(database, encKey)
 
 	// Build router
 	deps := server.Deps{
