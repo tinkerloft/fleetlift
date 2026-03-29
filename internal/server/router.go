@@ -247,8 +247,9 @@ func devAuthBypass(jwtSecret []byte) func(http.Handler) http.Handler {
 			}
 			// Fall back to a dev claims object
 			claims := &auth.Claims{
-				UserID:    os.Getenv("DEV_USER_ID"),
-				TeamRoles: map[string]string{os.Getenv("DEV_TEAM_ID"): "admin"},
+				UserID:        os.Getenv("DEV_USER_ID"),
+				TeamRoles:     map[string]string{os.Getenv("DEV_TEAM_ID"): "admin"},
+				PlatformAdmin: true,
 			}
 			ctx := auth.SetClaimsInContext(r.Context(), claims)
 			next.ServeHTTP(w, r.WithContext(ctx))
