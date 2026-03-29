@@ -11,7 +11,7 @@ bin/
 *.dylib
 
 # Delve debugger output (dlv debug ./cmd/...)
-__debug_bin
+__debug_bin*
 
 # Test binaries (built with `go test -c`)
 *.test
@@ -73,7 +73,6 @@ web/coverage/
 .env
 .env.*
 !.env.example
-
 
 # =============================================================================
 # Build and dist artifacts
