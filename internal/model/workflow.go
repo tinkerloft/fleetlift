@@ -89,7 +89,6 @@ type SandboxSpec struct {
 type SandboxResources struct {
 	CPU    string `yaml:"cpu,omitempty"`    // e.g. "2"
 	Memory string `yaml:"memory,omitempty"` // e.g. "4Gi"
-	GPU    bool   `yaml:"gpu,omitempty"`
 }
 
 type EgressPolicy struct {

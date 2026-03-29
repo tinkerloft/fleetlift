@@ -52,9 +52,6 @@ type localEnvConfig struct {
 	DevNoAuth               bool
 	DevUserID               string
 	DevTeamID               string
-	// Exactly one of these is set:
-	AnthropicAPIKey  string
-	ClaudeOAuthToken string
 }
 
 func generateHexSecret(n int) string {
@@ -95,12 +92,8 @@ func writeLocalEnv(path string, cfg localEnvConfig) error {
 	}
 	line("DEV_USER_ID", cfg.DevUserID)
 	line("DEV_TEAM_ID", cfg.DevTeamID)
-	sb.WriteString("\n# Claude agent auth\n")
-	if cfg.AnthropicAPIKey != "" {
-		line("ANTHROPIC_API_KEY", cfg.AnthropicAPIKey)
-	} else if cfg.ClaudeOAuthToken != "" {
-		line("CLAUDE_CODE_OAUTH_TOKEN", cfg.ClaudeOAuthToken)
-	}
+	// Claude agent auth (ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN) is stored
+	// as an encrypted credential in the database — not in this env file.
 
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(sb.String()), 0o600); err != nil {
@@ -261,35 +254,42 @@ func seedDevIdentity(dbURL string) error {
 	return nil
 }
 
-// checkExistingGitHubToken returns true if a GITHUB_TOKEN credential already
-// exists for the dev team. Returns false (not an error) if the DB is unreachable
-// or the credentials table doesn't exist yet — expected on first-time runs.
-func checkExistingGitHubToken(dbURL string) (bool, error) {
+// checkExistingCredential returns true if the named credential already exists
+// for the dev team. Returns false (not an error) if the DB is unreachable or
+// the credentials table doesn't exist yet — expected on first-time runs.
+func checkExistingCredential(dbURL, name string) bool {
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
-		return false, nil //nolint:nilerr
+		fmt.Fprintf(os.Stderr, "warning: could not connect to DB to check credential %q: %v\n", name, err)
+		return false
 	}
 	defer func() { _ = db.Close() }()
 
 	var exists bool
 	err = db.QueryRow(
-		`SELECT EXISTS(SELECT 1 FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN')`,
-		devTeamID,
+		`SELECT EXISTS(SELECT 1 FROM credentials WHERE team_id = $1 AND name = $2)`,
+		devTeamID, name,
 	).Scan(&exists)
 	if err != nil {
-		// Table may not exist yet on first run — treat as not found
-		return false, nil //nolint:nilerr
+		// Table may not exist on first run; this is expected.
+		fmt.Fprintf(os.Stderr, "warning: could not check credential %q (table may not exist yet): %v\n", name, err)
+		return false
 	}
-	return exists, nil
+	return exists
 }
 
-// seedGitHubToken encrypts token and upserts it into the credentials table
+// checkExistingGitHubToken is a convenience wrapper for backward compatibility.
+func checkExistingGitHubToken(dbURL string) (bool, error) {
+	return checkExistingCredential(dbURL, "GITHUB_TOKEN"), nil
+}
+
+// seedCredential encrypts a secret and upserts it into the credentials table
 // for the dev team. It is idempotent — safe to call on repeated init-local runs.
-// Caller must ensure token is non-empty before calling.
-func seedGitHubToken(dbURL, encKey, token string) error {
-	valueEnc, err := flcrypto.EncryptAESGCM(encKey, token)
+// Caller must ensure value is non-empty before calling.
+func seedCredential(dbURL, encKey, name, value string) error {
+	valueEnc, err := flcrypto.EncryptAESGCM(encKey, value)
 	if err != nil {
-		return fmt.Errorf("encrypt github token: %w", err)
+		return fmt.Errorf("encrypt %s: %w", name, err)
 	}
 
 	db, err := sql.Open("postgres", dbURL)
@@ -300,13 +300,13 @@ func seedGitHubToken(dbURL, encKey, token string) error {
 
 	_, err = db.Exec(`
 		INSERT INTO credentials (team_id, name, value_enc)
-		VALUES ($1, 'GITHUB_TOKEN', $2)
+		VALUES ($1, $2, $3)
 		ON CONFLICT (team_id, name) WHERE team_id IS NOT NULL
 		DO UPDATE SET value_enc = EXCLUDED.value_enc, updated_at = now()`,
-		devTeamID, valueEnc,
+		devTeamID, name, valueEnc,
 	)
 	if err != nil {
-		return fmt.Errorf("upsert github token credential: %w", err)
+		return fmt.Errorf("upsert %s credential: %w", name, err)
 	}
 	return nil
 }
@@ -604,23 +604,20 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 	envPath := filepath.Join(home, localEnvPath)
 	existing := parseLocalEnv(envPath)
 
-	// Step 2: Claude authentication
+	// Step 2: Claude authentication — check DB first, then local.env, then prompt.
 	var (
 		claudeAuthMethod string
-		anthropicKey     = existing["ANTHROPIC_API_KEY"]
-		oauthToken       = existing["CLAUDE_CODE_OAUTH_TOKEN"]
+		anthropicKey     string
+		oauthToken       string
 		githubToken      string
 	)
 
-	switch {
-	case anthropicKey != "":
-		claudeAuthMethod = "api_key"
-		fmt.Println("  Using existing ANTHROPIC_API_KEY from local.env")
-	case oauthToken != "":
-		claudeAuthMethod = "oauth_token"
-		fmt.Println("  Using existing CLAUDE_CODE_OAUTH_TOKEN from local.env")
-	default:
-		// No existing token — prompt
+	claudeAuthInDB := checkExistingCredential(defaultAppDSN, "CLAUDE_CODE_OAUTH_TOKEN") ||
+		checkExistingCredential(defaultAppDSN, "ANTHROPIC_API_KEY")
+
+	if claudeAuthInDB {
+		fmt.Println("  Claude auth credential already configured in the database")
+	} else {
 		authForm := huh.NewForm(
 			huh.NewGroup(
 				huh.NewSelect[string]().
@@ -746,8 +743,6 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 		DevNoAuth:               true,
 		DevUserID:               devUserID,
 		DevTeamID:               devTeamID,
-		AnthropicAPIKey:         strings.TrimSpace(anthropicKey),
-		ClaudeOAuthToken:        strings.TrimSpace(oauthToken),
 	}
 
 	// Step 4: Write ~/.fleetlift/local.env
@@ -853,10 +848,23 @@ func runInitLocal(_ *cobra.Command, _ []string) error {
 	}
 	fmt.Println("✓ Dev identity seeded (team + user + membership)")
 	if strings.TrimSpace(githubToken) != "" {
-		if err := seedGitHubToken(defaultAppDSN, credKey, strings.TrimSpace(githubToken)); err != nil {
+		if err := seedCredential(defaultAppDSN, credKey, "GITHUB_TOKEN", strings.TrimSpace(githubToken)); err != nil {
 			return fmt.Errorf("seed github token: %w", err)
 		}
 		fmt.Println("✓ GitHub token stored as encrypted credential")
+	}
+
+	// Store Claude auth credential in the DB
+	if key := strings.TrimSpace(anthropicKey); key != "" {
+		if err := seedCredential(defaultAppDSN, credKey, "ANTHROPIC_API_KEY", key); err != nil {
+			return fmt.Errorf("seed anthropic key: %w", err)
+		}
+		fmt.Println("✓ ANTHROPIC_API_KEY stored as encrypted credential")
+	} else if token := strings.TrimSpace(oauthToken); token != "" {
+		if err := seedCredential(defaultAppDSN, credKey, "CLAUDE_CODE_OAUTH_TOKEN", token); err != nil {
+			return fmt.Errorf("seed oauth token: %w", err)
+		}
+		fmt.Println("✓ CLAUDE_CODE_OAUTH_TOKEN stored as encrypted credential")
 	}
 
 	// Write ~/.fleetlift/auth.json

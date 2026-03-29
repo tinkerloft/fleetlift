@@ -114,15 +114,6 @@ func ValidateConfig() []ConfigIssue {
 		})
 	}
 
-	// Anthropic auth: either API key or OAuth token required
-	if os.Getenv("ANTHROPIC_API_KEY") == "" && os.Getenv("CLAUDE_CODE_OAUTH_TOKEN") == "" {
-		issues = append(issues, ConfigIssue{
-			Name:        "ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN",
-			Description: "Required for Claude Code execution",
-			Required:    true,
-		})
-	}
-
 	// JWT secret — required when MCP sidecar is enabled
 	if os.Getenv("JWT_SECRET") == "" && os.Getenv("FLEETLIFT_MCP_BINARY_PATH") != "" {
 		issues = append(issues, ConfigIssue{

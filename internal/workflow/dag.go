@@ -255,9 +255,13 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 						Agent:             step.Execution.Agent,
 						Credentials:       step.Execution.Credentials,
 						SandboxGroupImage: groupImage,
+						SandboxSpec:       step.Sandbox,
 					}
 				} else {
-					provisionInput.ResolvedOpts = ResolvedStepOpts{SandboxGroupImage: groupImage}
+					provisionInput.ResolvedOpts = ResolvedStepOpts{
+						SandboxGroupImage: groupImage,
+						SandboxSpec:       step.Sandbox,
+					}
 				}
 				var sandboxID string
 				err := workflow.ExecuteActivity(
@@ -655,6 +659,8 @@ func resolveStep(step model.StepDef, params map[string]any, outputs map[string]*
 			opts.Repos = repos
 		}
 	}
+
+	opts.SandboxSpec = step.Sandbox
 
 	// Render pull_request config fields — applies regardless of whether Execution is set.
 	if step.PullRequest != nil {

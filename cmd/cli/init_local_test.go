@@ -41,8 +41,6 @@ func TestWriteLocalEnv(t *testing.T) {
 		DevNoAuth:               true,
 		DevUserID:               devUserID,
 		DevTeamID:               devTeamID,
-		AnthropicAPIKey:         "sk-ant-test",
-		ClaudeOAuthToken:        "",
 	}
 
 	if err := writeLocalEnv(path, cfg); err != nil {
@@ -60,22 +58,22 @@ func TestWriteLocalEnv(t *testing.T) {
 		`export JWT_SECRET="abc123"`,
 		`export DEV_NO_AUTH=1`,
 		`export DEV_USER_ID="` + devUserID + `"`,
-		`export ANTHROPIC_API_KEY="sk-ant-test"`,
 	}
 	for _, want := range checks {
 		if !strings.Contains(content, want) {
 			t.Errorf("missing line: %s", want)
 		}
 	}
-	if strings.Contains(content, "GITHUB_TOKEN") {
-		t.Error("GITHUB_TOKEN must not appear in local.env output")
+	// Claude auth secrets are stored in the DB, not in local.env
+	if strings.Contains(content, "ANTHROPIC_API_KEY") {
+		t.Error("ANTHROPIC_API_KEY must not appear in local.env output")
 	}
 	if strings.Contains(content, "CLAUDE_CODE_OAUTH_TOKEN") {
-		t.Error("unexpected CLAUDE_CODE_OAUTH_TOKEN in output")
+		t.Error("CLAUDE_CODE_OAUTH_TOKEN must not appear in local.env output")
 	}
 }
 
-func TestWriteLocalEnv_OAuthToken(t *testing.T) {
+func TestWriteLocalEnv_NoAuthSecrets(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "local.env")
 
@@ -92,7 +90,6 @@ func TestWriteLocalEnv_OAuthToken(t *testing.T) {
 		DevNoAuth:               true,
 		DevUserID:               devUserID,
 		DevTeamID:               devTeamID,
-		ClaudeOAuthToken:        "sk-ant-oat01-token",
 	}
 
 	if err := writeLocalEnv(path, cfg); err != nil {
@@ -101,11 +98,12 @@ func TestWriteLocalEnv_OAuthToken(t *testing.T) {
 	data, _ := os.ReadFile(path)
 	content := string(data)
 
-	if !strings.Contains(content, `export CLAUDE_CODE_OAUTH_TOKEN="sk-ant-oat01-token"`) {
-		t.Error("missing CLAUDE_CODE_OAUTH_TOKEN")
+	// Auth secrets are stored in the DB, not in local.env
+	if strings.Contains(content, "CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Error("CLAUDE_CODE_OAUTH_TOKEN must not appear in local.env")
 	}
 	if strings.Contains(content, "ANTHROPIC_API_KEY") {
-		t.Error("unexpected ANTHROPIC_API_KEY")
+		t.Error("ANTHROPIC_API_KEY must not appear in local.env")
 	}
 }
 
@@ -172,7 +170,6 @@ func TestWriteLocalEnv_Permissions(t *testing.T) {
 		AgentImage: "img", GitUserEmail: "a@b.com", GitUserName: "Bot",
 		JWTSecret: "s", CredentialEncryptionKey: "e",
 		DevNoAuth: true, DevUserID: devUserID, DevTeamID: devTeamID,
-		AnthropicAPIKey: "key",
 	}
 	if err := writeLocalEnv(path, cfg); err != nil {
 		t.Fatal(err)
@@ -233,7 +230,7 @@ func TestSeedDevIdentity(t *testing.T) {
 	}
 }
 
-func TestSeedGitHubToken_InsertsEncryptedCredential(t *testing.T) {
+func TestSeedCredential_InsertsEncryptedCredential(t *testing.T) {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		t.Skip("DATABASE_URL not set — skipping integration test")
@@ -250,8 +247,8 @@ func TestSeedGitHubToken_InsertsEncryptedCredential(t *testing.T) {
 	})
 	db.Exec(`DELETE FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN'`, devTeamID) //nolint:errcheck
 
-	if err := seedGitHubToken(dbURL, encKey, "ghp_testtoken123"); err != nil {
-		t.Fatalf("seedGitHubToken: %v", err)
+	if err := seedCredential(dbURL, encKey, "GITHUB_TOKEN", "ghp_testtoken123"); err != nil {
+		t.Fatalf("seedCredential: %v", err)
 	}
 
 	var valueEnc []byte
@@ -271,7 +268,7 @@ func TestSeedGitHubToken_InsertsEncryptedCredential(t *testing.T) {
 	}
 }
 
-func TestSeedGitHubToken_Idempotent(t *testing.T) {
+func TestSeedCredential_Idempotent(t *testing.T) {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		t.Skip("DATABASE_URL not set — skipping integration test")
@@ -288,10 +285,10 @@ func TestSeedGitHubToken_Idempotent(t *testing.T) {
 	})
 	db.Exec(`DELETE FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN'`, devTeamID) //nolint:errcheck
 
-	if err := seedGitHubToken(dbURL, encKey, "ghp_first"); err != nil {
+	if err := seedCredential(dbURL, encKey, "GITHUB_TOKEN", "ghp_first"); err != nil {
 		t.Fatalf("first seed: %v", err)
 	}
-	if err := seedGitHubToken(dbURL, encKey, "ghp_second"); err != nil {
+	if err := seedCredential(dbURL, encKey, "GITHUB_TOKEN", "ghp_second"); err != nil {
 		t.Fatalf("second seed: %v", err)
 	}
 
@@ -365,7 +362,7 @@ func TestCheckExistingGitHubToken_Found(t *testing.T) {
 	})
 	db.Exec(`DELETE FROM credentials WHERE team_id = $1 AND name = 'GITHUB_TOKEN'`, devTeamID) //nolint:errcheck
 
-	if err := seedGitHubToken(dbURL, encKey, "ghp_existing"); err != nil {
+	if err := seedCredential(dbURL, encKey, "GITHUB_TOKEN", "ghp_existing"); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 

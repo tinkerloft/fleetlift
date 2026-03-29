@@ -91,6 +91,7 @@ export function LogStream({ stepRunId }: LogStreamProps) {
       <div
         ref={containerRef}
         onScroll={handleScroll}
+        data-testid="log-stream"
         className="h-56 overflow-auto bg-black/80 p-3 font-mono text-xs text-green-400"
       >
         {logs.length === 0 && (

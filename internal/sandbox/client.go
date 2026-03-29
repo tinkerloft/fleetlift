@@ -17,7 +17,27 @@ type Client interface {
 
 // CreateOpts configures sandbox creation.
 type CreateOpts struct {
-	Image       string
-	Env         map[string]string
-	TimeoutMins int
+	Image         string
+	Env           map[string]string
+	TimeoutMins   int
+	Resources     *ResourceLimits // nil = provider defaults
+	NetworkPolicy *NetworkPolicy  // nil = no egress restrictions
+}
+
+// ResourceLimits specifies CPU and memory for a sandbox container.
+type ResourceLimits struct {
+	CPU    string // Kubernetes-style, e.g. "1000m", "2"
+	Memory string // Kubernetes-style, e.g. "2Gi", "512Mi"
+}
+
+// NetworkPolicy controls sandbox egress network access.
+type NetworkPolicy struct {
+	DefaultAction string        // "allow" or "deny"
+	Egress        []NetworkRule // evaluated first-match-wins
+}
+
+// NetworkRule is a single egress allow/deny entry.
+type NetworkRule struct {
+	Action string // "allow" or "deny"
+	Target string // FQDN, wildcard (*.example.com), or IP/CIDR
 }

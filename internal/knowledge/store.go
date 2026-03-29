@@ -182,11 +182,11 @@ func (s *DBStore) SearchByTeam(ctx context.Context, teamID, query string, tags [
 	return items, err
 }
 
-func nullStr(s string) any {
-	if s == "" {
+func nullStr(s *string) any {
+	if s == nil || *s == "" {
 		return nil
 	}
-	return s
+	return *s
 }
 
 // MemoryStore is an in-memory Store for unit tests.
@@ -250,7 +250,7 @@ func (s *MemoryStore) ListApprovedByWorkflow(_ context.Context, teamID, workflow
 		if item.Status != model.KnowledgeStatusApproved {
 			continue
 		}
-		if item.WorkflowTemplateID != "" && item.WorkflowTemplateID != workflowTemplateID {
+		if item.WorkflowTemplateID != nil && *item.WorkflowTemplateID != "" && *item.WorkflowTemplateID != workflowTemplateID {
 			continue
 		}
 		out = append(out, item)
