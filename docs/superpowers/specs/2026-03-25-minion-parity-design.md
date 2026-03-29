@@ -136,7 +136,7 @@ Backend implementation notes:
 - Full-screen overlay. Two columns: Original (left, red header) | Improved (right, green header).
 - Each column shows the prompt text and score badges below it (colour-coded by rating).
 - Bottom bar: summary sentence + "Decline" (closes modal, keeps original) + "Use improved →" (replaces textarea content, closes modal).
-- If the API call fails or times out: toast error, modal does not open, textarea unchanged.
+- If the API call fails or times out: modal shows inline error with a Retry button. Declining closes the modal and leaves the textarea unchanged.
 - `PromptZone` manages its own `showImproveModal` state. The Improve button sets this state + triggers the API call via `useMutation`. The modal receives the original prompt, mutation result, and accept/decline callbacks. Accept replaces the textarea content within `PromptZone`'s local state.
 
 ---
