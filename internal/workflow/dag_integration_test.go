@@ -39,8 +39,8 @@ func (m *dagMockActivities) CompleteStepRun(_ context.Context, stepRunID, status
 	return args.Error(0)
 }
 
-func (m *dagMockActivities) CreateInboxItem(_ context.Context, teamID, runID, stepRunID, kind, title, summary, artifactID string) error {
-	args := m.Called(teamID, runID, stepRunID, kind, title, summary, artifactID)
+func (m *dagMockActivities) CreateInboxItem(_ context.Context, teamID, runID, stepRunID, kind, title, summary, artifactID, stepID string) error {
+	args := m.Called(teamID, runID, stepRunID, kind, title, summary, artifactID, stepID)
 	return args.Error(0)
 }
 
@@ -129,7 +129,7 @@ func newDAGTestEnv(t *testing.T) (*testsuite.TestWorkflowEnvironment, *dagMockAc
 	mocks.On("UpdateRunStatus", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.On("CreateStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return("sr-1", nil)
 	mocks.On("CompleteStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64")).Return(nil)
-	mocks.On("CreateInboxItem", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.On("CreateInboxItem", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.On("GetPrimaryRunArtifactID", mock.Anything).Return("", nil)
 	mocks.On("CleanupSandbox", mock.Anything).Return(nil)
 	mocks.On("ValidateCredentials", mock.Anything, mock.Anything).Return(nil)
@@ -638,7 +638,7 @@ func TestDAGWorkflow_CredentialPreflightFails(t *testing.T) {
 	mocks.On("UpdateRunStatus", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.On("CreateStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return("sr-1", nil)
 	mocks.On("CompleteStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64")).Return(nil)
-	mocks.On("CreateInboxItem", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.On("CreateInboxItem", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.On("GetPrimaryRunArtifactID", mock.Anything).Return("", nil)
 	mocks.On("CleanupSandbox", mock.Anything).Return(nil)
 	mocks.On("UpdateStepStatus", mock.Anything, mock.Anything).Return(nil)
