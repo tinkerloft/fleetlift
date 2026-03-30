@@ -602,6 +602,24 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 			delete(pending, r.StepID)
 
 			if r.Status == model.StepStatusFailed && !isOptional(steps, r.StepID) {
+				// Notify operator immediately — don't wait for run completion.
+				stepTitle := ready[idx].Title
+				if stepTitle == "" {
+					stepTitle = r.StepID
+				}
+				failSummary := r.Error
+				if failSummary == "" {
+					failSummary = fmt.Sprintf("step %s failed", r.StepID)
+				}
+				inboxAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second, RetryPolicy: dbRetry}
+				if err := workflow.ExecuteActivity(
+					workflow.WithActivityOptions(ctx, inboxAO),
+					CreateInboxItemActivity, input.TeamID, input.RunID, "", "step_failed",
+					"Step failed: "+stepTitle, failSummary, "", r.StepID,
+				).Get(ctx, nil); err != nil {
+					logger.Error("failed to create step_failed inbox item", "step_id", r.StepID, "error", err)
+				}
+
 				skipDownstream(pending, r.StepID, steps, outputs)
 				msg := fmt.Sprintf("step %s failed", r.StepID)
 				if r.Error != "" {

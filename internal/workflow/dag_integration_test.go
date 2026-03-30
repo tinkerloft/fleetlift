@@ -238,6 +238,56 @@ func TestDAGWorkflow_StepFailsRunFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "step-1")
 }
 
+// TestDAGWorkflow_StepFailedCreatesInboxItem verifies that when a non-optional step
+// fails, a "step_failed" inbox item is created immediately (before the workflow ends).
+func TestDAGWorkflow_StepFailedCreatesInboxItem(t *testing.T) {
+	env, mocks := newDAGTestEnv(t)
+
+	mocks.On("ProvisionSandbox", mock.Anything).Return("sb-1", nil)
+	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
+		return ei.StepInput.StepDef.ID == "step-1"
+	})).Return(nil, temporal.NewNonRetryableApplicationError(
+		"agent crashed", "ExecutionError", nil,
+	))
+
+	def := model.WorkflowDef{
+		ID:    "test-step-failed-inbox-wf",
+		Title: "Step Failed Inbox Test",
+		Steps: []model.StepDef{
+			{
+				ID:    "step-1",
+				Title: "Failing Step",
+				Execution: &model.ExecutionDef{
+					Agent:  "claude-code",
+					Prompt: "do something",
+				},
+			},
+		},
+	}
+
+	env.ExecuteWorkflow(DAGWorkflow, DAGInput{
+		RunID:       "run-step-failed-inbox-1",
+		TeamID:      "team-1",
+		WorkflowDef: def,
+		Parameters:  map[string]any{},
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.Error(t, env.GetWorkflowError())
+
+	// The step_failed inbox item must have been created with correct fields.
+	mocks.AssertCalled(t, "CreateInboxItem",
+		"team-1",                    // teamID
+		"run-step-failed-inbox-1",   // runID
+		"",                          // stepRunID (not populated for step_failed)
+		"step_failed",               // kind
+		"Step failed: Failing Step", // title
+		mock.Anything,               // summary (contains error message)
+		"",                          // artifactID
+		"step-1",                    // stepID
+	)
+}
+
 // TestDAGWorkflow_DownstreamSkippedOnFailure verifies that when step-2 fails,
 // step-3 (which depends on step-2) is skipped and the workflow fails mentioning step-2.
 func TestDAGWorkflow_DownstreamSkippedOnFailure(t *testing.T) {
