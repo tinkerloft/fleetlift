@@ -51,7 +51,7 @@ func TestLookupUserGitIdentity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			t.Cleanup(func() { db.Close() })
+			t.Cleanup(func() { _ = db.Close() })
 
 			q := mock.ExpectQuery(`SELECT name, COALESCE\(email, ''\), provider_id FROM users WHERE id = \$1`).
 				WithArgs(tc.userID)
