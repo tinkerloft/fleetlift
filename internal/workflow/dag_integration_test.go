@@ -288,6 +288,60 @@ func TestDAGWorkflow_StepFailedCreatesInboxItem(t *testing.T) {
 	)
 }
 
+// TestDAGWorkflow_StepFailed_NoRunLevelFailureNotification verifies that when a
+// step_failed inbox item is created, the deferred run-level "output_ready" failure
+// notification is suppressed to avoid duplicate notifications for the same event.
+func TestDAGWorkflow_StepFailed_NoRunLevelFailureNotification(t *testing.T) {
+	env, mocks := newDAGTestEnv(t)
+
+	mocks.On("ProvisionSandbox", mock.Anything).Return("sb-1", nil)
+	mocks.On("ExecuteStep", mock.Anything).Return(nil, temporal.NewNonRetryableApplicationError(
+		"agent crashed", "ExecutionError", nil,
+	))
+
+	def := model.WorkflowDef{
+		ID:    "test-no-dup-inbox-wf",
+		Title: "No Duplicate Inbox Test",
+		Steps: []model.StepDef{
+			{
+				ID:    "step-1",
+				Title: "Failing Step",
+				Execution: &model.ExecutionDef{
+					Agent:  "claude-code",
+					Prompt: "do something",
+				},
+			},
+		},
+	}
+
+	env.ExecuteWorkflow(DAGWorkflow, DAGInput{
+		RunID:       "run-no-dup-inbox-1",
+		TeamID:      "team-1",
+		WorkflowDef: def,
+		Parameters:  map[string]any{},
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.Error(t, env.GetWorkflowError())
+
+	// Count output_ready calls that look like run-level failure notifications.
+	// When a step_failed notification was sent, the run-level failure notification
+	// must be suppressed.
+	outputReadyFailCount := 0
+	for _, call := range mocks.Calls {
+		if call.Method != "CreateInboxItem" {
+			continue
+		}
+		kind, _ := call.Arguments[3].(string)
+		summary, _ := call.Arguments[5].(string)
+		if kind == "output_ready" && strings.Contains(summary, "failed") {
+			outputReadyFailCount++
+		}
+	}
+	assert.Equal(t, 0, outputReadyFailCount,
+		"output_ready failure notification must be suppressed when step_failed was already sent")
+}
+
 // TestDAGWorkflow_DownstreamSkippedOnFailure verifies that when step-2 fails,
 // step-3 (which depends on step-2) is skipped and the workflow fails mentioning step-2.
 func TestDAGWorkflow_DownstreamSkippedOnFailure(t *testing.T) {

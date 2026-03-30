@@ -50,6 +50,11 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 		}
 	}
 
+	// sentStepFailedNotification is set to true when a step_failed inbox item is
+	// successfully created. The deferred run-level failure notification is suppressed
+	// when this is true to avoid sending two failure notifications for the same event.
+	var sentStepFailedNotification bool
+
 	defer func() {
 		// Use a disconnected context so cleanup activities run even after cancellation.
 		dCtx, _ := workflow.NewDisconnectedContext(ctx)
@@ -70,7 +75,10 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 		).Get(dCtx, nil)
 
 		// Create inbox notification for completed/failed runs.
-		if finalStatus != string(model.RunStatusCancelled) {
+		// Skip the run-level failure notification when per-step step_failed
+		// notifications were already sent — the operator has already been notified.
+		if finalStatus != string(model.RunStatusCancelled) &&
+			!(finalStatus == string(model.RunStatusFailed) && sentStepFailedNotification) {
 			kind := "output_ready"
 			title := input.WorkflowDef.Title
 			if title == "" {
@@ -603,6 +611,8 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 
 			if r.Status == model.StepStatusFailed && !isOptional(steps, r.StepID) {
 				// Notify operator immediately — don't wait for run completion.
+				// Use a disconnected context so cancellation of the parent workflow
+				// does not prevent the inbox notification from being delivered.
 				stepTitle := ready[idx].Title
 				if stepTitle == "" {
 					stepTitle = r.StepID
@@ -611,13 +621,16 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 				if failSummary == "" {
 					failSummary = fmt.Sprintf("step %s failed", r.StepID)
 				}
+				notifyCtx, _ := workflow.NewDisconnectedContext(ctx)
 				inboxAO := workflow.ActivityOptions{StartToCloseTimeout: 30 * time.Second, RetryPolicy: dbRetry}
 				if err := workflow.ExecuteActivity(
-					workflow.WithActivityOptions(ctx, inboxAO),
+					workflow.WithActivityOptions(notifyCtx, inboxAO),
 					CreateInboxItemActivity, input.TeamID, input.RunID, "", "step_failed",
 					"Step failed: "+stepTitle, failSummary, "", r.StepID,
-				).Get(ctx, nil); err != nil {
+				).Get(notifyCtx, nil); err != nil {
 					logger.Error("failed to create step_failed inbox item", "step_id", r.StepID, "error", err)
+				} else {
+					sentStepFailedNotification = true
 				}
 
 				skipDownstream(pending, r.StepID, steps, outputs)

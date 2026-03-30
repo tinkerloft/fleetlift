@@ -422,3 +422,20 @@ func TestExtractStructuredOutput_MapResult_Unchanged(t *testing.T) {
 func TestExtractStructuredOutput_Nil(t *testing.T) {
 	assert.Nil(t, extractStructuredOutput(nil))
 }
+
+func TestExtractStructuredOutput_PlainText_AbsentOptionalFields(t *testing.T) {
+	// When raw has no is_error or exit_code, those keys must be absent from the
+	// normalized output — not present with nil values (which would break type
+	// assertions downstream and pollute step output stored in the DB).
+	raw := map[string]any{
+		"type":   "complete",
+		"result": "plain output only",
+	}
+	got := extractStructuredOutput(raw)
+	require.NotNil(t, got)
+	assert.Equal(t, "plain output only", got["result"])
+	_, hasIsError := got["is_error"]
+	assert.False(t, hasIsError, "is_error should be absent when not in raw")
+	_, hasExitCode := got["exit_code"]
+	assert.False(t, hasExitCode, "exit_code should be absent when not in raw")
+}

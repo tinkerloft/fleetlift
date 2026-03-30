@@ -437,11 +437,14 @@ func extractStructuredOutput(raw map[string]any) map[string]any {
 		// Plain text: normalize to a clean map, preserving only useful fields.
 		// Dropping internal Claude streaming fields (type, session_id, usage, etc.)
 		// keeps downstream step templates and the UI free of implementation noise.
-		return map[string]any{
-			"result":    r,
-			"is_error":  raw["is_error"],
-			"exit_code": raw["exit_code"],
+		out := map[string]any{"result": r}
+		if v, ok := raw["is_error"]; ok {
+			out["is_error"] = v
 		}
+		if v, ok := raw["exit_code"]; ok {
+			out["exit_code"] = v
+		}
+		return out
 	}
 	return raw
 }
