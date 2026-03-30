@@ -40,6 +40,8 @@ type Deps struct {
 	Profiles          *handlers.ProfilesHandler
 	Models            *handlers.ModelsHandler
 	Prompt            *handlers.PromptHandlers
+	Presets           *handlers.PresetHandlers
+	SavedRepos        *handlers.SavedRepoHandlers
 	TemporalUIURL     string
 }
 
@@ -221,6 +223,17 @@ func NewRouter(deps Deps) (http.Handler, error) {
 
 		// Prompt improvement
 		r.Post("/api/prompt/improve", deps.Prompt.ImprovePrompt)
+
+		// Presets
+		r.Get("/api/presets", deps.Presets.ListPresets)
+		r.Post("/api/presets", deps.Presets.CreatePreset)
+		r.Put("/api/presets/{id}", deps.Presets.UpdatePreset)
+		r.Delete("/api/presets/{id}", deps.Presets.DeletePreset)
+
+		// Saved repos
+		r.Get("/api/saved-repos", deps.SavedRepos.ListSavedRepos)
+		r.Post("/api/saved-repos", deps.SavedRepos.CreateSavedRepo)
+		r.Delete("/api/saved-repos/{id}", deps.SavedRepos.DeleteSavedRepo)
 	})
 
 	// Serve embedded React SPA

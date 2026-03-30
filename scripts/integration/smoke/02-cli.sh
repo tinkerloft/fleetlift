@@ -61,12 +61,12 @@ section "CLI: credential --system"
 
 # The --system flag targets /api/system-credentials which requires PlatformAdmin.
 # With a dev-login JWT this should fail with 403, proving the flag routes correctly.
-OUTPUT=$($FL credential set SMOKE_SYS_CRED --system -v test-value 2>&1) || true
+OUTPUT=$($FL credential set SMOKE_SYS_CRED -v test-value --system 2>&1) || true
 if echo "$OUTPUT" | grep -qi "403\|forbidden\|failed"; then
   pass "credential set --system rejected without admin (expected)"
 else
   # If it succeeded, clean up and still pass (means dev user has admin)
-  $FL credential set SMOKE_SYS_CRED --system -v "" 2>/dev/null || true
+  $FL credential delete SMOKE_SYS_CRED --system 2>/dev/null || true
   pass "credential set --system accepted (dev user has admin)"
 fi
 

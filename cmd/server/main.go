@@ -110,6 +110,8 @@ func main() {
 		Actions:           handlers.NewActionsHandler(model.DefaultActionRegistry()),
 		Profiles:          handlers.NewProfilesHandler(database),
 		Prompt:            promptHandler,
+		Presets:           &handlers.PresetHandlers{DB: database},
+		SavedRepos:        &handlers.SavedRepoHandlers{DB: database},
 	}
 
 	handler, err := server.NewRouter(deps)

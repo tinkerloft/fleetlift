@@ -129,6 +129,7 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 		WorkflowDef:        def,
 		Parameters:         req.Parameters,
 		ModelOverride:      req.Model,
+		TriggeredBy:        claims.UserID,
 	})
 	if err != nil {
 		slog.Error("failed to start workflow", "error", err, "team_id", teamID, "run_id", runID)

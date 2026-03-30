@@ -2,6 +2,7 @@ import type {
   WorkflowTemplate, Run, StepRunLog,
   InboxItem, Artifact, ListResponse, RunStatusUpdate,
   UserProfile, Credential, CreateRunResponse, ModelEntry,
+  Preset, SavedRepo,
 } from './types'
 
 const BASE = '/api'
@@ -70,6 +71,22 @@ export async function del<T = void>(path: string): Promise<T> {
   return res.json()
 }
 
+async function put<T = void>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(formatApiError(err, res.statusText))
+  }
+  if (res.status === 204 || res.headers.get('content-length') === '0') {
+    return undefined as T
+  }
+  return res.json()
+}
+
 export const api = {
   // Workflows
   listWorkflows: () => get<ListResponse<WorkflowTemplate>>('/workflows'),
@@ -131,6 +148,20 @@ export const api = {
       scores: Record<string, { rating: string; reason: string }>
       summary: string
     }>('/prompt/improve', { prompt }),
+
+  // Presets
+  listPresets: () => get<ListResponse<Preset>>('/presets'),
+  createPreset: (title: string, prompt: string, scope: 'personal' | 'team') =>
+    post<Preset>('/presets', { title, prompt, scope }),
+  updatePreset: (id: string, updates: { title?: string; prompt?: string; scope?: string }) =>
+    put<Preset>(`/presets/${id}`, updates),
+  deletePreset: (id: string) => del(`/presets/${id}`),
+
+  // Saved repos
+  listSavedRepos: () => get<ListResponse<SavedRepo>>('/saved-repos'),
+  createSavedRepo: (url: string, label?: string) =>
+    post<SavedRepo>('/saved-repos', { url, label }),
+  deleteSavedRepo: (id: string) => del(`/saved-repos/${id}`),
 }
 
 /** Subscribe to live run updates via SSE. Returns an unsubscribe function. */

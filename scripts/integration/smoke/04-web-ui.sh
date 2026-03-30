@@ -27,14 +27,26 @@ echo "$PW_OUTPUT" | sed 's/^/  /'
 PW_PASSED=$(echo "$PW_OUTPUT" | grep -oP '\d+ passed' | head -1 | grep -oP '\d+' || echo "0")
 PW_FAILED=$(echo "$PW_OUTPUT" | grep -oP '\d+ failed' | head -1 | grep -oP '\d+' || echo "0")
 
+# Add individual test counts directly into the shared pass/fail counters
+# so the final summary reflects real numbers instead of 1 aggregate result.
+if [[ "$PW_PASSED" -gt 0 ]]; then
+  _PASS=$((_PASS + PW_PASSED))
+fi
+if [[ "$PW_FAILED" -gt 0 ]]; then
+  _FAIL=$((_FAIL + PW_FAILED))
+  _ERRORS+=("Playwright: ${PW_FAILED} test(s) failed (see output above)")
+fi
+
 if [[ "$PW_EXIT" -eq 0 ]]; then
-  pass "Playwright tests passed (${PW_PASSED} passed)"
+  printf "  \033[32mPASS\033[0m: Playwright — all ${PW_PASSED} tests passed\n"
 elif [[ "$PW_PASSED" -gt 0 && "$PW_FAILED" -gt 0 ]]; then
-  fail "Playwright tests: ${PW_PASSED} passed, ${PW_FAILED} failed"
+  printf "  \033[31mFAIL\033[0m: Playwright — ${PW_PASSED} passed, ${PW_FAILED} failed\n"
 elif [[ "$PW_FAILED" -gt 0 ]]; then
-  fail "Playwright tests failed (${PW_FAILED} failed)"
+  printf "  \033[31mFAIL\033[0m: Playwright — ${PW_FAILED} failed, 0 passed\n"
 else
-  fail "Playwright tests did not produce results (exit $PW_EXIT)"
+  _FAIL=$((_FAIL + 1))
+  _ERRORS+=("Playwright: no results (exit $PW_EXIT)")
+  printf "  \033[31mFAIL\033[0m: Playwright tests did not produce results (exit %s)\n" "$PW_EXIT"
   printf "    Output: %s\n" "${PW_OUTPUT:0:500}"
 fi
 

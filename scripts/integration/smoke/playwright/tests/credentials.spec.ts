@@ -6,8 +6,8 @@ test.describe('Credentials management', () => {
     await page.goto('/settings');
     await expect(page.getByRole('heading', { name: /Team Credentials/i })).toBeVisible();
 
-    // Click "+ Add" button
-    await page.getByText('+ Add').click();
+    // Click "+ Add" button (first one = team credentials section)
+    await page.getByRole('button', { name: '+ Add' }).first().click();
 
     // Fill in the name field (placeholder: CREDENTIAL_NAME)
     const nameInput = page.locator('input[placeholder="CREDENTIAL_NAME"]');

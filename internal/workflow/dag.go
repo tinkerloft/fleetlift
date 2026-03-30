@@ -31,6 +31,7 @@ type DAGInput struct {
 	WorkflowDef        model.WorkflowDef `json:"workflow_def"`
 	Parameters         map[string]any    `json:"parameters"`
 	ModelOverride      string            `json:"model_override,omitempty"`
+	TriggeredBy        string            `json:"triggered_by,omitempty"` // user ID who started the run
 }
 
 // DAGWorkflow orchestrates a DAG of steps, running independent steps in parallel
@@ -247,8 +248,9 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 				}
 				// Build a proper StepInput so ProvisionSandbox gets the right agent/credentials.
 				provisionInput := StepInput{
-					RunID:  input.RunID,
-					TeamID: input.TeamID,
+					RunID:       input.RunID,
+					TeamID:      input.TeamID,
+					TriggeredBy: input.TriggeredBy,
 				}
 				groupImage := input.WorkflowDef.SandboxGroups[step.SandboxGroup].Image
 				if step.Execution != nil {
@@ -430,6 +432,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 							ResolvedOpts:       resolved,
 							SandboxID:          sandboxes[step.SandboxGroup],
 							ModelOverride:      input.ModelOverride,
+							TriggeredBy:        input.TriggeredBy,
 						},
 					).Get(gCtx, &out)
 					if err != nil {
@@ -493,6 +496,7 @@ func DAGWorkflow(ctx workflow.Context, input DAGInput) (retErr error) {
 								ResolvedOpts:       repoResolved,
 								SandboxID:          sandboxes[step.SandboxGroup],
 								ModelOverride:      input.ModelOverride,
+								TriggeredBy:        input.TriggeredBy,
 							},
 						).Get(rCtx, &out)
 						if err != nil {
