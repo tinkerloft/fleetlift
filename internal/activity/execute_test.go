@@ -332,3 +332,93 @@ func TestExtractCostFromOutput(t *testing.T) {
 		})
 	}
 }
+
+func TestExtractStructuredOutput_PlainText(t *testing.T) {
+	tests := []struct {
+		name      string
+		raw       map[string]any
+		wantKey   string
+		wantValue any
+	}{
+		{
+			name: "plain text result normalized to result key",
+			raw: map[string]any{
+				"type":   "complete",
+				"result": "The task is done",
+			},
+			wantKey:   "result",
+			wantValue: "The task is done",
+		},
+		{
+			name: "plain text preserves is_error",
+			raw: map[string]any{
+				"type":     "complete",
+				"result":   "agent error occurred",
+				"is_error": true,
+			},
+			wantKey:   "is_error",
+			wantValue: true,
+		},
+		{
+			name: "plain text preserves exit_code",
+			raw: map[string]any{
+				"type":      "complete",
+				"result":    "non-zero exit",
+				"exit_code": float64(1),
+			},
+			wantKey:   "exit_code",
+			wantValue: float64(1),
+		},
+		{
+			name: "plain text drops internal fields",
+			raw: map[string]any{
+				"type":           "complete",
+				"result":         "done",
+				"total_cost_usd": float64(0.05),
+				"session_id":     "abc123",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractStructuredOutput(tc.raw)
+			require.NotNil(t, got)
+			// All plain-text cases must set "result" to the original string.
+			assert.Equal(t, tc.raw["result"], got["result"])
+			// Internal fields must not appear.
+			assert.NotContains(t, got, "type")
+			assert.NotContains(t, got, "session_id")
+			assert.NotContains(t, got, "total_cost_usd")
+			// If wantKey is set, verify it is preserved.
+			if tc.wantKey != "" {
+				assert.Equal(t, tc.wantValue, got[tc.wantKey])
+			}
+		})
+	}
+}
+
+func TestExtractStructuredOutput_JSONInString_Unchanged(t *testing.T) {
+	// Fenced JSON — existing behaviour must not regress.
+	raw := map[string]any{
+		"type":   "complete",
+		"result": "Here is the result:\n```json\n{\"key\": \"value\"}\n```",
+	}
+	got := extractStructuredOutput(raw)
+	assert.Equal(t, "value", got["key"])
+	assert.NotContains(t, got, "type")
+}
+
+func TestExtractStructuredOutput_MapResult_Unchanged(t *testing.T) {
+	// Structured map result — existing behaviour must not regress.
+	raw := map[string]any{
+		"type":   "complete",
+		"result": map[string]any{"status": "ok"},
+	}
+	got := extractStructuredOutput(raw)
+	assert.Equal(t, "ok", got["status"])
+}
+
+func TestExtractStructuredOutput_Nil(t *testing.T) {
+	assert.Nil(t, extractStructuredOutput(nil))
+}
