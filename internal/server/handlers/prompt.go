@@ -203,9 +203,7 @@ func NewAnthropicImprover(apiKey string) PromptImprover {
 				cleaned = cleaned[idx+1:]
 			}
 			// Remove closing fence
-			if strings.HasSuffix(cleaned, "```") {
-				cleaned = strings.TrimSuffix(cleaned, "```")
-			}
+			cleaned = strings.TrimSuffix(cleaned, "```")
 			cleaned = strings.TrimSpace(cleaned)
 		}
 

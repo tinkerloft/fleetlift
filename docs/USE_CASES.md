@@ -4,7 +4,34 @@ Real-world scenarios where FleetLift eliminates the toil of running AI coding ag
 
 ---
 
-## 1. Fleet-Wide Security Audit with Executive Report
+## 1. Quick One-Off Development Task
+
+**The problem.**
+You have a straightforward task: fix a bug in a single repo, review a pull request, or add tests to a specific module. Setting up a full workflow with YAML parameters and a multi-step DAG is overkill. You just want to hand it off to an agent and get back to other work.
+
+**How FleetLift solves it.**
+The home page is designed for exactly this. Write a prompt describing what you need, select the workflow template that fits (Bug Fix, PR Review, Add Tests), enter the repo URL, and click **Run**. The task is dispatched in a sandboxed environment, and the result appears in your Recent Tasks list. No YAML, no parameter forms.
+
+Prompt presets let you save prompts you reach for often — "Review this PR for error handling and SQL injection" or "Add unit tests to the changed files, focus on business logic" — with personal or team-shared scope. Saved repo bookmarks mean you never have to retype the same URL. Prompt improvement helps you refine vague prompts before sending them.
+
+Git commits made by the agent are attributed to you automatically, using your GitHub name and email — the same as if you had made the changes yourself.
+
+**Example workflow (web UI).**
+
+1. Open the home page.
+2. Type: `Fix the failing test in the auth package. The failure is in TestTokenRefresh — the mock clock is not advancing correctly.`
+3. Select **Bug Fix** from the template grid.
+4. Enter `https://github.com/acme/auth-service` and branch `main`.
+5. Click **Run**.
+6. Check Recent Tasks to monitor progress. When the run completes, open it to see the agent's changes and the PR it opened.
+
+**Without FleetLift.**
+You write the same prompt in a chat window, copy-paste code back and forth, manually apply the diff, run tests locally, push the branch, open a PR. Thirty minutes of context-switching for a task the agent handles in five.
+
+---
+
+## 2. Fleet-Wide Security Audit with Executive Report
+
 
 **The problem.**
 Your security team needs a comprehensive audit across 120 microservices before a SOC 2 renewal. Manually running scanners, reading output, cross-referencing CVEs, and writing a summary for leadership takes a full sprint. By the time the report is done, new vulnerabilities have already landed on `main`.
@@ -37,7 +64,7 @@ You write a shell script that loops over repos, clones each one, runs `trivy` or
 
 ---
 
-## 2. Bulk Dependency Upgrade Across 50+ Repos
+## 3. Bulk Dependency Upgrade Across 50+ Repos
 
 **The problem.**
 A critical OpenSSL patch drops. You have 53 Go services that pin the vulnerable version. Each repo needs the dependency bumped, tests run, and a PR opened. Your team estimates two days of copy-paste work, and someone will inevitably forget a repo or skip the test step.
@@ -77,7 +104,7 @@ You open 53 browser tabs (or write a Bash loop with `gh`), create a branch in ea
 
 ---
 
-## 3. Large-Scale Code Migration (Logging Framework Swap)
+## 4. Large-Scale Code Migration (Logging Framework Swap)
 
 **The problem.**
 Your organization is migrating from `logrus` to `slog` across 80 Go services. It is not a find-and-replace job: call sites differ, structured fields need reshaping, and custom formatters need rewriting. Nobody wants to own this migration, and it keeps slipping quarter after quarter.
@@ -116,7 +143,7 @@ An engineer spends three months opening PRs across 80 repos. Each PR needs manua
 
 ---
 
-## 4. Automated PR Review with Human Escalation
+## 5. Automated PR Review with Human Escalation
 
 **The problem.**
 Your team merges 40 PRs a day. Senior engineers spend 30% of their time on code review, most of which is catching the same categories of issues: missing error handling, test gaps, style violations, and security anti-patterns. Reviewers are the bottleneck and they are burning out.
@@ -155,7 +182,7 @@ Senior engineers context-switch between feature work and review queues all day. 
 
 ---
 
-## 5. Incident Response: Triage, Root Cause, Fix, Verify
+## 6. Incident Response: Triage, Root Cause, Fix, Verify
 
 **The problem.**
 It is 2am. PagerDuty fires. The on-call engineer has to figure out which service is broken, why, write a fix, verify it does not break anything else, and get it deployed. Under pressure, this process is slow, error-prone, and leads to "fix the symptom, not the cause" patches that create repeat incidents.
@@ -195,7 +222,7 @@ The on-call engineer SSHs into a jump box, tails logs, reads a git log, tries a 
 
 ---
 
-## 6. Adding Test Coverage to Under-Tested Repos
+## 7. Adding Test Coverage to Under-Tested Repos
 
 **The problem.**
 Your engineering org mandated 70% test coverage six months ago. Twelve services are still under 40%. Nobody volunteers to write tests for legacy code they did not author. The coverage gap represents real production risk, but writing tests for someone else's code is thankless work that always gets deprioritized.
@@ -232,7 +259,7 @@ You create a Jira ticket titled "Improve test coverage" and assign it to each te
 
 ---
 
-## 7. Cross-Repo Research ("Which Repos Use Deprecated API X?")
+## 8. Cross-Repo Research ("Which Repos Use Deprecated API X?")
 
 **The problem.**
 You are deprecating an internal library's v2 API in favor of v3. Before you can remove it, you need to know exactly which repos import it, how they use it, and how hard the migration will be for each one. Running `grep` across 100 repos gives you import statements but no context about usage complexity or migration effort.

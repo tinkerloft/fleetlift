@@ -3,9 +3,11 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 	"github.com/tinkerloft/fleetlift/internal/auth"
 	"github.com/tinkerloft/fleetlift/internal/model"
 )
@@ -63,6 +65,12 @@ func teamIDFromRequest(w http.ResponseWriter, r *http.Request, claims *auth.Clai
 	}
 	writeJSONError(w, http.StatusBadRequest, "X-Team-ID header (or ?team_id= param) required for multi-team accounts")
 	return ""
+}
+
+// isDuplicateError checks for PostgreSQL unique violation (error code 23505).
+func isDuplicateError(err error) bool {
+	var pgErr *pq.Error
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }
 
 // getRunForTeam fetches a run by ID and verifies it belongs to teamID.

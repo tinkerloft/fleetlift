@@ -2,6 +2,8 @@ package activity
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"net/url"
@@ -11,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 
 	"github.com/tinkerloft/fleetlift/internal/auth"
@@ -65,17 +68,35 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 	// exists, resolveClaudeAuth is a no-op.
 	a.resolveClaudeAuth(ctx, input.TeamID, env)
 
-	// Inject git identity from worker env
-	if email := os.Getenv("GIT_USER_EMAIL"); email != "" {
-		env["GIT_USER_EMAIL"] = email
-	} else {
-		env["GIT_USER_EMAIL"] = DefaultGitEmail
+	// Resolve git identity: prefer the triggering user's GitHub identity, fall back to worker env.
+	gitName := os.Getenv("GIT_USER_NAME")
+	if gitName == "" {
+		gitName = DefaultGitName
 	}
-	if name := os.Getenv("GIT_USER_NAME"); name != "" {
-		env["GIT_USER_NAME"] = name
-	} else {
-		env["GIT_USER_NAME"] = DefaultGitName
+	gitEmail := os.Getenv("GIT_USER_EMAIL")
+	if gitEmail == "" {
+		gitEmail = DefaultGitEmail
 	}
+	if input.TriggeredBy != "" && a.DB != nil {
+		name, email, err := lookupUserGitIdentity(ctx, a.DB, input.TriggeredBy)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			activity.GetLogger(ctx).Warn("failed to look up git identity for user",
+				"user_id", input.TriggeredBy, "error", err)
+		}
+		if name != "" {
+			gitName = name
+		}
+		if email != "" {
+			gitEmail = email
+		}
+	}
+	env["GIT_AUTHOR_NAME"] = gitName
+	env["GIT_AUTHOR_EMAIL"] = gitEmail
+	env["GIT_COMMITTER_NAME"] = gitName
+	env["GIT_COMMITTER_EMAIL"] = gitEmail
+	// Keep legacy vars so any scripts that read them continue to work.
+	env["GIT_USER_NAME"] = gitName
+	env["GIT_USER_EMAIL"] = gitEmail
 
 	createOpts := sandbox.CreateOpts{
 		Image:       image,
@@ -144,15 +165,8 @@ func (a *Activities) ProvisionSandbox(ctx context.Context, input workflow.StepIn
 
 	// Configure git identity inside the sandbox so `git commit` works without
 	// the agent having to set it up manually. Skipped if git is not installed.
+	// gitName/gitEmail were resolved above (user identity > worker env > defaults).
 	if _, _, err := a.Sandbox.Exec(ctx, sandboxID, "command -v git", "/"); err == nil {
-		gitEmail := env["GIT_USER_EMAIL"]
-		gitName := env["GIT_USER_NAME"]
-		if gitEmail == "" {
-			gitEmail = DefaultGitEmail
-		}
-		if gitName == "" {
-			gitName = DefaultGitName
-		}
 		gitIdentityCmd := fmt.Sprintf("git config --global user.email %s && git config --global user.name %s",
 			shellquote.Quote(gitEmail), shellquote.Quote(gitName))
 		if _, _, err := a.Sandbox.Exec(ctx, sandboxID, gitIdentityCmd, "/"); err != nil {
@@ -366,4 +380,26 @@ func agentImage(agentName string) string {
 		}
 		return "claude-code-sandbox:latest"
 	}
+}
+
+// lookupUserGitIdentity fetches the name and email for a user from the database.
+// When the user has no public email, falls back to a GitHub noreply address
+// constructed from their provider_id so commits are still attributed correctly.
+func lookupUserGitIdentity(ctx context.Context, db interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, userID string) (name, email string, err error) {
+	var providerID string
+	err = db.QueryRowContext(ctx,
+		`SELECT name, COALESCE(email, ''), provider_id FROM users WHERE id = $1`,
+		userID,
+	).Scan(&name, &email, &providerID)
+	if err != nil {
+		return
+	}
+	// GitHub users with email privacy enabled have no public email. Construct
+	// the standard GitHub noreply address so commits are still attributed.
+	if email == "" && providerID != "" {
+		email = providerID + "+noreply@users.noreply.github.com"
+	}
+	return
 }
