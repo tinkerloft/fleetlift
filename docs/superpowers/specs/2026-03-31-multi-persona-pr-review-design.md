@@ -39,8 +39,8 @@ This design follows the GAN-inspired principle: independent specialist generator
   → POST /api/runs { workflow: pr-review-multi, repo_url, pr_number }
          │
          ▼
-    fetch_pr
-    (clone PR branch, git diff, extract metadata)
+    fetch_pr  [action: github_fetch_pr]
+    (GitHub API: PR metadata + unified diff + changed files — no sandbox)
     output: { diff, title, base_branch, changed_files[], additions, deletions }
          │
     ┌────┴──────────────────────────────────┐
@@ -69,9 +69,11 @@ COMMENT event      per-finding positioned comments
 
 ### `fetch_pr`
 
-Clones the PR branch and extracts the diff and metadata. Uses `sandbox_group: main` so the clone is reused if the platform later runs a sequential step in the same group. Designed as a **clean seam**: when the platform's dedicated clone/diff action lands, this step is a drop-in replacement with an identical output schema.
+A `github_fetch_pr` action step — no sandbox, no agent, no LLM cost. Calls the GitHub API directly to fetch PR metadata, the unified diff, and the changed file list. Visible as a first-class node in the DAG, not hidden inside sandbox provisioning.
 
-**Base branch resolution:** The agent first calls `gh pr view` to get `baseRefName`, then diffs against `origin/<baseRefName>` — never against a hardcoded `origin/main`. This correctly handles PRs targeting release branches, hotfix branches, or any non-main default branch.
+**Base branch resolution:** The action reads `PullRequest.Base.Ref` from the GitHub API response — no hardcoded `origin/main`. Correctly handles PRs targeting release branches, hotfix branches, or any non-default base.
+
+**Also applies to `pr-review.yaml`:** The existing single-agent PR review workflow should replace its `fetch_pr` agent step with this action. The `review` step there retains its `repositories:` field for full codebase access; only the fetch is replaced.
 
 **Output schema:**
 ```json
@@ -150,7 +152,41 @@ Action step. Uses the new `github_pr_review_inline` action (see Platform Changes
 
 ## Platform Changes Required
 
-### 1. `github_pr_review_inline` action (Blocker)
+### 1. `github_fetch_pr` action (Blocker)
+
+New action in `internal/activity/actions.go`. Fetches PR metadata and diff via the GitHub API — no sandbox provisioned, no LLM invoked. Makes the clone/diff step a visible DAG node rather than an implicit side-effect of sandbox provisioning.
+
+**Config fields:**
+```
+repo_url    string  — GitHub repository URL
+pr_number   int     — Pull request number
+```
+
+**Implementation:**
+- `PullRequests.Get(ctx, owner, repo, prNumber, nil)` → title, base branch (`Base.Ref`), additions, deletions
+- `PullRequests.GetRaw(ctx, owner, repo, prNumber, github.RawOptions{Type: github.Diff})` → unified diff string
+- `PullRequests.ListFiles(ctx, owner, repo, prNumber, opts)` (paginated) → `[]string` of changed file paths
+
+**Output:**
+```json
+{
+  "diff":          "string  — unified diff",
+  "title":         "string  — PR title",
+  "base_branch":   "string  — base ref from GitHub API, e.g. main / release-1.2",
+  "changed_files": ["string"],
+  "additions":     0,
+  "deletions":     0
+}
+```
+
+**Notes:**
+- Register in `DefaultActionRegistry()` in `internal/model/action_contract.go`
+- This is the "dedicated clone step visible in the DAG" roadmap item — fulfilled here as an action rather than a full sandbox step since the multi-persona reviewers work from diff text and don't need a cloned workspace
+- The output schema is the same as the previous agent-based `fetch_pr` step — downstream template references (`{{ .Steps.fetch_pr.Output.diff }}`) require no changes
+
+---
+
+### 2. `github_pr_review_inline` action (Blocker)
 
 New action in `internal/activity/actions.go`. Calls the GitHub `PullRequests.CreateReview` API with a `Comments` array rather than a plain body.
 
@@ -171,7 +207,7 @@ annotations   []{ file string, line int, side string, body string }
 - **Observability:** Return `{ "posted": N, "skipped": N, "skipped_details": [{ "file", "line", "reason" }] }` from the action. If any high-severity findings were skipped, include a visible warning in the posted summary comment: `> ⚠️ N inline annotation(s) could not be posted (see run detail for reasons).`
 - Empty `annotations` list is a no-op, not an error.
 
-### 2. `github_pr_review` action extension (Minor, future)
+### 3. `github_pr_review` action extension (Minor, future)
 
 The existing action hardcodes `Event: "COMMENT"`. When `REQUEST_CHANGES` support is added later, add an optional `event` config field defaulting to `"COMMENT"`.
 
@@ -200,41 +236,15 @@ parameters:
     type: int
     required: true
     description: "Pull request number to review"
-sandbox_groups:
-  main:
-    image: claude-code-sandbox:latest
 steps:
   - id: fetch_pr
     title: Fetch PR diff
-    sandbox_group: main
-    repositories:
-      - url: "{{ .Params.repo_url }}"
-        ref: "refs/pull/{{ .Params.pr_number }}/head"
-    execution:
-      agent: claude-code
+    action:
+      type: github_fetch_pr
       credentials: [GITHUB_TOKEN]
-      prompt: |
-        You are in a repository with PR #{{ .Params.pr_number }} checked out at HEAD.
-
-        First, fetch the PR metadata to get the actual base branch:
-          gh pr view {{ .Params.pr_number }} --json title,baseRefName
-
-        Then, using the baseRefName value from that output, run:
-          git fetch origin <baseRefName>
-          git diff origin/<baseRefName>...HEAD
-          git diff --name-only origin/<baseRefName>...HEAD
-
-        Do NOT hardcode "main" — use the baseRefName from the gh output.
-        Output the full unified diff, the list of changed files, PR title,
-        base branch name, and total additions/deletions.
-      output:
-        schema:
-          diff: string
-          title: string
-          base_branch: string
-          changed_files: array
-          additions: int
-          deletions: int
+      config:
+        repo_url: "{{ .Params.repo_url }}"
+        pr_number: "{{ .Params.pr_number }}"
 
   - id: review_security
     title: Security review
@@ -454,10 +464,10 @@ jobs:
 
 | Gap | Severity | Notes |
 |---|---|---|
+| `github_fetch_pr` action | **Blocker** | New action in `internal/activity/actions.go`; fulfils the "visible clone step" roadmap item for diff-only workflows. Register in `DefaultActionRegistry()`. |
 | `github_pr_review_inline` action | **Blocker** | New action in `internal/activity/actions.go`; uses GitHub's `Line`+`Side` fields (`DraftReviewComment`) — no diff-position parsing required |
 | Skipped-annotation observability | **Part of blocker** | Action must return `{ posted, skipped, skipped_details }` and append a visible warning to the summary comment when high-severity annotations are skipped |
 | Large diff scanner buffer | Low | `bufio.Scanner` in agent output must use 4MB explicit buffer (already called out in CLAUDE.md) |
-| `fetch_pr` agent step is heavyweight | Low/Future | Full Claude sandbox just to run `git diff`; replaced when dedicated platform clone/diff action lands (same output schema, drop-in) |
 | Shared read-only workspace for parallel agents | Future | Not needed for v1 (reviewers work from diff text, no clone). Relevant if reviewers are later upgraded to full codebase access. |
 | `REQUEST_CHANGES` event support | Future | Add optional `event` field to `github_pr_review` action config, defaulting to `"COMMENT"` |
 
