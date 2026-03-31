@@ -21,29 +21,13 @@ sandbox_groups:
 steps:
   - id: fetch_pr
     title: Fetch PR details
-    sandbox_group: main
-    mode: report
-    repositories:
-      - url: "{{ .Params.repo_url }}"
-        ref: "refs/pull/{{ .Params.pr_number }}/head"
-    execution:
-      agent: claude-code
+    action:
+      type: github_fetch_pr
       credentials:
         - GITHUB_TOKEN
-      prompt: |
-        You are in a repository with PR #{{ .Params.pr_number }} already checked out.
-        The PR branch is at HEAD and the base branch (main/master) is at origin/main or origin/master.
-
-        Generate the diff between the base branch and HEAD:
-          git diff origin/main...HEAD
-
-        Also extract the PR title and base branch name.
-        Output the diff content and PR metadata.
-      output:
-        schema:
-          diff: "string"
-          title: "string"
-          base_branch: "string"
+      config:
+        repo_url: "{{ .Params.repo_url }}"
+        pr_number: "{{ .Params.pr_number }}"
 
   - id: review
     title: Review code changes

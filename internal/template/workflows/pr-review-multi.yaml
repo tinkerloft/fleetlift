@@ -1,0 +1,254 @@
+version: 1
+id: pr-review-multi
+title: Multi-Persona PR Review
+description: >
+  Parallel focused code review across security, correctness, scalability, and
+  conventions dimensions. Findings are grounded against the diff, deduplicated,
+  and posted as a summary comment and inline annotations on the PR.
+tags:
+  - review
+  - automation
+  - single-repo
+parameters:
+  - name: repo_url
+    type: string
+    required: true
+    description: "Repository URL"
+  - name: pr_number
+    type: int
+    required: true
+    description: "Pull request number to review"
+steps:
+  - id: fetch_pr
+    title: Fetch PR diff
+    action:
+      type: github_fetch_pr
+      credentials: [GITHUB_TOKEN]
+      config:
+        repo_url: "{{ .Params.repo_url }}"
+        pr_number: "{{ .Params.pr_number }}"
+
+  - id: post_progress
+    title: Post review started comment
+    depends_on: [fetch_pr]
+    action:
+      type: github_comment
+      credentials: [GITHUB_TOKEN]
+      config:
+        repo_url: "{{ .Params.repo_url }}"
+        issue_number: "{{ .Params.pr_number }}"
+        body: |
+          <!-- fleetlift-review-progress -->
+          🔍 **Multi-persona review in progress** — running security, correctness, scalability, and conventions checks in parallel. Results will follow shortly.
+
+  - id: review_security
+    title: Security review
+    depends_on: [fetch_pr]
+    execution:
+      agent: claude-code
+      prompt: |
+        You are a security-focused code reviewer. Review ONLY the changed lines in the diff below.
+        Do not comment on code that is not in the diff.
+
+        PR: {{ .Steps.fetch_pr.Output.title }}
+        Changed files: {{ .Steps.fetch_pr.Output.changed_files | toJSON }}
+
+        Diff:
+        {{ .Steps.fetch_pr.Output.diff }}
+
+        Focus exclusively on: authentication and authorisation flaws, injection vectors
+        (SQL, command, path traversal), secrets or credentials committed to code,
+        use of deprecated or broken crypto primitives, missing input validation at
+        trust boundaries, insecure dependencies or transitive vulnerabilities.
+
+        For each finding output:
+        - file: exact file path as it appears in the changed files list
+        - line: line number in the file
+        - severity: critical | high | medium | low
+        - description: one concise actionable sentence
+
+        If you find nothing, output an empty findings array. Do not invent findings.
+      output:
+        schema:
+          findings: array
+          summary: string
+
+  - id: review_correctness
+    title: Correctness review
+    depends_on: [fetch_pr]
+    execution:
+      agent: claude-code
+      prompt: |
+        You are a correctness-focused code reviewer. Review ONLY the changed lines in the diff below.
+
+        PR: {{ .Steps.fetch_pr.Output.title }}
+        Changed files: {{ .Steps.fetch_pr.Output.changed_files | toJSON }}
+
+        Diff:
+        {{ .Steps.fetch_pr.Output.diff }}
+
+        Focus exclusively on: logic errors, off-by-one errors, nil/null pointer dereferences,
+        unhandled or swallowed error paths, data races and concurrency bugs, incorrect
+        assumptions about ordering or state, wrong algorithm for the stated purpose.
+
+        For each finding output:
+        - file: exact file path as it appears in the changed files list
+        - line: line number in the file
+        - severity: critical | high | medium | low
+        - description: one concise actionable sentence
+
+        If you find nothing, output an empty findings array. Do not invent findings.
+      output:
+        schema:
+          findings: array
+          summary: string
+
+  - id: review_scalability
+    title: Scalability & performance review
+    depends_on: [fetch_pr]
+    execution:
+      agent: claude-code
+      prompt: |
+        You are a scalability and performance-focused code reviewer. Review ONLY the changed lines below.
+
+        PR: {{ .Steps.fetch_pr.Output.title }}
+        Changed files: {{ .Steps.fetch_pr.Output.changed_files | toJSON }}
+
+        Diff:
+        {{ .Steps.fetch_pr.Output.diff }}
+
+        Focus exclusively on: N+1 query patterns, unbounded loops or memory allocations,
+        synchronous blocking calls on hot paths, missing pagination on list operations,
+        cache invalidation bugs, inefficient data structures for the shown access pattern,
+        unnecessary serialisation or lock contention.
+
+        For each finding output:
+        - file: exact file path as it appears in the changed files list
+        - line: line number in the file
+        - severity: critical | high | medium | low
+        - description: one concise actionable sentence
+
+        If you find nothing, output an empty findings array. Do not invent findings.
+      output:
+        schema:
+          findings: array
+          summary: string
+
+  - id: review_style
+    title: Conventions & coverage review
+    depends_on: [fetch_pr]
+    execution:
+      agent: claude-code
+      prompt: |
+        You are a code conventions and test coverage reviewer. Review ONLY the changed lines below.
+
+        PR: {{ .Steps.fetch_pr.Output.title }}
+        Changed files: {{ .Steps.fetch_pr.Output.changed_files | toJSON }}
+
+        Diff:
+        {{ .Steps.fetch_pr.Output.diff }}
+
+        Focus exclusively on: missing or inadequate tests for changed behaviour,
+        naming inconsistencies with the surrounding codebase visible in the diff,
+        undocumented public API or interface changes, breaking changes without
+        version bumps, dead code introduced by the change.
+
+        For each finding output:
+        - file: exact file path as it appears in the changed files list
+        - line: line number in the file
+        - severity: critical | high | medium | low
+        - description: one concise actionable sentence
+
+        If you find nothing, output an empty findings array. Do not invent findings.
+      output:
+        schema:
+          findings: array
+          summary: string
+
+  - id: update_progress
+    title: Update progress — synthesising
+    depends_on: [review_security, review_correctness, review_scalability, review_style, post_progress]
+    action:
+      type: github_update_comment
+      credentials: [GITHUB_TOKEN]
+      config:
+        repo_url: "{{ .Params.repo_url }}"
+        comment_id: "{{ .Steps.post_progress.Output.comment_id }}"
+        body: |
+          <!-- fleetlift-review-progress -->
+          ✅ **All reviewers complete** — synthesising findings, grounding against diff, and scoring risk. Summary will follow.
+
+  - id: synthesis
+    title: Synthesise and score findings
+    depends_on: [update_progress]
+    execution:
+      agent: claude-code
+      prompt: |
+        You are an adversarial code review synthesiser. Your job is quality control over
+        other reviewers' output — not additional review.
+
+        Original diff:
+        {{ .Steps.fetch_pr.Output.diff }}
+
+        Changed files (ground truth — findings outside this list are invalid):
+        {{ .Steps.fetch_pr.Output.changed_files | toJSON }}
+
+        Reviewer outputs:
+        Security:     {{ .Steps.review_security.Output | toJSON }}
+        Correctness:  {{ .Steps.review_correctness.Output | toJSON }}
+        Scalability:  {{ .Steps.review_scalability.Output | toJSON }}
+        Style:        {{ .Steps.review_style.Output | toJSON }}
+
+        Steps:
+        1. GROUNDING CHECK: Discard any finding whose file is not in the changed files list,
+           or whose line number does not appear in the diff hunk for that file.
+           Do not include ungrounded findings in your output under any circumstances.
+        2. DEDUPLICATION: If multiple reviewers flag the same issue at the same file and line,
+           merge into one finding. Keep the highest severity. Combine descriptions concisely.
+        3. CONTRADICTION: If reviewers disagree about the same code, include both perspectives
+           and set severity to "needs-discussion".
+        4. RISK SCORING: For each changed file, assign a risk level (critical/high/medium/low)
+           based on the density and severity of grounded findings against it.
+        5. FOCUS LIST: Rank changed files by risk level, highest first.
+        6. INLINE ANNOTATIONS: From grounded findings, select those specific enough for an
+           inline diff comment — must have a clear file path, line number, and actionable
+           one-sentence description. For each annotation output:
+           - file: exact file path
+           - line: the line number (new-file line for added/context code; original-file line for deleted code)
+           - side: "RIGHT" if finding is on an added or context line; "LEFT" if on a deleted line
+           - body: one concise sentence
+
+        Write the executive_summary in markdown for a PR comment audience. Be direct and
+        specific. Do not pad with pleasantries. Do not repeat all findings verbatim — synthesise.
+
+        Save the review report using mcp__fleetlift__artifact__create with
+        name="pr-review-multi" and content_type="text/markdown".
+      output:
+        schema:
+          executive_summary: string
+          file_risk_table: array
+          findings: array
+          focus_files: array
+          inline_annotations: array
+
+  - id: post_summary
+    title: Post review summary
+    depends_on: [synthesis]
+    action:
+      type: github_pr_review
+      credentials: [GITHUB_TOKEN]
+      config:
+        repo_url: "{{ .Params.repo_url }}"
+        pr_number: "{{ .Params.pr_number }}"
+        summary: "{{ .Steps.synthesis.Output.executive_summary }}"
+
+  - id: post_inline
+    title: Post inline annotations
+    depends_on: [post_summary]
+    action:
+      type: github_pr_review_inline
+      credentials: [GITHUB_TOKEN]
+      config:
+        repo_url: "{{ .Params.repo_url }}"
+        pr_number: "{{ .Params.pr_number }}"
+        annotations: "{{ .Steps.synthesis.Output.inline_annotations | toJSON }}"

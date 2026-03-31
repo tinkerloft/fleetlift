@@ -16,14 +16,14 @@ func TestBuiltinProviderLoadsAll(t *testing.T) {
 	require.NoError(t, err)
 	templates, err := p.List(context.Background(), "")
 	require.NoError(t, err)
-	assert.Len(t, templates, 15)
+	assert.Len(t, templates, 16)
 	slugs := map[string]bool{}
 	for _, tmpl := range templates {
 		slugs[tmpl.Slug] = true
 	}
 	for _, expected := range []string{
 		"fleet-research", "fleet-transform", "bug-fix", "dependency-update",
-		"pr-review", "migration", "triage", "audit", "incident-response",
+		"pr-review", "pr-review-multi", "migration", "triage", "audit", "incident-response",
 		"sandbox-test", "mcp-test", "clone-test", "doc-assessment",
 		"auto-debt-slayer",
 	} {
@@ -144,6 +144,60 @@ func TestQuickRunWorkflowTemplate_HiddenFromList(t *testing.T) {
 	for _, tmpl := range templates {
 		assert.NotEqual(t, "quick-run", tmpl.Slug, "quick-run should not appear in List()")
 	}
+}
+
+func TestPRReviewMultiWorkflowTemplate_Parses(t *testing.T) {
+	p, err := NewBuiltinProvider()
+	require.NoError(t, err)
+
+	tmpl, err := p.Get(context.Background(), "", "pr-review-multi")
+	require.NoError(t, err)
+	assert.Equal(t, "Multi-Persona PR Review", tmpl.Title)
+
+	var def model.WorkflowDef
+	require.NoError(t, model.ParseWorkflowYAML([]byte(tmpl.YAMLBody), &def))
+
+	// 10 steps: fetch_pr, post_progress, 4 reviewers, update_progress, synthesis, post_summary, post_inline
+	require.Len(t, def.Steps, 10)
+
+	stepIDs := make([]string, len(def.Steps))
+	for i, s := range def.Steps {
+		stepIDs[i] = s.ID
+	}
+	assert.Contains(t, stepIDs, "fetch_pr")
+	assert.Contains(t, stepIDs, "post_progress")
+	assert.Contains(t, stepIDs, "review_security")
+	assert.Contains(t, stepIDs, "review_correctness")
+	assert.Contains(t, stepIDs, "review_scalability")
+	assert.Contains(t, stepIDs, "review_style")
+	assert.Contains(t, stepIDs, "update_progress")
+	assert.Contains(t, stepIDs, "synthesis")
+	assert.Contains(t, stepIDs, "post_summary")
+	assert.Contains(t, stepIDs, "post_inline")
+
+	// fetch_pr is an action step
+	assert.NotNil(t, def.Steps[0].Action)
+	assert.Equal(t, "github_fetch_pr", def.Steps[0].Action.Type)
+
+	// update_progress depends on all 4 reviewers + post_progress
+	for _, s := range def.Steps {
+		if s.ID == "update_progress" {
+			assert.Contains(t, s.DependsOn, "review_security")
+			assert.Contains(t, s.DependsOn, "review_correctness")
+			assert.Contains(t, s.DependsOn, "review_scalability")
+			assert.Contains(t, s.DependsOn, "review_style")
+			assert.Contains(t, s.DependsOn, "post_progress")
+			break
+		}
+	}
+
+	// Required parameters
+	paramNames := make([]string, len(def.Parameters))
+	for i, p := range def.Parameters {
+		paramNames[i] = p.Name
+	}
+	assert.Contains(t, paramNames, "repo_url")
+	assert.Contains(t, paramNames, "pr_number")
 }
 
 func TestBuiltinProviderReadOnly(t *testing.T) {
