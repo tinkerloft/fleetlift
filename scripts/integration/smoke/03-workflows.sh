@@ -94,6 +94,41 @@ if [[ "$WORKFLOW_STATUS" == "COMPLETED" ]]; then
   fi
 
   fl_sql "DELETE FROM knowledge_items WHERE summary = 'mcp-test-learning'" >/dev/null 2>&1 || true
+
+  # F7: verify Claude Code step output is normalized (no internal streaming fields).
+  MCP_AGENT_OUTPUT=$(fl_sql "SELECT output::text FROM step_runs WHERE run_id = '$RUN_ID' AND step_id = 'agent_uses_mcp'" 2>/dev/null | tr -d ' \n' || true)
+  if [[ -n "$MCP_AGENT_OUTPUT" ]]; then
+    if echo "$MCP_AGENT_OUTPUT" | grep -qF '"type"'; then
+      fail "F7: agent step output contains internal 'type' field (not normalized)"
+    else
+      pass "F7: agent step output is clean (no internal streaming fields)"
+    fi
+    if echo "$MCP_AGENT_OUTPUT" | grep -qF '"session_id"'; then
+      fail "F7: agent step output contains internal 'session_id' field"
+    fi
+  fi
+fi
+
+# ── F6: step_failed inbox notification ────────────────────────────
+# Submit sandbox-test with a deliberately failing command and verify that a
+# step_failed inbox item is created immediately (before run completion).
+run_workflow "F6-step-failed-inbox" "sandbox-test" '{"duration":1,"command2":"exit 1"}' 60
+if [[ "$WORKFLOW_STATUS" == "FAILED" ]]; then
+  STEP_FAILED_COUNT=$(fl_sql "SELECT count(*) FROM inbox_items WHERE run_id = '$RUN_ID' AND kind = 'step_failed'" 2>/dev/null | tr -d ' \n' || echo "0")
+  if [[ "$STEP_FAILED_COUNT" -gt 0 ]]; then
+    pass "F6: step_failed inbox item created on step failure"
+  else
+    fail "F6: no step_failed inbox item created (expected ≥1 for run $RUN_ID)"
+  fi
+  # F4: verify no duplicate output_ready failure notification was sent alongside step_failed.
+  OUTPUT_READY_FAIL_COUNT=$(fl_sql "SELECT count(*) FROM inbox_items WHERE run_id = '$RUN_ID' AND kind = 'output_ready' AND summary LIKE 'Run failed%'" 2>/dev/null | tr -d ' \n' || echo "0")
+  if [[ "$OUTPUT_READY_FAIL_COUNT" -eq 0 ]]; then
+    pass "F6: no duplicate run-level failure notification (output_ready suppressed)"
+  else
+    fail "F6: duplicate output_ready failure notification sent alongside step_failed"
+  fi
+else
+  skip "F6: sandbox-test did not fail as expected (status=$WORKFLOW_STATUS) — skipping inbox check"
 fi
 
 # ══════════════════════════════════════════════════════════════════
