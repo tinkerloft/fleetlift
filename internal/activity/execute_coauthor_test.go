@@ -12,15 +12,15 @@ import (
 
 func TestLookupUserGitIdentity(t *testing.T) {
 	tests := []struct {
-		name        string
-		userID      string
-		dbName      string
-		dbEmail     string
-		dbProvider  string
-		dbErr       error
-		wantName    string
-		wantEmail   string
-		wantErrIs   error
+		name       string
+		userID     string
+		dbName     string
+		dbEmail    string
+		dbProvider string
+		dbErr      error
+		wantName   string
+		wantEmail  string
+		wantErrIs  error
 	}{
 		{
 			name:      "not found returns ErrNoRows",
@@ -29,21 +29,21 @@ func TestLookupUserGitIdentity(t *testing.T) {
 			wantErrIs: sql.ErrNoRows,
 		},
 		{
-			name:      "user with email returns name and email",
-			userID:    "user-1",
-			dbName:    "Alice Smith",
-			dbEmail:   "alice@example.com",
+			name:       "user with email returns name and email",
+			userID:     "user-1",
+			dbName:     "Alice Smith",
+			dbEmail:    "alice@example.com",
 			dbProvider: "12345",
-			wantName:  "Alice Smith",
-			wantEmail: "alice@example.com",
+			wantName:   "Alice Smith",
+			wantEmail:  "alice@example.com",
 		},
 		{
-			name:      "user without email falls back to noreply address",
-			userID:    "user-2",
-			dbName:    "Bob Jones",
+			name:       "user without email falls back to noreply address",
+			userID:     "user-2",
+			dbName:     "Bob Jones",
 			dbProvider: "67890",
-			wantName:  "Bob Jones",
-			wantEmail: "67890+noreply@users.noreply.github.com",
+			wantName:   "Bob Jones",
+			wantEmail:  "67890+noreply@users.noreply.github.com",
 		},
 	}
 
@@ -51,7 +51,7 @@ func TestLookupUserGitIdentity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			t.Cleanup(func() { db.Close() })
+			t.Cleanup(func() { _ = db.Close() })
 
 			q := mock.ExpectQuery(`SELECT name, COALESCE\(email, ''\), provider_id FROM users WHERE id = \$1`).
 				WithArgs(tc.userID)

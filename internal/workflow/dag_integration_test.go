@@ -39,8 +39,8 @@ func (m *dagMockActivities) CompleteStepRun(_ context.Context, stepRunID, status
 	return args.Error(0)
 }
 
-func (m *dagMockActivities) CreateInboxItem(_ context.Context, teamID, runID, stepRunID, kind, title, summary, artifactID string) error {
-	args := m.Called(teamID, runID, stepRunID, kind, title, summary, artifactID)
+func (m *dagMockActivities) CreateInboxItem(_ context.Context, teamID, runID, stepRunID, kind, title, summary, artifactID, stepID string) error {
+	args := m.Called(teamID, runID, stepRunID, kind, title, summary, artifactID, stepID)
 	return args.Error(0)
 }
 
@@ -129,7 +129,7 @@ func newDAGTestEnv(t *testing.T) (*testsuite.TestWorkflowEnvironment, *dagMockAc
 	mocks.On("UpdateRunStatus", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.On("CreateStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return("sr-1", nil)
 	mocks.On("CompleteStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64")).Return(nil)
-	mocks.On("CreateInboxItem", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.On("CreateInboxItem", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.On("GetPrimaryRunArtifactID", mock.Anything).Return("", nil)
 	mocks.On("CleanupSandbox", mock.Anything).Return(nil)
 	mocks.On("ValidateCredentials", mock.Anything, mock.Anything).Return(nil)
@@ -236,6 +236,110 @@ func TestDAGWorkflow_StepFailsRunFails(t *testing.T) {
 	err := env.GetWorkflowError()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "step-1")
+}
+
+// TestDAGWorkflow_StepFailedCreatesInboxItem verifies that when a non-optional step
+// fails, a "step_failed" inbox item is created immediately (before the workflow ends).
+func TestDAGWorkflow_StepFailedCreatesInboxItem(t *testing.T) {
+	env, mocks := newDAGTestEnv(t)
+
+	mocks.On("ProvisionSandbox", mock.Anything).Return("sb-1", nil)
+	mocks.On("ExecuteStep", mock.MatchedBy(func(ei ExecuteStepInput) bool {
+		return ei.StepInput.StepDef.ID == "step-1"
+	})).Return(nil, temporal.NewNonRetryableApplicationError(
+		"agent crashed", "ExecutionError", nil,
+	))
+
+	def := model.WorkflowDef{
+		ID:    "test-step-failed-inbox-wf",
+		Title: "Step Failed Inbox Test",
+		Steps: []model.StepDef{
+			{
+				ID:    "step-1",
+				Title: "Failing Step",
+				Execution: &model.ExecutionDef{
+					Agent:  "claude-code",
+					Prompt: "do something",
+				},
+			},
+		},
+	}
+
+	env.ExecuteWorkflow(DAGWorkflow, DAGInput{
+		RunID:       "run-step-failed-inbox-1",
+		TeamID:      "team-1",
+		WorkflowDef: def,
+		Parameters:  map[string]any{},
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.Error(t, env.GetWorkflowError())
+
+	// The step_failed inbox item must have been created with correct fields.
+	mocks.AssertCalled(t, "CreateInboxItem",
+		"team-1",                    // teamID
+		"run-step-failed-inbox-1",   // runID
+		"",                          // stepRunID (not populated for step_failed)
+		"step_failed",               // kind
+		"Step failed: Failing Step", // title
+		mock.Anything,               // summary (contains error message)
+		"",                          // artifactID
+		"step-1",                    // stepID
+	)
+}
+
+// TestDAGWorkflow_StepFailed_NoRunLevelFailureNotification verifies that when a
+// step_failed inbox item is created, the deferred run-level "output_ready" failure
+// notification is suppressed to avoid duplicate notifications for the same event.
+func TestDAGWorkflow_StepFailed_NoRunLevelFailureNotification(t *testing.T) {
+	env, mocks := newDAGTestEnv(t)
+
+	mocks.On("ProvisionSandbox", mock.Anything).Return("sb-1", nil)
+	mocks.On("ExecuteStep", mock.Anything).Return(nil, temporal.NewNonRetryableApplicationError(
+		"agent crashed", "ExecutionError", nil,
+	))
+
+	def := model.WorkflowDef{
+		ID:    "test-no-dup-inbox-wf",
+		Title: "No Duplicate Inbox Test",
+		Steps: []model.StepDef{
+			{
+				ID:    "step-1",
+				Title: "Failing Step",
+				Execution: &model.ExecutionDef{
+					Agent:  "claude-code",
+					Prompt: "do something",
+				},
+			},
+		},
+	}
+
+	env.ExecuteWorkflow(DAGWorkflow, DAGInput{
+		RunID:       "run-no-dup-inbox-1",
+		TeamID:      "team-1",
+		WorkflowDef: def,
+		Parameters:  map[string]any{},
+	})
+
+	require.True(t, env.IsWorkflowCompleted())
+	require.Error(t, env.GetWorkflowError())
+
+	// Count output_ready calls that look like run-level failure notifications.
+	// When a step_failed notification was sent, the run-level failure notification
+	// must be suppressed.
+	outputReadyFailCount := 0
+	for _, call := range mocks.Calls {
+		if call.Method != "CreateInboxItem" {
+			continue
+		}
+		kind, _ := call.Arguments[3].(string)
+		summary, _ := call.Arguments[5].(string)
+		if kind == "output_ready" && strings.Contains(summary, "failed") {
+			outputReadyFailCount++
+		}
+	}
+	assert.Equal(t, 0, outputReadyFailCount,
+		"output_ready failure notification must be suppressed when step_failed was already sent")
 }
 
 // TestDAGWorkflow_DownstreamSkippedOnFailure verifies that when step-2 fails,
@@ -638,7 +742,7 @@ func TestDAGWorkflow_CredentialPreflightFails(t *testing.T) {
 	mocks.On("UpdateRunStatus", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.On("CreateStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return("sr-1", nil)
 	mocks.On("CompleteStepRun", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.AnythingOfType("float64")).Return(nil)
-	mocks.On("CreateInboxItem", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mocks.On("CreateInboxItem", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mocks.On("GetPrimaryRunArtifactID", mock.Anything).Return("", nil)
 	mocks.On("CleanupSandbox", mock.Anything).Return(nil)
 	mocks.On("UpdateStepStatus", mock.Anything, mock.Anything).Return(nil)
