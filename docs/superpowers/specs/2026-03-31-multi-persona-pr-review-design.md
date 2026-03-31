@@ -71,6 +71,8 @@ COMMENT event      per-finding positioned comments
 
 Clones the PR branch and extracts the diff and metadata. Uses `sandbox_group: main` so the clone is reused if the platform later runs a sequential step in the same group. Designed as a **clean seam**: when the platform's dedicated clone/diff action lands, this step is a drop-in replacement with an identical output schema.
 
+**Base branch resolution:** The agent first calls `gh pr view` to get `baseRefName`, then diffs against `origin/<baseRefName>` — never against a hardcoded `origin/main`. This correctly handles PRs targeting release branches, hotfix branches, or any non-main default branch.
+
 **Output schema:**
 ```json
 {
@@ -123,7 +125,7 @@ The adversarial single pass. Receives all four reviewer outputs plus the origina
 3. **Contradiction resolution** — if reviewers contradict each other on the same code, both perspectives are noted and severity is set to `needs-discussion`.
 4. **Risk scoring** — each changed file gets a risk level (`critical/high/medium/low`) based on density and severity of grounded findings.
 5. **Focus list** — changed files ranked by risk level descending.
-6. **Inline annotation selection** — from grounded findings, select those specific enough for inline diff comments (clear file + line, actionable description). Output file path and file line number; the platform action translates to diff position.
+6. **Inline annotation selection** — from grounded findings, select those specific enough for inline diff comments (clear file + line, actionable one-sentence description). Output file path, line number, and `side`: `"RIGHT"` for added or context lines (new file line number), `"LEFT"` for deleted lines (original file line number). The platform action posts these directly using GitHub's `Line`/`Side` API fields — no diff position translation required.
 
 **Output schema:**
 ```json
@@ -132,7 +134,7 @@ The adversarial single pass. Receives all four reviewer outputs plus the origina
   "file_risk_table": [{ "file": "string", "risk_level": "string", "finding_count": 0 }],
   "findings": [{ "file": "string", "line": 0, "severity": "string", "dimension": "string", "description": "string" }],
   "focus_files": ["string"],
-  "inline_annotations": [{ "file": "string", "line": 0, "body": "string" }]
+  "inline_annotations": [{ "file": "string", "line": 0, "side": "LEFT|RIGHT", "body": "string" }]
 }
 ```
 
@@ -156,31 +158,18 @@ New action in `internal/activity/actions.go`. Calls the GitHub `PullRequests.Cre
 ```
 repo_url      string
 pr_number     int
-diff          string   — the unified diff (used to build line→position map)
-annotations   []{ file string, line int, body string }
+annotations   []{ file string, line int, side string, body string }
+  — side is "RIGHT" (added/context lines, new-file line number)
+     or "LEFT"  (deleted lines, original-file line number)
 ```
 
 **Implementation notes:**
 
-- GitHub's review comment API requires a `position` field: the sequential line count through the unified diff (including `@@` hunk headers), not the file line number. The action must parse the diff and build a `file → line → diff_position` map before posting.
-- If a finding's file:line cannot be mapped to a diff position (e.g., the synthesis step produced a finding on an unchanged line that slipped through), skip it silently rather than failing the step.
-- Posts all annotations as a single `CreateReview` call with `Event: "COMMENT"` to avoid spamming notification emails with one notification per comment.
-- Empty `annotations` list should be a no-op (not an error).
-
-**Diff position algorithm:**
-```
-position = 0
-for each line in unified diff:
-  if line starts with "diff --git" or "index" or "---" or "+++":
-    skip (don't increment position)
-  if line starts with "@@":
-    position++  (hunk header counts as position 1)
-    parse hunk to know which file and starting line numbers
-  else:
-    position++
-    if line starts with " " or "+":
-      record file:file_line_number → position
-```
+- Use GitHub's `Line` + `Side` fields in `DraftReviewComment` rather than the legacy `Position` field. This eliminates diff-position parsing entirely and correctly handles both added lines (`RIGHT`) and deleted lines (`LEFT`). The `go-github` v62 `DraftReviewComment` struct supports both.
+- Post all annotations as a single `CreateReview` call with `Event: "COMMENT"` to avoid one notification email per comment.
+- If GitHub rejects an individual annotation (e.g., the line is outside the diff window, or the side/line combination is invalid), record it in a `skipped` list — do not fail the entire review step.
+- **Observability:** Return `{ "posted": N, "skipped": N, "skipped_details": [{ "file", "line", "reason" }] }` from the action. If any high-severity findings were skipped, include a visible warning in the posted summary comment: `> ⚠️ N inline annotation(s) could not be posted (see run detail for reasons).`
+- Empty `annotations` list is a no-op, not an error.
 
 ### 2. `github_pr_review` action extension (Minor, future)
 
@@ -226,11 +215,16 @@ steps:
       credentials: [GITHUB_TOKEN]
       prompt: |
         You are in a repository with PR #{{ .Params.pr_number }} checked out at HEAD.
-        Run the following commands and output their results:
-          git diff origin/main...HEAD
-          git diff --name-only origin/main...HEAD
+
+        First, fetch the PR metadata to get the actual base branch:
           gh pr view {{ .Params.pr_number }} --json title,baseRefName
 
+        Then, using the baseRefName value from that output, run:
+          git fetch origin <baseRefName>
+          git diff origin/<baseRefName>...HEAD
+          git diff --name-only origin/<baseRefName>...HEAD
+
+        Do NOT hardcode "main" — use the baseRefName from the gh output.
         Output the full unified diff, the list of changed files, PR title,
         base branch name, and total additions/deletions.
       output:
@@ -381,8 +375,11 @@ steps:
         5. FOCUS LIST: Rank changed files by risk level, highest first.
         6. INLINE ANNOTATIONS: From grounded findings, select those specific enough for an
            inline diff comment — must have a clear file path, line number, and actionable
-           one-sentence description. Output file path and file line number only
-           (the platform translates line numbers to diff positions).
+           one-sentence description. For each annotation output:
+           - file: exact file path
+           - line: the line number (new-file line for added/context code; original-file line for deleted code)
+           - side: "RIGHT" if the finding is on an added or context line; "LEFT" if on a deleted line
+           - body: one concise sentence
 
         Write the executive_summary in markdown for a PR comment audience. Be direct and
         specific. Do not pad with pleasantries. Do not repeat all findings verbatim —
@@ -418,7 +415,6 @@ steps:
       config:
         repo_url: "{{ .Params.repo_url }}"
         pr_number: "{{ .Params.pr_number }}"
-        diff: "{{ .Steps.fetch_pr.Output.diff }}"
         annotations: "{{ .Steps.synthesis.Output.inline_annotations | toJSON }}"
 ```
 
@@ -458,8 +454,8 @@ jobs:
 
 | Gap | Severity | Notes |
 |---|---|---|
-| `github_pr_review_inline` action | **Blocker** | New action in `internal/activity/actions.go`; must translate file line numbers → unified diff positions before calling GitHub API |
-| Diff position translation logic | **Part of blocker** | Parse unified diff to build `file:line → position` map; skip annotations that can't be mapped rather than failing |
+| `github_pr_review_inline` action | **Blocker** | New action in `internal/activity/actions.go`; uses GitHub's `Line`+`Side` fields (`DraftReviewComment`) — no diff-position parsing required |
+| Skipped-annotation observability | **Part of blocker** | Action must return `{ posted, skipped, skipped_details }` and append a visible warning to the summary comment when high-severity annotations are skipped |
 | Large diff scanner buffer | Low | `bufio.Scanner` in agent output must use 4MB explicit buffer (already called out in CLAUDE.md) |
 | `fetch_pr` agent step is heavyweight | Low/Future | Full Claude sandbox just to run `git diff`; replaced when dedicated platform clone/diff action lands (same output schema, drop-in) |
 | Shared read-only workspace for parallel agents | Future | Not needed for v1 (reviewers work from diff text, no clone). Relevant if reviewers are later upgraded to full codebase access. |
