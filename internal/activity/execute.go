@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v5"
 	"go.temporal.io/sdk/activity"
@@ -225,6 +226,23 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 		return nil, fmt.Errorf("start agent: %w", err)
 	}
 
+	// Background heartbeat ticker: agent "thinking" phases produce no output
+	// events, which would starve the heartbeat and trigger Temporal's
+	// HeartbeatTimeout. Send periodic heartbeats independently.
+	hbDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				activity.RecordHeartbeat(ctx, "agent running (heartbeat)")
+			case <-hbDone:
+				return
+			}
+		}
+	}()
+
 	var lastOutput map[string]any
 	var gotComplete bool
 	for event := range events {
@@ -239,10 +257,12 @@ func (a *Activities) ExecuteStep(ctx context.Context, input workflow.ExecuteStep
 			gotComplete = true
 		}
 		if event.Type == "error" {
+			close(hbDone)
 			buf.flush(ctx)
 			return nil, fmt.Errorf("agent error: %s", event.Content)
 		}
 	}
+	close(hbDone)
 	buf.flush(ctx)
 
 	// Check if MCP handler set status to awaiting_input during this execution
