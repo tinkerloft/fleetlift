@@ -12,11 +12,6 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// maxDiffSize is the maximum diff size (in bytes) returned by github_fetch_pr.
-// Larger diffs are truncated with a warning to avoid excessive memory when the
-// diff is fanned out to multiple parallel reviewer agents.
-const maxDiffSize = 1024 * 1024 // 1 MB
-
 // ExecuteAction dispatches an action step to the appropriate handler based on action type.
 func (a *Activities) ExecuteAction(ctx context.Context, stepRunID string, actionType string, config map[string]any, teamID string, credNames []string) (map[string]any, error) {
 	// Fetch credentials if requested.
@@ -223,20 +218,10 @@ func actionGitHubFetchPR(ctx context.Context, config map[string]any, credentials
 		return nil, fmt.Errorf("github_fetch_pr: get PR: %w", err)
 	}
 
-	// Fetch unified diff. Truncate to maxDiffSize to bound memory when the
-	// diff is fanned out to multiple parallel reviewer agents.
+	// Fetch unified diff.
 	diff, _, err := ghClient.PullRequests.GetRaw(ctx, owner, repo, prNumber, github.RawOptions{Type: github.Diff})
 	if err != nil {
 		return nil, fmt.Errorf("github_fetch_pr: get diff: %w", err)
-	}
-	diffTruncated := false
-	if len(diff) > maxDiffSize {
-		cutAt := maxDiffSize
-		if idx := strings.LastIndex(diff[:maxDiffSize], "\n"); idx > 0 {
-			cutAt = idx
-		}
-		diff = diff[:cutAt] + "\n\n[... diff truncated at 1 MB ...]"
-		diffTruncated = true
 	}
 
 	// Collect changed file paths (paginated).
@@ -276,13 +261,12 @@ func actionGitHubFetchPR(ctx context.Context, config map[string]any, credentials
 	}
 
 	return map[string]any{
-		"diff":           diff,
-		"diff_truncated": diffTruncated,
-		"title":          title,
-		"base_branch":    baseBranch,
-		"changed_files":  changedFiles,
-		"additions":      additions,
-		"deletions":      deletions,
+		"diff":          diff,
+		"title":         title,
+		"base_branch":   baseBranch,
+		"changed_files": changedFiles,
+		"additions":     additions,
+		"deletions":     deletions,
 	}, nil
 }
 
