@@ -227,6 +227,56 @@ func TestGitHubUpdateComment_MissingCommentID_ReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "comment_id")
 }
 
+// --- URL scheme validation tests ---
+
+func TestGitHubFetchPR_NonHTTPS_ReturnsError(t *testing.T) {
+	_, err := actionGitHubFetchPR(context.Background(),
+		map[string]any{"repo_url": "git://github.com/org/repo", "pr_number": 1},
+		map[string]string{"GITHUB_TOKEN": "tok"},
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "https://")
+}
+
+func TestGitHubPRReviewInline_NonHTTPS_ReturnsError(t *testing.T) {
+	_, err := actionGitHubPRReviewInline(context.Background(),
+		map[string]any{
+			"repo_url":    "ssh://git@github.com/org/repo",
+			"pr_number":   1,
+			"annotations": `[{"file":"f.go","line":1,"side":"RIGHT","body":"bug"}]`,
+		},
+		map[string]string{"GITHUB_TOKEN": "tok"},
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "https://")
+}
+
+func TestGitHubUpdateComment_NonHTTPS_ReturnsError(t *testing.T) {
+	_, err := actionGitHubUpdateComment(context.Background(),
+		map[string]any{
+			"repo_url":   "file:///etc/passwd",
+			"comment_id": 42,
+			"body":       "text",
+		},
+		map[string]string{"GITHUB_TOKEN": "tok"},
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "https://")
+}
+
+// --- toInt64 tests ---
+
+func TestToInt64_Precision(t *testing.T) {
+	// Verify int64 precision is preserved for large values.
+	assert.Equal(t, int64(4165804618), toInt64("4165804618"))
+	assert.Equal(t, int64(4165804618), toInt64(int64(4165804618)))
+	assert.Equal(t, int64(42), toInt64(42))
+	assert.Equal(t, int64(100), toInt64(float64(100)))
+	assert.Equal(t, int64(0), toInt64("not-a-number"))
+	// Scientific notation fallback.
+	assert.Equal(t, int64(4165804618), toInt64("4.165804618e+09"))
+}
+
 // Fix 5: empty summary with missing token must return error, not a success skip.
 func TestGitHubPRReview_EmptySummaryWithMissingToken_ReturnsError(t *testing.T) {
 	_, err := actionGitHubPostReviewComment(context.Background(),

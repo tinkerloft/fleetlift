@@ -4,11 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/go-github/v62/github"
 	"golang.org/x/oauth2"
 )
+
+// maxDiffSize is the maximum diff size (in bytes) returned by github_fetch_pr.
+// Larger diffs are truncated with a warning to avoid excessive memory when the
+// diff is fanned out to multiple parallel reviewer agents.
+const maxDiffSize = 1024 * 1024 // 1 MB
 
 // ExecuteAction dispatches an action step to the appropriate handler based on action type.
 func (a *Activities) ExecuteAction(ctx context.Context, stepRunID string, actionType string, config map[string]any, teamID string, credNames []string) (map[string]any, error) {
@@ -106,9 +113,9 @@ func actionGitHubPostReviewComment(ctx context.Context, config map[string]any, c
 		return map[string]any{"status": "skipped", "reason": "empty summary"}, nil
 	}
 
-	owner, repo := extractOwnerRepo(repoURL)
-	if owner == "" || repo == "" {
-		return nil, fmt.Errorf("github_pr_review: could not parse owner/repo from %s", repoURL)
+	owner, repo, err := parseGitHubRepo(repoURL, "github_pr_review")
+	if err != nil {
+		return nil, err
 	}
 	review, _, err := ghClient.PullRequests.CreateReview(ctx, owner, repo, prNumber, &github.PullRequestReviewRequest{
 		Body:  github.String(summary),
@@ -139,7 +146,10 @@ func actionGitHubAddLabel(ctx context.Context, config map[string]any, credential
 		return nil, fmt.Errorf("GITHUB_TOKEN not set")
 	}
 
-	owner, repo := extractOwnerRepo(repoURL)
+	owner, repo, err := parseGitHubRepo(repoURL, "github_label")
+	if err != nil {
+		return nil, err
+	}
 	applied, _, err := ghClient.Issues.AddLabelsToIssue(ctx, owner, repo, issueNumber, labels)
 	if err != nil {
 		return nil, err
@@ -168,7 +178,10 @@ func actionGitHubPostIssueComment(ctx context.Context, config map[string]any, cr
 		return nil, fmt.Errorf("GITHUB_TOKEN not set")
 	}
 
-	owner, repo := extractOwnerRepo(repoURL)
+	owner, repo, err := parseGitHubRepo(repoURL, "github_comment")
+	if err != nil {
+		return nil, err
+	}
 	comment, _, err := ghClient.Issues.CreateComment(ctx, owner, repo, issueNumber, &github.IssueComment{
 		Body: github.String(body),
 	})
@@ -199,9 +212,9 @@ func actionGitHubFetchPR(ctx context.Context, config map[string]any, credentials
 		return nil, fmt.Errorf("github_fetch_pr: GITHUB_TOKEN is not set")
 	}
 
-	owner, repo := extractOwnerRepo(repoURL)
-	if owner == "" || repo == "" {
-		return nil, fmt.Errorf("github_fetch_pr: could not parse owner/repo from %s", repoURL)
+	owner, repo, err := parseGitHubRepo(repoURL, "github_fetch_pr")
+	if err != nil {
+		return nil, err
 	}
 
 	// Fetch PR metadata.
@@ -210,10 +223,20 @@ func actionGitHubFetchPR(ctx context.Context, config map[string]any, credentials
 		return nil, fmt.Errorf("github_fetch_pr: get PR: %w", err)
 	}
 
-	// Fetch unified diff.
+	// Fetch unified diff. Truncate to maxDiffSize to bound memory when the
+	// diff is fanned out to multiple parallel reviewer agents.
 	diff, _, err := ghClient.PullRequests.GetRaw(ctx, owner, repo, prNumber, github.RawOptions{Type: github.Diff})
 	if err != nil {
 		return nil, fmt.Errorf("github_fetch_pr: get diff: %w", err)
+	}
+	diffTruncated := false
+	if len(diff) > maxDiffSize {
+		cutAt := maxDiffSize
+		if idx := strings.LastIndex(diff[:maxDiffSize], "\n"); idx > 0 {
+			cutAt = idx
+		}
+		diff = diff[:cutAt] + "\n\n[... diff truncated at 1 MB ...]"
+		diffTruncated = true
 	}
 
 	// Collect changed file paths (paginated).
@@ -253,12 +276,13 @@ func actionGitHubFetchPR(ctx context.Context, config map[string]any, credentials
 	}
 
 	return map[string]any{
-		"diff":          diff,
-		"title":         title,
-		"base_branch":   baseBranch,
-		"changed_files": changedFiles,
-		"additions":     additions,
-		"deletions":     deletions,
+		"diff":           diff,
+		"diff_truncated": diffTruncated,
+		"title":          title,
+		"base_branch":    baseBranch,
+		"changed_files":  changedFiles,
+		"additions":      additions,
+		"deletions":      deletions,
 	}, nil
 }
 
@@ -290,7 +314,7 @@ func actionGitHubPRReviewInline(ctx context.Context, config map[string]any, cred
 	}
 
 	// Parse annotations JSON.
-	var annotations []inlineAnnotation
+	annotations := make([]inlineAnnotation, 0)
 	if annotationsJSON != "" && annotationsJSON != "null" {
 		if err := json.Unmarshal([]byte(annotationsJSON), &annotations); err != nil {
 			return nil, fmt.Errorf("github_pr_review_inline: parse annotations: %w", err)
@@ -301,9 +325,9 @@ func actionGitHubPRReviewInline(ctx context.Context, config map[string]any, cred
 	}
 
 	// Resolve commit ID to the PR head SHA if not provided.
-	owner, repo := extractOwnerRepo(repoURL)
-	if owner == "" || repo == "" {
-		return nil, fmt.Errorf("github_pr_review_inline: could not parse owner/repo from %s", repoURL)
+	owner, repo, err := parseGitHubRepo(repoURL, "github_pr_review_inline")
+	if err != nil {
+		return nil, err
 	}
 	if commitID == "" {
 		pr, _, err := ghClient.PullRequests.Get(ctx, owner, repo, prNumber)
@@ -313,6 +337,9 @@ func actionGitHubPRReviewInline(ctx context.Context, config map[string]any, cred
 		if pr.Head != nil && pr.Head.SHA != nil {
 			commitID = *pr.Head.SHA
 		}
+	}
+	if commitID == "" {
+		return nil, fmt.Errorf("github_pr_review_inline: could not resolve PR head SHA (branch may have been deleted)")
 	}
 
 	// Build review comments. GitHub requires side to be "LEFT" or "RIGHT".
@@ -336,7 +363,7 @@ func actionGitHubPRReviewInline(ctx context.Context, config map[string]any, cred
 		Event:    github.String("COMMENT"),
 		Comments: comments,
 	}
-	_, _, err := ghClient.PullRequests.CreateReview(ctx, owner, repo, prNumber, req)
+	_, _, err = ghClient.PullRequests.CreateReview(ctx, owner, repo, prNumber, req)
 	if err != nil {
 		// GitHub rejects the entire review if any single comment is invalid
 		// (e.g., line not in diff). Fall back to posting annotations one by one
@@ -357,7 +384,23 @@ func actionGitHubPRReviewInlineOneByOne(ctx context.Context, ghClient *github.Cl
 	posted := 0
 	skippedDetails := make([]any, 0)
 
-	for _, a := range annotations {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for i, a := range annotations {
+		// Brief pause between API calls to avoid triggering GitHub's secondary rate limit.
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				result := map[string]any{
+					"posted":          posted,
+					"skipped":         len(skippedDetails),
+					"skipped_details": skippedDetails,
+				}
+				return result, ctx.Err()
+			case <-ticker.C:
+			}
+		}
 		side := strings.ToUpper(a.Side)
 		if side != "LEFT" && side != "RIGHT" {
 			side = "RIGHT"
@@ -384,16 +427,20 @@ func actionGitHubPRReviewInlineOneByOne(ctx context.Context, ghClient *github.Cl
 		}
 	}
 
-	return map[string]any{
+	result := map[string]any{
 		"posted":          posted,
 		"skipped":         len(skippedDetails),
 		"skipped_details": skippedDetails,
-	}, nil
+	}
+	if posted == 0 && len(annotations) > 0 {
+		return result, fmt.Errorf("github_pr_review_inline: all %d annotations were rejected", len(annotations))
+	}
+	return result, nil
 }
 
 func actionGitHubUpdateComment(ctx context.Context, config map[string]any, credentials map[string]string) (map[string]any, error) {
 	repoURL, _ := config["repo_url"].(string)
-	commentID := int64(toInt(config["comment_id"]))
+	commentID := toInt64(config["comment_id"])
 	body, _ := config["body"].(string)
 
 	if repoURL == "" {
@@ -412,9 +459,9 @@ func actionGitHubUpdateComment(ctx context.Context, config map[string]any, crede
 		return nil, fmt.Errorf("github_update_comment: GITHUB_TOKEN is not set")
 	}
 
-	owner, repo := extractOwnerRepo(repoURL)
-	if owner == "" || repo == "" {
-		return nil, fmt.Errorf("github_update_comment: could not parse owner/repo from %s", repoURL)
+	owner, repo, err := parseGitHubRepo(repoURL, "github_update_comment")
+	if err != nil {
+		return nil, err
 	}
 	updated, _, err := ghClient.Issues.EditComment(ctx, owner, repo, commentID, &github.IssueComment{
 		Body: github.String(body),
@@ -439,21 +486,24 @@ func newGitHubClientWithToken(ctx context.Context, token string) *github.Client 
 }
 
 func toInt(v any) int {
+	return int(toInt64(v))
+}
+
+// toInt64 converts a value to int64 with full precision (no float64 intermediate).
+func toInt64(v any) int64 {
 	switch val := v.(type) {
 	case int:
-		return val
+		return int64(val)
 	case float64:
-		return int(val)
+		return int64(val)
 	case int64:
-		return int(val)
+		return val
 	case string:
-		// Template rendering may produce strings. Large numbers from JSON
-		// round-trip (e.g. comment IDs) render as scientific notation like
-		// "4.165804618e+09", so try float parsing first to handle both
-		// plain integers and scientific notation uniformly.
-		var f float64
-		if _, err := fmt.Sscanf(val, "%g", &f); err == nil {
-			return int(f)
+		if n, err := strconv.ParseInt(val, 10, 64); err == nil {
+			return n
+		}
+		if f, err := strconv.ParseFloat(val, 64); err == nil {
+			return int64(f)
 		}
 		return 0
 	}
@@ -465,7 +515,7 @@ func toStringSlice(v any) []string {
 	case []string:
 		return val
 	case []any:
-		var out []string
+		out := make([]string, 0, len(val))
 		for _, item := range val {
 			if s, ok := item.(string); ok {
 				out = append(out, s)
@@ -477,5 +527,5 @@ func toStringSlice(v any) []string {
 			return strings.Split(val, ",")
 		}
 	}
-	return nil
+	return make([]string, 0)
 }
