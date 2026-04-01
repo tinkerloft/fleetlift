@@ -187,10 +187,8 @@ steps:
         You are an adversarial code review synthesiser. Your job is quality control over
         other reviewers' output — not additional review.
 
-        Original diff:
-        {{ .Steps.fetch_pr.Output.diff }}
-
-        Changed files (ground truth — findings outside this list are invalid):
+        PR: {{ .Steps.fetch_pr.Output.title }}
+        Changed files ({{ .Steps.fetch_pr.Output.additions }} additions, {{ .Steps.fetch_pr.Output.deletions }} deletions):
         {{ .Steps.fetch_pr.Output.changed_files | toJSON }}
 
         Reviewer outputs:
@@ -200,8 +198,7 @@ steps:
         Style:        {{ .Steps.review_style.Output | toJSON }}
 
         Steps:
-        1. GROUNDING CHECK: Discard any finding whose file is not in the changed files list,
-           or whose line number does not appear in the diff hunk for that file.
+        1. GROUNDING CHECK: Discard any finding whose file is not in the changed files list.
            Do not include ungrounded findings in your output under any circumstances.
         2. DEDUPLICATION: If multiple reviewers flag the same issue at the same file and line,
            merge into one finding. Keep the highest severity. Combine descriptions concisely.
