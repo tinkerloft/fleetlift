@@ -447,10 +447,15 @@ func toInt(v any) int {
 	case int64:
 		return int(val)
 	case string:
-		// Simple string-to-int; template rendering may produce strings
-		var n int
-		_, _ = fmt.Sscanf(val, "%d", &n)
-		return n
+		// Template rendering may produce strings. Large numbers from JSON
+		// round-trip (e.g. comment IDs) render as scientific notation like
+		// "4.165804618e+09", so try float parsing first to handle both
+		// plain integers and scientific notation uniformly.
+		var f float64
+		if _, err := fmt.Sscanf(val, "%g", &f); err == nil {
+			return int(f)
+		}
+		return 0
 	}
 	return 0
 }

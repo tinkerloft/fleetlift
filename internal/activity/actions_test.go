@@ -104,6 +104,17 @@ func TestGitHubFetchPR_MissingToken_ReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "GITHUB_TOKEN")
 }
 
+// toInt must handle scientific notation strings produced when large float64
+// values (e.g. GitHub comment IDs after JSON round-trip) are template-rendered.
+func TestToInt_ScientificNotationString(t *testing.T) {
+	// 4165804618 → JSON float64 → template renders as "4.165804618e+09"
+	assert.Equal(t, 4165804618, toInt("4.165804618e+09"))
+	assert.Equal(t, 42, toInt("42"))
+	assert.Equal(t, 0, toInt("not-a-number"))
+	assert.Equal(t, 100, toInt(float64(100)))
+	assert.Equal(t, 99, toInt(int64(99)))
+}
+
 func TestGitHubFetchPR_MissingRepoURL_ReturnsError(t *testing.T) {
 	_, err := actionGitHubFetchPR(context.Background(),
 		map[string]any{"pr_number": 1},
