@@ -255,5 +255,55 @@ func DefaultActionRegistry() *ActionRegistry {
 		},
 	})
 
+	r.Register(ActionContract{
+		Type:        "github_fetch_pr",
+		Description: "Fetch PR metadata and unified diff from GitHub API (no sandbox)",
+		Inputs: []FieldContract{
+			{Name: "repo_url", Type: "string", Required: true, Description: "GitHub repository URL"},
+			{Name: "pr_number", Type: "int", Required: true, Description: "Pull request number"},
+		},
+		Outputs: []FieldContract{
+			{Name: "diff", Type: "string", Required: true, Description: "Unified diff of the PR"},
+			{Name: "title", Type: "string", Required: true, Description: "PR title"},
+			{Name: "base_branch", Type: "string", Required: true, Description: "Base branch name"},
+			{Name: "changed_files", Type: "array", Required: true, Description: "List of changed file paths"},
+			{Name: "additions", Type: "int", Required: true, Description: "Total lines added"},
+			{Name: "deletions", Type: "int", Required: true, Description: "Total lines deleted"},
+		},
+		Credentials: []string{"GITHUB_TOKEN"},
+	})
+
+	r.Register(ActionContract{
+		Type:        "github_pr_review_inline",
+		Description: "Post inline review comments on a GitHub PR using file line numbers and side (LEFT/RIGHT)",
+		Inputs: []FieldContract{
+			{Name: "repo_url", Type: "string", Required: true, Description: "GitHub repository URL"},
+			{Name: "pr_number", Type: "int", Required: true, Description: "Pull request number"},
+			{Name: "annotations", Type: "string", Required: true, Description: "JSON array of {file, line, side, body} objects"},
+			{Name: "commit_id", Type: "string", Required: false, Description: "Commit SHA to attach review to (uses PR head if omitted)"},
+		},
+		Outputs: []FieldContract{
+			{Name: "posted", Type: "int", Required: true, Description: "Number of annotations successfully posted"},
+			{Name: "skipped", Type: "int", Required: true, Description: "Number of annotations skipped"},
+			{Name: "skipped_details", Type: "array", Required: false, Description: "Details of skipped annotations"},
+		},
+		Credentials: []string{"GITHUB_TOKEN"},
+	})
+
+	r.Register(ActionContract{
+		Type:        "github_update_comment",
+		Description: "Update the body of an existing GitHub issue/PR comment",
+		Inputs: []FieldContract{
+			{Name: "repo_url", Type: "string", Required: true, Description: "GitHub repository URL"},
+			{Name: "comment_id", Type: "int", Required: true, Description: "Comment ID to update"},
+			{Name: "body", Type: "string", Required: true, Description: "New comment body"},
+		},
+		Outputs: []FieldContract{
+			{Name: "status", Type: "string", Required: true, Description: "updated | failed"},
+			{Name: "comment_id", Type: "int", Required: true, Description: "Updated comment ID"},
+		},
+		Credentials: []string{"GITHUB_TOKEN"},
+	})
+
 	return r
 }
