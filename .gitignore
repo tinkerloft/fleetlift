@@ -10,6 +10,9 @@ bin/
 *.so
 *.dylib
 
+# Delve debugger output (dlv debug ./cmd/...)
+__debug_bin*
+
 # Test binaries (built with `go test -c`)
 *.test
 
@@ -56,6 +59,9 @@ web/dist/*
 # TypeScript build cache
 *.tsbuildinfo
 
+# ESLint cache (--cache flag)
+.eslintcache
+
 # Vitest / Jest coverage
 web/coverage/
 
@@ -67,7 +73,6 @@ web/coverage/
 .env
 .env.*
 !.env.example
-
 
 # =============================================================================
 # Build and dist artifacts
