@@ -14,6 +14,7 @@ The eval framework PRD describes a judge helper and output fetching, but does no
 1. **Multi-step eval logic** — some evals need setup before the workflow runs (reset repo to a pinned commit) and teardown after (clean up branches). The eval is not just "run workflow → check output" — it's "prepare state → run workflow → check output → clean up."
 2. **Side-effect suppression** — workflows like `pr-review` post comments to GitHub, `auto-debt-slayer` creates real PRs, `triage` applies labels. During eval runs, these side effects must not fire — but the agent steps that produce the reviewable output must still run.
 3. **Golden set as input data** — evals run against a predefined golden set: an array of inputs (repo, commit, rubric text, parameters) fed to an eval template. The system must support flexible text data, composite scoring (deterministic + LLM judge), and extensible rubric types.
+4. **Dev/held-out split (optional)** — when iterating on prompts, engineers (and agents) can split golden sets into a **dev set** for repeated iteration and a **held-out set** for final verification. Without this split, prompt tuning risks overfitting to the test cases. The split is opt-in — golden sets without a role work exactly as before.
 
 ### Concrete examples
 
@@ -37,8 +38,8 @@ Clean four-way separation of concerns. Each file type has a single responsibilit
 | ----------------- | ------------------------------------------------------------------------------- | ------------------------ |
 | **Workflow**      | Production workflow logic                                                       | Business logic changes   |
 | **Eval Template** | How to test — setup/teardown steps, suppress_steps, rubric evaluation           | Test methodology changes |
-| **Golden Set**    | Pure input data — array of test case inputs (repo, commit, rubric text, params) | Test cases added/updated |
-| **Eval Suite**    | Binding + config — references eval template + golden set(s) + overrides         | Test composition changes |
+| **Golden Set**    | Pure input data — array of test case inputs (repo, commit, rubric text, params). Optionally tagged as `dev` or `held-out` | Test cases added/updated |
+| **Eval Suite**    | Binding + config — references eval template + golden set(s) + overrides. Can filter by role when splits exist    | Test composition changes |
 
 
 ```
@@ -61,7 +62,9 @@ tests/eval/
     auto-debt-slayer.eval.yaml
     triage.eval.yaml
   golden/                               # Golden Sets (pure input data)
-    pr-review-security.golden.yaml
+    pr-review-security.golden.yaml          # unsplit — used as-is
+    pr-review-security.dev.golden.yaml      # dev split — iterate freely (optional)
+    pr-review-security.holdout.golden.yaml  # held-out — verify only (optional)
     pr-review-style.golden.yaml
     ads-known-bugs.golden.yaml
     triage-issues.golden.yaml
@@ -130,10 +133,42 @@ suppress_steps:
 
 **Pure input data** — an array of test case inputs fed to the eval template. No logic, no step definitions. Each entry provides inputs to the eval template and rubrics to evaluate outputs.
 
+### Dev / Held-out Split (Optional)
+
+Golden sets can optionally be tagged with a **role** — `dev` or `held-out`. When omitted, the golden set has no role and is included in all suite runs regardless of filtering.
+
+| Role | Purpose | When to run | Visibility |
+|------|---------|-------------|------------|
+| *(none)* | Default — no split, all cases run together | Always | Full visibility |
+| `dev` | Iterate on prompts, scoring logic, workflow changes | Every iteration during development | Engineers see inputs, rubrics, and results — use them to diagnose and improve |
+| `held-out` | Verify that improvements generalize | Only after dev-set iteration converges | Engineers should **not** inspect held-out cases while tuning — prevents overfitting |
+
+**When to split:** Use dev/held-out when you're actively tuning prompts and want confidence that improvements generalize. For simple pass/fail regression evals or early-stage workflows with few test cases, a single unsplit golden set is fine.
+
+**Why splitting helps:** Without a held-out set, prompt tuning can degenerate into "teaching to the test." A prompt that scores 5/5 on cases the engineer has been staring at may fail on unseen inputs. The held-out set is the honest signal.
+
+**Splitting guidelines (when you opt in):**
+- Aim for roughly 70/30 dev/held-out ratio within each golden set topic
+- Held-out cases should cover the same categories as dev cases (e.g., if dev has SQL injection, held-out should have a different SQL injection case — not just XSS)
+- Once a held-out set is created, **do not move cases from held-out to dev** — this defeats the purpose. Add new cases instead
+- If held-out scores are significantly lower than dev scores, the prompt is overfitted — go back and generalize
+
+**Unsplit golden set** (default — no role, works as before):
+
 ```yaml
 # tests/eval/golden/pr-review-security.golden.yaml
 version: 1
 description: "Security-focused PR review test cases"
+# No role field — included in all suite runs
+```
+
+**Split golden set** (opt-in — tagged with role):
+
+```yaml
+# tests/eval/golden/pr-review-security.dev.golden.yaml
+version: 1
+role: dev                                   # optional: dev | held-out
+description: "Security-focused PR review test cases (dev split — iterate freely)"
 
 inputs:
   - id: sql-injection-detection
@@ -195,6 +230,8 @@ inputs:
 
 The **binding file** — references an eval template and one or more golden sets, plus configuration overrides. This is what the Go test driver reads as its entry point.
 
+**Simple suite** (unsplit golden sets — no role filtering needed):
+
 ```yaml
 # tests/eval/suites/pr-review-full.suite.yaml
 version: 1
@@ -214,6 +251,52 @@ config:
   llm_judge_model: claude-haiku-4-5-20251001
 ```
 
+**Dev iteration suite** (when using splits — filters to dev role only):
+
+```yaml
+# tests/eval/suites/pr-review-dev.suite.yaml
+version: 1
+id: pr-review-dev
+description: "PR review eval — dev split only (safe to iterate on)"
+
+eval_template: pr-review.eval.yaml
+
+golden_sets:
+  - pr-review-security.dev.golden.yaml
+  - pr-review-style.dev.golden.yaml
+
+golden_set_role: dev                        # optional filter — only include dev-role golden sets
+
+config:
+  timeout: 15m
+  max_parallel: 3
+  model: claude-sonnet-4-5-20250514
+  llm_judge_model: claude-haiku-4-5-20251001
+```
+
+**Held-out verification suite** (run only when dev iteration converges):
+
+```yaml
+# tests/eval/suites/pr-review-holdout.suite.yaml
+version: 1
+id: pr-review-holdout
+description: "PR review eval — held-out split (do NOT use for iteration)"
+
+eval_template: pr-review.eval.yaml
+
+golden_sets:
+  - pr-review-security.holdout.golden.yaml
+  - pr-review-style.holdout.golden.yaml
+
+golden_set_role: held-out                   # optional filter — held-out verification only
+
+config:
+  timeout: 15m
+  max_parallel: 3
+  model: claude-sonnet-4-5-20250514
+  llm_judge_model: claude-haiku-4-5-20251001
+```
+
 **Quick suite** (subset for smoke testing):
 
 ```yaml
@@ -224,7 +307,7 @@ description: "Quick PR review smoke — 2 cases only"
 
 eval_template: pr-review.eval.yaml
 golden_sets:
-  - pr-review-security.golden.yaml
+  - pr-review-security.golden.yaml      # works with unsplit or dev golden sets
 
 config:
   timeout: 5m
@@ -232,7 +315,7 @@ config:
   max_cases: 2                          # only run first 2 inputs per golden set
 ```
 
-**Nightly suite** (combines multiple eval templates):
+**Nightly suite** (combines multiple eval templates — can mix unsplit and split golden sets):
 
 ```yaml
 # tests/eval/suites/nightly.suite.yaml
@@ -242,19 +325,21 @@ description: "Nightly regression — all workflow evals"
 
 evals:
   - eval_template: pr-review.eval.yaml
-    golden_sets:
-      - pr-review-security.golden.yaml
-      - pr-review-style.golden.yaml
+    golden_sets:                         # mix of split and unsplit is fine
+      - pr-review-security.dev.golden.yaml
+      - pr-review-security.holdout.golden.yaml
+      - pr-review-style.golden.yaml      # unsplit — always included
   - eval_template: auto-debt-slayer.eval.yaml
     golden_sets:
-      - ads-known-bugs.golden.yaml
+      - ads-known-bugs.golden.yaml       # unsplit
   - eval_template: triage.eval.yaml
     golden_sets:
-      - triage-issues.golden.yaml
+      - triage-issues.golden.yaml        # unsplit
 
 config:
   timeout: 30m
   max_parallel: 5
+  report_by_role: true                  # when true, groups scores by role in output (no-op for unsplit)
 ```
 
 ---
@@ -263,7 +348,6 @@ config:
 
 The driver reads suite files as its entry point — generic, works for any suite without per-workflow code:
 
-#TODO: Verify and review code example here: 
 
 ```go
 //go:build eval
@@ -278,7 +362,12 @@ func TestEvalSuites(t *testing.T) {
                 tmpl := loadEvalTemplate(t, evalRef.EvalTemplate)
                 for _, gsPath := range evalRef.GoldenSets {
                     gs := loadGoldenSet(t, gsPath)
-                    t.Run(gs.Description, func(t *testing.T) {
+                    // Group by role if present, otherwise just use description
+                    testName := gs.Description
+                    if gs.Role != "" {
+                        testName = gs.Role + "/" + gs.Description
+                    }
+                    t.Run(testName, func(t *testing.T) {
                         for i, input := range gs.Inputs {
                             if suite.Config.MaxCases > 0 && i >= suite.Config.MaxCases {
                                 break
@@ -329,18 +418,43 @@ func runEvalCase(t *testing.T, c *eval.Client, tmpl EvalTemplate, input GoldenIn
 **Running evals:**
 
 ```bash
-# Run all suites
+# Run all suites (works with both split and unsplit golden sets)
 go test -tags eval -v -timeout 30m ./tests/eval/...
 
-# Run only the quick PR review suite
+# Run a specific suite (unsplit — simple case)
+go test -tags eval -v -run TestEvalSuites/pr-review-full ./tests/eval/...
+
+# Run dev-split suite only (when using dev/held-out splits)
+go test -tags eval -v -run TestEvalSuites/pr-review-dev ./tests/eval/...
+
+# Run held-out verification (only when dev iteration converges)
+go test -tags eval -v -run TestEvalSuites/pr-review-holdout ./tests/eval/...
+
+# Quick smoke (2 cases)
 go test -tags eval -v -run TestEvalSuites/pr-review-quick ./tests/eval/...
 
-# Run nightly suite
+# Nightly — all evals, reports split scores separately where applicable
 go test -tags eval -v -timeout 60m -run TestEvalSuites/nightly ./tests/eval/...
+
+# Filter by role in test output (when using splits)
+go test -tags eval -v -run 'TestEvalSuites/.*/dev/' ./tests/eval/...
+go test -tags eval -v -run 'TestEvalSuites/.*/held-out/' ./tests/eval/...
 
 # Via Makefile
 make evals                              # all suites
+make evals-dev                          # dev-split suites only (iteration)
+make evals-holdout                      # held-out suites only (verification)
 make evals-quick                        # quick suites only
+```
+
+**Typical prompt-tuning workflow:**
+
+```
+1. Edit prompt in workflow YAML
+2. Run:  make evals-dev          → iterate until dev scores plateau
+3. Run:  make evals-holdout      → verify generalization
+4. If held-out scores ≈ dev scores → prompt generalizes, ship it
+5. If held-out << dev            → overfitted, generalize the prompt and repeat from step 1
 ```
 
 ---
