@@ -184,7 +184,7 @@ inputs:
       pr_number: "42"
     # Rubrics — how to evaluate this specific case's outputs
     rubrics:
-      - step_id: review
+      - rubric_id: review
         type: deterministic
         checks:
           - field: "output.findings"
@@ -193,7 +193,7 @@ inputs:
           - field: "output.approval"
             op: not_equals
             value: "approve"
-      - step_id: review
+      - rubric_id: review
         type: llm_judge
         prompt: |
           The PR introduces an unsanitized SQL query in handlers/users.go.
@@ -210,13 +210,13 @@ inputs:
       repo_url: "https://github.com/tinkerloft/eval-fixtures"
       pr_number: "44"
     rubrics:
-      - step_id: review
+      - rubric_id: review
         type: deterministic
         checks:
           - field: "output.findings"
             op: contains_match
             match: { category: "security" }
-      - step_id: review
+      - rubric_id: review
         type: llm_judge
         prompt: |
           The PR renders user input without escaping in a template.
@@ -409,7 +409,7 @@ func runEvalCase(t *testing.T, c *eval.Client, tmpl EvalTemplate, input GoldenIn
 
     // 3. Evaluate rubrics from golden set input
     for _, rubric := range input.Rubrics {
-        stepOutput := findStepOutput(t, result, rubric.StepID)
+        stepOutput := findStepOutput(t, result, rubric.RubricID)
         evaluateRubric(t, ctx, stepOutput, rubric, cfg)
     }
 }
@@ -489,7 +489,7 @@ The DAG engine checks `suppress_steps` before executing each step. Suppressed st
 
 ```yaml
 rubrics:
-  - step_id: review
+  - rubric_id: review
     type: deterministic
     checks:
       - field: "output.approval"
@@ -510,7 +510,7 @@ rubrics:
 ```yaml
 rubrics:
 
-  - step_id: review
+  - rubric_id: review
     type: llm_judge
     prompt: |
       The PR introduces an unsanitized SQL query. The review should
@@ -556,3 +556,9 @@ Four alternative approaches were evaluated before arriving at the four-file arch
 
 
 The four-file architecture combines the best of A (workflow steps for setup/teardown) and D (separate golden set files) while adding the suite layer for composability. See also the [step suppression approaches](./2026-04-10-multi-step-eval-orchestration-alternatives.md#cross-cutting-concern-step-suppression) and [comparison matrix](./2026-04-10-multi-step-eval-orchestration-alternatives.md#comparison-matrix) in the alternatives document.
+
+---
+
+## Open Questions
+
+- **LLM judge input scope:** Should the LLM judge evaluate against step output only, generated files only, both, or should this be configurable per rubric? Step output captures structured decisions but may miss code quality issues visible only in files. Evaluating files adds cost and context length. A configurable `judge_input` field (`output` | `files` | `both`) on the `llm_judge` rubric type could let golden set authors choose per case.
