@@ -37,7 +37,7 @@ Alternatives considered and rejected:
 | Retrospective production bugs | Tracing post-merge incidents back to specific PR lines is high effort, low yield. |
 | External benchmark datasets | OSS-only, wrong language stack, and contamination risk makes scores misleading. |
 
-Human review comments are noisy but filterable. After filtering, what remains is a substantive comment that led to a code change: the cleanest available signal for "a good reviewer would have flagged this."
+Human review comments are noisy but filterable. Where possible, we check for commits touching the same file after the comment timestamp as a signal that it was addressed, but this requires manual confirmation.
 
 ---
 
@@ -62,7 +62,7 @@ Human review comments are noisy but filterable. After filtering, what remains is
 - **Experiment PRs:** Miro applies a more pragmatic review standard to experiments; including them would produce false positives.
 - **Hotfix PRs:** Reviewed under relaxed emergency standards.
 - **Draft and validation PRs:** Not production-quality submissions.
-- **PRs over 400 LOC or 40 files:** Miro's own practices cite 400 LOC as the threshold above which review quality degrades.
+- **PRs over 600 LOC or 40 files:** We will intentionally include a small number of larger PRs (400-600 LOC) to test Claude's behavior on harder inputs where human reviewers are more likely to miss things.
 - **Auto-generated files, migrations, lock files:** Not meaningful review targets.
 
 ---
